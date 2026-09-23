@@ -44,10 +44,9 @@ mkdir -p ~/.local/bin
 cp -r "$PROJECT_DIR/data/icons/hicolor/"* ~/.local/share/icons/hicolor/
 
 # Create wrapper script in ~/.local/bin/stem
-cat << 'EOF' > ~/.local/bin/stem
+cat << EOF > ~/.local/bin/stem
 #!/usr/bin/env bash
-PROJECT_DIR="$(readlink -f /home/mozcelik/AntiGravity-Projects/steM)"
-exec "$PROJECT_DIR/run.sh" "$@"
+exec "$PROJECT_DIR/run.sh" "\$@"
 EOF
 chmod +x ~/.local/bin/stem
 

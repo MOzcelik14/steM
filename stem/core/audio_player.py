@@ -128,10 +128,22 @@ class MultiTrackPlayer:
         for track in self._tracks.values():
             if track.player:
                 track.player.set_state(Gst.State.PAUSED)
+                # Wait briefly for preroll to complete
+                track.player.get_state(250 * Gst.MSECOND)
                 success, dur = track.player.query_duration(Gst.Format.TIME)
                 if success and dur > 0:
                     self._duration_seconds = dur / Gst.SECOND
                     break
+
+        if self._duration_seconds <= 0.0 and self._tracks:
+            # Fallback to soundfile if GStreamer preroll took longer
+            first_track = next(iter(self._tracks.values()))
+            try:
+                import soundfile as sf
+                info = sf.info(str(first_track.path))
+                self._duration_seconds = float(info.duration)
+            except Exception:
+                pass
 
     def play(self) -> None:
         if not self._tracks:
