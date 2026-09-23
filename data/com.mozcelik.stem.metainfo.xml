@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.mozcelik.stem</id>
+  <name>steM.</name>
+  <summary>Separate the sound. Keep the soul.</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer_name>M. Özçelik</developer_name>
+  <description>
+    <p>
+      steM. is a professional, modern AI audio separation studio for Linux powered by Demucs.
+      It separates songs into high-fidelity isolated stems (vocals, drums, bass, instrumental, and other)
+      through an elegant GTK4 and Libadwaita interface.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>AI-powered 4-stem and 2-stem separation with Demucs v4</li>
+      <li>Low-latency multi-track synchronized stem playback studio</li>
+      <li>Independent faders, mute, and solo controls per stem</li>
+      <li>Interactive audio waveform visualizer and scrubber</li>
+      <li>Hardware optimization for NVIDIA GPUs with VRAM safeguards</li>
+      <li>High-quality WAV and MP3 export</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/MOzcelik14/steM</url>
+  <url type="bugtracker">https://github.com/MOzcelik14/steM/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-09-23">
+      <description>
+        <p>Initial release of steM. — AI Audio Separation Studio.</p>
+      </description>
+    </release>
+  </releases>
+</component>

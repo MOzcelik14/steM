@@ -1,0 +1,209 @@
+/* steM. - AI Audio Separation Studio Custom Dark Theme */
+
+@define-color purple_accent #9d4edd;
+@define-color purple_accent_hover #b066ff;
+@define-color purple_accent_active #7b2cbf;
+@define-color studio_bg #121318;
+@define-color studio_card_bg #1c1d24;
+@define-color studio_strip_bg #181920;
+@define-color text_dim #999ba3;
+
+/* Welcome Banner */
+.welcome-box {
+    background: radial-gradient(circle at top, #2b1842 0%, #15161d 70%);
+    border-radius: 16px;
+    padding: 32px 24px;
+    border: 1px solid rgba(157, 78, 221, 0.25);
+    margin: 16px;
+}
+
+.brand-title {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    color: #f1f2f6;
+    margin-bottom: 2px;
+}
+
+.brand-title-accent {
+    color: @purple_accent;
+}
+
+.brand-author {
+    font-size: 13px;
+    font-weight: 600;
+    color: @purple_accent_hover;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.brand-tagline {
+    font-size: 15px;
+    font-style: italic;
+    color: @text_dim;
+}
+
+/* Drag & Drop Zone */
+.drop-zone {
+    border: 2px dashed rgba(157, 78, 221, 0.4);
+    border-radius: 14px;
+    background-color: rgba(28, 29, 36, 0.6);
+    padding: 36px 20px;
+    transition: all 250ms ease-in-out;
+}
+
+.drop-zone:hover, .drop-zone.drag-hover {
+    border-color: @purple_accent;
+    background-color: rgba(157, 78, 221, 0.12);
+}
+
+.drop-zone-icon {
+    color: @purple_accent;
+}
+
+/* Primary Studio Buttons */
+.accent-button {
+    background-color: @purple_accent;
+    color: #ffffff;
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 8px 18px;
+}
+
+.accent-button:hover {
+    background-color: @purple_accent_hover;
+}
+
+.accent-button:active {
+    background-color: @purple_accent_active;
+}
+
+/* Transport Bar */
+.transport-bar {
+    background-color: @studio_card_bg;
+    border-radius: 12px;
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.timecode-display {
+    font-family: monospace;
+    font-size: 15px;
+    font-weight: 700;
+    color: #00f5d4;
+    background-color: #0f1015;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 245, 212, 0.2);
+}
+
+/* Channel Mixer Strip */
+.channel-strip {
+    background-color: @studio_strip_bg;
+    border-radius: 12px;
+    padding: 12px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    min-width: 120px;
+}
+
+.stem-badge-vocals {
+    background-color: rgba(157, 78, 221, 0.2);
+    color: #c77dff;
+    border: 1px solid #9d4edd;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.stem-badge-drums {
+    background-color: rgba(247, 127, 0, 0.2);
+    color: #ffaa33;
+    border: 1px solid #f77f00;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.stem-badge-bass {
+    background-color: rgba(0, 180, 216, 0.2);
+    color: #48cae4;
+    border: 1px solid #00b4d8;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.stem-badge-other {
+    background-color: rgba(6, 214, 160, 0.2);
+    color: #52b788;
+    border: 1px solid #06d6a0;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.stem-badge-master {
+    background-color: rgba(230, 57, 70, 0.2);
+    color: #ff758f;
+    border: 1px solid #e63946;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+/* Solo and Mute Buttons */
+.btn-mute {
+    font-weight: bold;
+    font-size: 11px;
+    border-radius: 4px;
+}
+
+.btn-mute.active {
+    background-color: #d90429;
+    color: #ffffff;
+}
+
+.btn-solo {
+    font-weight: bold;
+    font-size: 11px;
+    border-radius: 4px;
+}
+
+.btn-solo.active {
+    background-color: #ffb703;
+    color: #000000;
+}
+
+/* Waveform Visualizer Area */
+.waveform-view {
+    background-color: #0f1015;
+    border-radius: 10px;
+    border: 1px solid rgba(157, 78, 221, 0.2);
+}
+
+/* Hardware Status Pill */
+.hw-pill-cuda {
+    background-color: rgba(118, 185, 0, 0.15);
+    color: #76b900;
+    border: 1px solid #76b900;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.hw-pill-cpu {
+    background-color: rgba(255, 183, 3, 0.15);
+    color: #ffb703;
+    border: 1px solid #ffb703;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: bold;
+}

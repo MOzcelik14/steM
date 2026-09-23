@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=steM.
+GenericName=AI Audio Separation Studio
+Comment=Separate the sound. Keep the soul.
+Exec=stem %F
+Icon=com.mozcelik.stem
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;AudioVideoEditing;Music;
+MimeType=audio/mpeg;audio/x-wav;audio/x-flac;audio/ogg;audio/mp4;audio/aac;
+Keywords=audio;stem;separation;demucs;vocals;drums;bass;music;ai;studio;
+StartupNotify=true
+StartupWMClass=com.mozcelik.stem
