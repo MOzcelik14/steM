@@ -1,0 +1,75 @@
+name: Windows Build & Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (UCRT64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-python-pygobject
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gst-libav
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-pyinstaller
+
+      - name: Install Python dependencies
+        shell: msys2 {0}
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install demucs soundfile numpy scipy
+
+      - name: Verify GTK4 and Libadwaita environment
+        shell: msys2 {0}
+        run: |
+          python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); gi.require_version('Gst', '1.0'); from gi.repository import Gtk, Adw, Gst; print('GTK4, Libadwaita, and GStreamer verified successfully!')"
+
+      - name: Run automated test suite
+        shell: msys2 {0}
+        run: |
+          python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Build standalone executable with PyInstaller
+        shell: msys2 {0}
+        run: |
+          python scripts/build_windows.py
+
+      - name: Upload Windows build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: steM-Windows-x64
+          path: dist/steM-Windows-x64.zip
+          retention-days: 14
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/steM-Windows-x64.zip
+          generate_release_notes: true

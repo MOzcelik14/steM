@@ -4,8 +4,27 @@ GStreamer-based synchronized audio engine for master track and separated stems.
 Supports independent volume, mute, solo, seeking, and position tracking.
 """
 
+import os
 from pathlib import Path
 from typing import Callable, Dict, Optional
+
+# Windows GStreamer DLL & PATH setup
+if os.name == "nt":
+    candidates = [
+        Path(os.environ.get("GSTREAMER_1_0_ROOT_MSVC_X86_64", "C:\\gstreamer\\1.0\\msvc_x86_64")) / "bin",
+        Path(os.environ.get("GSTREAMER_1_0_ROOT_MINGW_X86_64", "C:\\gstreamer\\1.0\\mingw_x86_64")) / "bin",
+    ]
+    for p in candidates:
+        if p.exists():
+            p_str = str(p)
+            if p_str not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = f"{p_str};{os.environ.get('PATH', '')}"
+            if hasattr(os, "add_dll_directory"):
+                try:
+                    os.add_dll_directory(p_str)
+                except Exception:
+                    pass
+            break
 
 import gi
 gi.require_version("Gst", "1.0")

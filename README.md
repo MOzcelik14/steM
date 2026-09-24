@@ -12,17 +12,18 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-purple.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Platform-Linux%20Mint%2022.3%20%7C%20Ubuntu%2024.04-informational.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20Ready-0078d7.svg?logo=windows" alt="Windows Ready">
   <img src="https://img.shields.io/badge/GTK-4.0%20%2B%20Libadwaita-blueviolet.svg" alt="GTK4">
   <img src="https://img.shields.io/badge/AI%20Engine-Demucs%20v4-ff007f.svg" alt="Demucs">
   <img src="https://img.shields.io/badge/GPU%20Ready-NVIDIA%20CUDA-76b900.svg" alt="CUDA">
 </p>
 
 <p align="center">
-  <strong>English</strong> • <a href="README.tr.md">🇹🇷 <strong>Türkçe Dokümantasyon</strong></a>
+  <strong>English</strong> • <a href="README.tr.md">🇹🇷 <strong>Türkçe Dokümantasyon</strong></a> • <a href="docs/WINDOWS.md">🪟 <strong>Windows Guide</strong></a>
 </p>
 
 > [!NOTE]
-> 🇹🇷 **Türkçe Dokümantasyon**: Bu projenin Türkçe açıklamaları, kurulum adımları ve kullanım kılavuzu için lütfen [**README.tr.md**](README.tr.md) belgesini inceleyin.
+> 🇹🇷 **Türkçe Dokümantasyon**: Bu projenin Türkçe açıklamaları, kurulum adımları ve kullanım kılavuzu için lütfen [**README.tr.md**](README.tr.md) belgesini inceleyin. Windows kullanıcıları için ayrıca [**docs/WINDOWS.tr.md**](docs/WINDOWS.tr.md) rehberi mevcuttur.
 
 ---
 
@@ -135,6 +136,16 @@ pip install demucs soundfile static-ffmpeg numpy scipy
 # 5. Launch steM.
 ./run.sh
 ```
+
+---
+
+### 🪟 Windows 10 / 11 Setup
+
+steM. offers full cross-platform compatibility on Windows:
+
+1. **Pre-compiled Releases**: Download `steM-Windows-x64.zip` directly from [GitHub Releases](https://github.com/MOzcelik14/steM/releases) (built via our automated GitHub Actions workflow).
+2. **Developer Environment**: Run natively from source using the MSYS2 UCRT64 environment.
+3. Detailed installation, build scripts, and dependencies are documented in the [**Windows Setup Guide (docs/WINDOWS.md)**](docs/WINDOWS.md).
 
 ---
 

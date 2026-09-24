@@ -12,17 +12,18 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/Lisans-MIT-purple.svg" alt="Lisans: MIT"></a>
   <img src="https://img.shields.io/badge/Platform-Linux%20Mint%2022.3%20%7C%20Ubuntu%2024.04-informational.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011%20Ready-0078d7.svg?logo=windows" alt="Windows Ready">
   <img src="https://img.shields.io/badge/GTK-4.0%20%2B%20Libadwaita-blueviolet.svg" alt="GTK4">
   <img src="https://img.shields.io/badge/Yapay%20Zek%C3%A2-Demucs%20v4-ff007f.svg" alt="Demucs">
   <img src="https://img.shields.io/badge/GPU%20H%C4%B1zland%C4%B1rma-NVIDIA%20CUDA-76b900.svg" alt="CUDA">
 </p>
 
 <p align="center">
-  <strong>Türkçe</strong> • <a href="README.md">🇬🇧 <strong>English Documentation</strong></a>
+  <strong>Türkçe</strong> • <a href="README.md">🇬🇧 <strong>English Documentation</strong></a> • <a href="docs/WINDOWS.tr.md">🪟 <strong>Windows Kılavuzu</strong></a>
 </p>
 
 > [!NOTE]
-> 🇬🇧 **English Documentation**: For instructions, guides, and full documentation in English, please refer to [**README.md**](README.md).
+> 🇬🇧 **English Documentation**: For instructions, guides, and full documentation in English, please refer to [**README.md**](README.md). Windows users can refer to [**docs/WINDOWS.md**](docs/WINDOWS.md) (or [**docs/WINDOWS.tr.md**](docs/WINDOWS.tr.md)).
 
 ---
 
@@ -97,6 +98,16 @@ Bu betik:
 2. CUDA 12.4 destekli PyTorch ve Demucs v4 kütüphanelerini yükler.
 3. Uygulama ikonunu ve `.desktop` başlatıcısını Linux Mint menünüzün **Ses ve Video** kategorisine ekler.
 4. Terminalden doğrudan erişim için `~/.local/bin/stem` komutunu tanımlar.
+
+---
+
+### 🪟 Windows 10 / 11 Kurulumu
+
+steM. Windows üzerinde tam uyumlulukla çalışabilir:
+
+1. **Hazır Paketler**: [GitHub Releases](https://github.com/MOzcelik14/steM/releases) sayfasından GitHub Actions tarafından derlenen `steM-Windows-x64.zip` arşivini indirip doğrudan çalıştırabilirsiniz.
+2. **Geliştirici Kurulumu**: MSYS2 UCRT64 terminali ile kaynak koddan yerel olarak çalıştırabilirsiniz.
+3. Ayrıntılı kurulum, derleme adımları ve betikler için [**Windows Kılavuzuna (docs/WINDOWS.tr.md)**](docs/WINDOWS.tr.md) göz atın.
 
 ---
 

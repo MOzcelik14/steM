@@ -71,9 +71,17 @@ class DemucsRunner:
 
     def _get_python_executable(self) -> str:
         """Determines the current virtualenv Python binary."""
-        venv_python = Path(sys.prefix) / "bin" / "python3"
-        if venv_python.exists():
-            return str(venv_python)
+        if os.name == "nt":
+            venv_python = Path(sys.prefix) / "Scripts" / "python.exe"
+            if venv_python.exists():
+                return str(venv_python)
+            venv_python_root = Path(sys.prefix) / "python.exe"
+            if venv_python_root.exists():
+                return str(venv_python_root)
+        else:
+            venv_python = Path(sys.prefix) / "bin" / "python3"
+            if venv_python.exists():
+                return str(venv_python)
         return sys.executable
 
     def build_command(self, task: SeparationTask) -> List[str]:
@@ -136,6 +144,10 @@ class DemucsRunner:
         env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
         try:
+            creation_flags = (
+                subprocess.CREATE_NO_WINDOW if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+            )
+
             with self._lock:
                 self._process = subprocess.Popen(
                     cmd,
@@ -144,6 +156,7 @@ class DemucsRunner:
                     text=True,
                     bufsize=1,
                     env=env,
+                    creationflags=creation_flags,
                 )
 
             progress_pattern = re.compile(r"(\d+)%\|")

@@ -40,3 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - In-app Preferences dialog and About dialog.
   - Custom original SVG and hicolor PNG application icons.
   - Desktop launcher and AppStream metainfo specification.
+- **Cross-Platform & Windows Support**:
+  - Windows 10 and 11 compatibility using MSYS2 UCRT64 and native GTK4/Libadwaita runtimes.
+  - Automated GitHub Actions CI/CD pipeline building standalone `steM-Windows-x64.zip` packages.
+  - PyInstaller packaging scripts (`scripts/build_windows.py` and `scripts/build_windows.ps1`).
+  - Native Windows launcher batch script (`scripts/run_windows.bat`).
+  - Cross-platform path management (`%APPDATA%`, `%LOCALAPPDATA%`), executable resolution, and GStreamer DLL auto-detection.
+  - Full documentation in English and Turkish (`docs/WINDOWS.md`, `docs/WINDOWS.tr.md`).

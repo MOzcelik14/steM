@@ -17,14 +17,19 @@ APP_TAGLINE = "Separate the sound. Keep the soul."
 GITHUB_URL = "https://github.com/MOzcelik14/steM"
 
 # Standard paths
-CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "steM"
-CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "steM"
+if os.name == "nt":
+    CONFIG_DIR = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / "steM"
+    CACHE_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "steM"
+else:
+    CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "steM"
+    CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "steM"
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # Default Music directory
-DEFAULT_MUSIC_DIR = Path.home() / "Müzik"
+DEFAULT_MUSIC_DIR = Path.home() / "Music"
 if not DEFAULT_MUSIC_DIR.exists():
-    DEFAULT_MUSIC_DIR = Path.home() / "Music"
+    DEFAULT_MUSIC_DIR = Path.home() / "Müzik"
 if not DEFAULT_MUSIC_DIR.exists():
     DEFAULT_MUSIC_DIR = Path.home()
 

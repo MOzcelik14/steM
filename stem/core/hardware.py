@@ -3,9 +3,11 @@ steM. - Hardware Acceleration & GPU Environment Detection
 Inspects NVIDIA CUDA, VRAM capacity, and provides memory-conscious defaults.
 """
 
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Tuple
 
 
@@ -23,11 +25,22 @@ class GpuInfo:
 
 def detect_via_nvidia_smi() -> Optional[Tuple[str, int, int, str]]:
     """Inspect GPU hardware using nvidia-smi if available."""
-    if not shutil.which("nvidia-smi"):
+    smi_bin = shutil.which("nvidia-smi")
+    if not smi_bin and os.name == "nt":
+        candidates = [
+            Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32" / "nvidia-smi.exe",
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+        ]
+        for c in candidates:
+            if c.exists():
+                smi_bin = str(c)
+                break
+
+    if not smi_bin:
         return None
     try:
         cmd = [
-            "nvidia-smi",
+            smi_bin,
             "--query-gpu=name,memory.total,memory.free,driver_version",
             "--format=csv,noheader,nounits",
         ]
