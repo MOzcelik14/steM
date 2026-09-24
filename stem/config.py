@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 APP_ID = "com.mozcelik.stem"
 APP_NAME = "steM."
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 APP_AUTHOR = "M. Özçelik"
 APP_SUBTITLE = "AI Audio Separation Studio"
 GITHUB_URL = "https://github.com/MOzcelik14/steM"

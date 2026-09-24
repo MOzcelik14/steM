@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: steM-Linux-deb
-          path: dist/steM-Linux-1.0.0.deb
+          path: dist/steM-Linux-*.deb
           retention-days: 14
 
   publish-release:
@@ -122,5 +122,5 @@ jobs:
         with:
           files: |
             release-assets/steM-Windows-x64.zip
-            release-assets/steM-Linux-1.0.0.deb
+            release-assets/steM-Linux-*.deb
           generate_release_notes: true
