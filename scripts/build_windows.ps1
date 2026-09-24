@@ -48,7 +48,10 @@ if ($Clean) {
 # 3. Package via PyInstaller
 Write-Host "[3/4] Compiling steM. executable with PyInstaller..." -ForegroundColor Yellow
 
-$IconPath = Join-Path $ProjectDir "data\icons\hicolor\256x256\apps\com.mozcelik.stem.png"
+$IconPath = Join-Path $ProjectDir "data\icons\com.mozcelik.stem.ico"
+if (-not (Test-Path $IconPath)) {
+    $IconPath = Join-Path $ProjectDir "data\icons\hicolor\256x256\apps\com.mozcelik.stem.png"
+}
 $CssPath = Join-Path $ProjectDir "stem\ui\style.css"
 $DataPath = Join-Path $ProjectDir "data"
 

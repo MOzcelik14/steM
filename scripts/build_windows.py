@@ -20,7 +20,9 @@ def main():
     print("=" * 60)
 
     sep = os.pathsep
-    icon_path = str(ROOT_DIR / "data" / "icons" / "hicolor" / "256x256" / "apps" / "com.mozcelik.stem.png")
+    ico_file = ROOT_DIR / "data" / "icons" / "com.mozcelik.stem.ico"
+    png_file = ROOT_DIR / "data" / "icons" / "hicolor" / "256x256" / "apps" / "com.mozcelik.stem.png"
+    icon_path = str(ico_file if ico_file.exists() else png_file)
     css_arg = f"{ROOT_DIR / 'stem' / 'ui' / 'style.css'}{sep}stem/ui"
     data_arg = f"{ROOT_DIR / 'data'}{sep}data"
 
