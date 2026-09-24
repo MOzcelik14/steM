@@ -37,9 +37,11 @@ Windows üzerinde GTK4, Libadwaita ve GStreamer ortamı en kararlı biçimde **M
 pacman -Syu
 pacman -S \
   mingw-w64-ucrt-x86_64-python \
-  mingw-w64-ucrt-x86_64-python-pip \
   mingw-w64-ucrt-x86_64-python-gobject \
   mingw-w64-ucrt-x86_64-python-cairo \
+  mingw-w64-ucrt-x86_64-python-numpy \
+  mingw-w64-ucrt-x86_64-python-scipy \
+  mingw-w64-ucrt-x86_64-python-soundfile \
   mingw-w64-ucrt-x86_64-gtk4 \
   mingw-w64-ucrt-x86_64-libadwaita \
   mingw-w64-ucrt-x86_64-gstreamer \
@@ -51,18 +53,14 @@ pacman -S \
   mingw-w64-ucrt-x86_64-pyinstaller
 ```
 
-### 3. Depoyu Klonlama ve Yapay Zeka Paketlerini Kurma
+### 3. Depoyu Klonlama ve Demucs Yapay Zeka Motorunu Kurma
 ```bash
 git clone https://github.com/MOzcelik14/steM.git
 cd steM
 
-python -m pip install --upgrade pip
-# NVIDIA CUDA GPU hızlandırması için:
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-# Yalnızca CPU için:
-# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-pip install demucs soundfile numpy scipy
+# Windows Python ortamınızda (PowerShell / CMD) Demucs kurulumu:
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+# pip install demucs
 ```
 
 ### 4. steM.'i Başlatma

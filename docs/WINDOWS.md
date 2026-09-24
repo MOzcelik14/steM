@@ -37,9 +37,11 @@ Open the **MSYS2 UCRT64** shell and run:
 pacman -Syu
 pacman -S \
   mingw-w64-ucrt-x86_64-python \
-  mingw-w64-ucrt-x86_64-python-pip \
   mingw-w64-ucrt-x86_64-python-gobject \
   mingw-w64-ucrt-x86_64-python-cairo \
+  mingw-w64-ucrt-x86_64-python-numpy \
+  mingw-w64-ucrt-x86_64-python-scipy \
+  mingw-w64-ucrt-x86_64-python-soundfile \
   mingw-w64-ucrt-x86_64-gtk4 \
   mingw-w64-ucrt-x86_64-libadwaita \
   mingw-w64-ucrt-x86_64-gstreamer \
@@ -51,19 +53,14 @@ pacman -S \
   mingw-w64-ucrt-x86_64-pyinstaller
 ```
 
-### 3. Clone Repository & Install AI Packages
+### 3. Clone Repository & Install Demucs (AI Engine)
 ```bash
 git clone https://github.com/MOzcelik14/steM.git
 cd steM
 
-# Install PyTorch and Demucs
-python -m pip install --upgrade pip
-# For GPU (NVIDIA CUDA):
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-# For CPU only:
-# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
-pip install demucs soundfile numpy scipy
+# Install Demucs in your Windows Python environment (PowerShell / Command Prompt):
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+# pip install demucs
 ```
 
 ### 4. Run steM.

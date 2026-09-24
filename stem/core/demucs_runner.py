@@ -71,6 +71,12 @@ class DemucsRunner:
 
     def _get_python_executable(self) -> str:
         """Determines the current virtualenv Python binary."""
+        if getattr(sys, "frozen", False):
+            demucs_bin = shutil.which("demucs")
+            if demucs_bin:
+                return demucs_bin
+            return shutil.which("python") or shutil.which("python3") or "python"
+
         if os.name == "nt":
             venv_python = Path(sys.prefix) / "Scripts" / "python.exe"
             if venv_python.exists():
@@ -87,10 +93,15 @@ class DemucsRunner:
     def build_command(self, task: SeparationTask) -> List[str]:
         """Builds the subprocess argument array for Demucs."""
         py_exe = self._get_python_executable()
-        cmd = [
-            py_exe,
-            "-m",
-            "demucs.separate",
+        if Path(py_exe).stem.lower().startswith("demucs"):
+            cmd = [py_exe]
+        else:
+            cmd = [
+                py_exe,
+                "-m",
+                "demucs.separate",
+            ]
+        cmd.extend([
             "-n",
             task.model_name,
             "-d",
@@ -105,7 +116,7 @@ class DemucsRunner:
             str(task.overlap),
             "-j",
             "1",  # 1 worker job to prevent GPU VRAM duplication
-        ]
+        ])
 
         if task.two_stems:
             cmd.extend(["--two-stems", task.two_stems])

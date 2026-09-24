@@ -26,9 +26,11 @@ jobs:
           update: true
           install: >-
             mingw-w64-ucrt-x86_64-python
-            mingw-w64-ucrt-x86_64-python-pip
             mingw-w64-ucrt-x86_64-python-gobject
             mingw-w64-ucrt-x86_64-python-cairo
+            mingw-w64-ucrt-x86_64-python-numpy
+            mingw-w64-ucrt-x86_64-python-scipy
+            mingw-w64-ucrt-x86_64-python-soundfile
             mingw-w64-ucrt-x86_64-gtk4
             mingw-w64-ucrt-x86_64-libadwaita
             mingw-w64-ucrt-x86_64-gstreamer
@@ -39,17 +41,10 @@ jobs:
             mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-pyinstaller
 
-      - name: Install Python dependencies
+      - name: Verify GTK4, Libadwaita, and Audio dependencies
         shell: msys2 {0}
         run: |
-          python -m pip install --upgrade pip
-          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-          pip install demucs soundfile numpy scipy
-
-      - name: Verify GTK4 and Libadwaita environment
-        shell: msys2 {0}
-        run: |
-          python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); gi.require_version('Gst', '1.0'); from gi.repository import Gtk, Adw, Gst; print('GTK4, Libadwaita, and GStreamer verified successfully!')"
+          python -c "import gi, soundfile, numpy, scipy; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); gi.require_version('Gst', '1.0'); from gi.repository import Gtk, Adw, Gst; print('GTK4, Libadwaita, GStreamer, and Audio stack verified successfully!')"
 
       - name: Run automated test suite
         shell: msys2 {0}

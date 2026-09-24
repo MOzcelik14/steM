@@ -30,8 +30,6 @@ def main():
         f"--icon={icon_path}",
         f"--add-data={css_arg}",
         f"--add-data={data_arg}",
-        "--collect-all=demucs",
-        "--collect-all=torchaudio",
         "--collect-all=soundfile",
         "--collect-submodules=stem",
         "--noconfirm",
