@@ -38,7 +38,8 @@ pacman -Syu
 pacman -S \
   mingw-w64-ucrt-x86_64-python \
   mingw-w64-ucrt-x86_64-python-pip \
-  mingw-w64-ucrt-x86_64-python-pygobject \
+  mingw-w64-ucrt-x86_64-python-gobject \
+  mingw-w64-ucrt-x86_64-python-cairo \
   mingw-w64-ucrt-x86_64-gtk4 \
   mingw-w64-ucrt-x86_64-libadwaita \
   mingw-w64-ucrt-x86_64-gstreamer \
