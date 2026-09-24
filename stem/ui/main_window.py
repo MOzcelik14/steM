@@ -87,7 +87,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         # View 1: Welcome / Drop Zone
         self.welcome_view = WelcomeView(on_files_selected=self.import_files)
-        self.view_stack.add_titled(self.welcome_view, "welcome", "Welcome")
+        self.view_stack.add_titled_with_icon(self.welcome_view, "welcome", "Welcome", "folder-music-symbolic")
 
         # View 2: Separation Queue & Controls
         self.separation_view = SeparationView(
@@ -95,11 +95,11 @@ class MainWindow(Adw.ApplicationWindow):
             on_add_files_requested=self._on_browse_files,
             on_open_mixer=self._on_open_mixer_for_item,
         )
-        self.view_stack.add_titled(self.separation_view, "separation", "Separation")
+        self.view_stack.add_titled_with_icon(self.separation_view, "separation", "Separation", "edit-cut-symbolic")
 
         # View 3: Mixer Studio
         self.mixer_view = MixerView(on_export_requested=self._on_export_current_stems)
-        self.view_stack.add_titled(self.mixer_view, "mixer", "Mixer Studio")
+        self.view_stack.add_titled_with_icon(self.mixer_view, "mixer", "Mixer Studio", "audio-volume-high-symbolic")
 
         # View Switcher Title
         view_switcher_title = Adw.ViewSwitcherTitle()
