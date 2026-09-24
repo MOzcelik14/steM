@@ -17,6 +17,13 @@
   <img src="https://img.shields.io/badge/GPU%20Ready-NVIDIA%20CUDA-76b900.svg" alt="CUDA">
 </p>
 
+<p align="center">
+  <strong>English</strong> • <a href="README.tr.md">🇹🇷 <strong>Türkçe Dokümantasyon</strong></a>
+</p>
+
+> [!NOTE]
+> 🇹🇷 **Türkçe Dokümantasyon**: Bu projenin Türkçe açıklamaları, kurulum adımları ve kullanım kılavuzu için lütfen [**README.tr.md**](README.tr.md) belgesini inceleyin.
+
 ---
 
 ## Overview

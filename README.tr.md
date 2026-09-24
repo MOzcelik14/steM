@@ -17,6 +17,13 @@
   <img src="https://img.shields.io/badge/GPU%20H%C4%B1zland%C4%B1rma-NVIDIA%20CUDA-76b900.svg" alt="CUDA">
 </p>
 
+<p align="center">
+  <strong>Türkçe</strong> • <a href="README.md">🇬🇧 <strong>English Documentation</strong></a>
+</p>
+
+> [!NOTE]
+> 🇬🇧 **English Documentation**: For instructions, guides, and full documentation in English, please refer to [**README.md**](README.md).
+
 ---
 
 ## Genel Bakış
