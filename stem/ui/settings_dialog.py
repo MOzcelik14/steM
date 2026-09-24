@@ -59,7 +59,7 @@ class SettingsDialog(Adw.PreferencesWindow):
 
         # Group 2: Output & Export
         group_export = Adw.PreferencesGroup()
-        group_export.set_title("Export & File Storage")
+        group_export.set_title("Export &amp; File Storage")
 
         # Destination Folder
         self.dir_row = Adw.ActionRow()
