@@ -1,4 +1,4 @@
-# steM. — AI Audio Separation Studio
+# steM.
 
 <p align="center">
   <img src="data/icons/hicolor/scalable/apps/com.mozcelik.stem.svg" width="128" height="128" alt="steM. Icon"/>
