@@ -2,7 +2,8 @@
 <component type="desktop-application">
   <id>com.mozcelik.stem</id>
   <name>steM.</name>
-  <summary>Separate the sound. Keep the soul.</summary>
+  <summary>AI Audio Separation Studio</summary>
+  <summary xml:lang="tr">Yapay Zekâ Destekli Ses Ayrıştırma Stüdyosu</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <developer_name>M. Özçelik</developer_name>

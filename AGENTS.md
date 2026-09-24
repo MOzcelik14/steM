@@ -2,7 +2,7 @@
 
 ## Project Identity
 - **Application Name**: steM. (Capital M, trailing dot)
-- **Tagline**: Separate the sound. Keep the soul.
+- **Subtitle**: AI Audio Separation Studio
 - **Creator / Developer**: M. Özçelik
 - **Application ID**: `com.mozcelik.stem`
 - **Initial Version**: 1.0.0

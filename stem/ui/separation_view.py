@@ -15,6 +15,7 @@ from stem.core.audio_metadata import AudioFileInfo
 from stem.core.demucs_runner import SeparationTask
 from stem.core.hardware import get_hardware_info, get_optimal_device
 from stem.core.queue_manager import QueueItem, QueueManager, QueueStatus
+from stem.i18n import add_language_listener, t
 
 
 class QueueItemRow(Adw.ActionRow):
@@ -50,13 +51,13 @@ class QueueItemRow(Adw.ActionRow):
         self.status_box.append(self.progress_bar)
 
         # Status Label
-        self.status_label = Gtk.Label(label=item.status_text)
+        self.status_label = Gtk.Label()
         self.status_label.set_css_classes(["dim-label"])
         self.status_box.append(self.status_label)
 
         # Open in Mixer button (visible on completion)
         self.mixer_btn = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
-        self.mixer_btn.set_tooltip_text("Open in Mixer Studio")
+        self.mixer_btn.set_tooltip_text(t("tooltip_open_mixer"))
         self.mixer_btn.set_css_classes(["flat", "circular"])
         self.mixer_btn.set_visible(item.status == QueueStatus.COMPLETED)
         self.mixer_btn.connect("clicked", lambda b: self.on_open_mixer(self.item))
@@ -64,18 +65,33 @@ class QueueItemRow(Adw.ActionRow):
 
         # Remove button
         self.remove_btn = Gtk.Button.new_from_icon_name("user-trash-symbolic")
-        self.remove_btn.set_tooltip_text("Remove from Queue")
+        self.remove_btn.set_tooltip_text(t("tooltip_remove_queue"))
         self.remove_btn.set_css_classes(["flat", "circular"])
         self.remove_btn.connect("clicked", lambda b: self.on_remove(self.item.item_id))
         self.status_box.append(self.remove_btn)
 
         self.add_suffix(self.status_box)
+        self.update_state()
 
     def update_state(self) -> None:
         self.progress_bar.set_fraction(self.item.progress)
         self.progress_bar.set_visible(self.item.status == QueueStatus.PROCESSING)
-        self.status_label.set_label(self.item.status_text)
+        if self.item.status == QueueStatus.PROCESSING:
+            self.status_label.set_label(t("status_processing", pct=int(self.item.progress * 100)))
+        elif self.item.status == QueueStatus.COMPLETED:
+            self.status_label.set_label(t("status_completed"))
+        elif self.item.status == QueueStatus.CANCELLED:
+            self.status_label.set_label(t("status_cancelled"))
+        elif self.item.status == QueueStatus.FAILED:
+            self.status_label.set_label(t("status_failed"))
+        else:
+            self.status_label.set_label(t("status_pending"))
         self.mixer_btn.set_visible(self.item.status == QueueStatus.COMPLETED)
+
+    def update_locale(self) -> None:
+        self.mixer_btn.set_tooltip_text(t("tooltip_open_mixer"))
+        self.remove_btn.set_tooltip_text(t("tooltip_remove_queue"))
+        self.update_state()
 
 
 class SeparationView(Gtk.Box):
@@ -99,6 +115,7 @@ class SeparationView(Gtk.Box):
 
         self._row_map: Dict[str, QueueItemRow] = {}
         self._build_ui()
+        add_language_listener(self.update_locale)
 
         # Connect queue events
         self.queue_manager.on_item_status_changed = self._on_item_status_changed
@@ -116,21 +133,21 @@ class SeparationView(Gtk.Box):
         left_box.set_margin_end(10)
 
         queue_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        q_title = Gtk.Label(label="Audio Processing Queue")
-        q_title.set_css_classes(["heading"])
-        q_title.set_hexpand(True)
-        q_title.set_halign(Gtk.Align.START)
-        queue_header.append(q_title)
+        self.q_title = Gtk.Label(label=t("queue_title"))
+        self.q_title.set_css_classes(["heading"])
+        self.q_title.set_hexpand(True)
+        self.q_title.set_halign(Gtk.Align.START)
+        queue_header.append(self.q_title)
 
-        add_btn = Gtk.Button(label="Add Files...")
-        add_btn.set_css_classes(["suggested-action", "pill"])
-        add_btn.connect("clicked", lambda b: self.on_add_files_requested())
-        queue_header.append(add_btn)
+        self.add_btn = Gtk.Button(label=t("add_files"))
+        self.add_btn.set_css_classes(["suggested-action", "pill"])
+        self.add_btn.connect("clicked", lambda b: self.on_add_files_requested())
+        queue_header.append(self.add_btn)
 
-        clear_btn = Gtk.Button(label="Clear")
-        clear_btn.set_css_classes(["flat", "pill"])
-        clear_btn.connect("clicked", self._on_clear_queue)
-        queue_header.append(clear_btn)
+        self.clear_btn = Gtk.Button(label=t("clear"))
+        self.clear_btn.set_css_classes(["flat", "pill"])
+        self.clear_btn.connect("clicked", self._on_clear_queue)
+        queue_header.append(self.clear_btn)
 
         left_box.append(queue_header)
 
@@ -153,93 +170,58 @@ class SeparationView(Gtk.Box):
         right_box.set_margin_start(10)
         right_box.set_size_request(340, -1)
 
-        pref_group = Adw.PreferencesGroup()
-        pref_group.set_title("AI Separation Settings")
-        pref_group.set_description("Demucs Model &amp; Hardware Configuration")
+        self.pref_group = Adw.PreferencesGroup()
 
         # Model selection row
         self.model_row = Adw.ComboRow()
-        self.model_row.set_title("Demucs Model")
-        model_names = Gtk.StringList.new([
-            "HTDemucs v4 (Default 4-Stem)",
-            "HTDemucs Fine-Tuned (Studio Quality)",
-            "HTDemucs 6-Stems (with Guitar/Piano)",
-            "MDX-Net Extra",
-        ])
-        self.model_row.set_model(model_names)
         self.model_keys = ["htdemucs", "htdemucs_ft", "htdemucs_6s", "mdx_extra"]
-        self.model_row.set_selected(0)
-        pref_group.add(self.model_row)
+        self.pref_group.add(self.model_row)
 
         # Two-stems toggle row (Vocals vs Instrumental)
         self.two_stems_row = Adw.SwitchRow()
-        self.two_stems_row.set_title("2-Stem Isolation (Vocal + Instrumental)")
-        self.two_stems_row.set_subtitle("Extract only vocals and backing track")
         self.two_stems_row.set_active(settings.get("two_stems", False))
-        pref_group.add(self.two_stems_row)
+        self.pref_group.add(self.two_stems_row)
 
         # Device selection row
         self.device_row = Adw.ComboRow()
-        self.device_row.set_title("Processing Device")
-        hw = get_hardware_info()
-        dev_options = [
-            f"Auto-Detect ({'CUDA GPU' if hw.cuda_available else 'CPU'})",
-            f"NVIDIA CUDA ({hw.name})",
-            "CPU Fallback (Multithreaded)",
-        ]
-        self.device_row.set_model(Gtk.StringList.new(dev_options))
-        self.device_row.set_selected(0)
-        pref_group.add(self.device_row)
+        self.pref_group.add(self.device_row)
 
         # Quality / Shifts row
         self.quality_row = Adw.ComboRow()
-        self.quality_row.set_title("Separation Precision (Shifts)")
-        self.quality_row.set_model(Gtk.StringList.new([
-            "Fast (Shifts: 0)",
-            "Balanced Studio (Shifts: 1 — Recommended)",
-            "High Fidelity (Shifts: 2)",
-        ]))
-        self.quality_row.set_selected(1)
-        pref_group.add(self.quality_row)
+        self.pref_group.add(self.quality_row)
 
         # Low VRAM Optimization Switch (for 4GB RTX 3050)
         self.vram_row = Adw.SwitchRow()
-        self.vram_row.set_title("Low VRAM Safety (4 GB Optimization)")
-        self.vram_row.set_subtitle("Applies segment chunking to prevent CUDA OOM")
         self.vram_row.set_active(True)
-        pref_group.add(self.vram_row)
+        self.pref_group.add(self.vram_row)
 
         # Output format row
         self.format_row = Adw.ComboRow()
-        self.format_row.set_title("Export Format")
-        self.format_row.set_model(Gtk.StringList.new(["WAV (24-bit Lossless)", "MP3 (320 kbps High Quality)"]))
-        self.format_row.set_selected(0)
-        pref_group.add(self.format_row)
+        self.pref_group.add(self.format_row)
 
         # Output directory action row
         self.out_dir_row = Adw.ActionRow()
-        self.out_dir_row.set_title("Destination Directory")
         self.current_out_dir = Path(settings.get("output_dir"))
         self.out_dir_row.set_subtitle(str(self.current_out_dir))
         dir_btn = Gtk.Button.new_from_icon_name("folder-open-symbolic")
         dir_btn.set_valign(Gtk.Align.CENTER)
         dir_btn.connect("clicked", self._on_choose_out_dir)
         self.out_dir_row.add_suffix(dir_btn)
-        pref_group.add(self.out_dir_row)
+        self.pref_group.add(self.out_dir_row)
 
-        right_box.append(pref_group)
+        right_box.append(self.pref_group)
 
         # Bottom Action Buttons
         actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         actions_box.set_halign(Gtk.Align.FILL)
 
-        self.start_btn = Gtk.Button(label="Separate Stems")
+        self.start_btn = Gtk.Button()
         self.start_btn.set_hexpand(True)
         self.start_btn.set_css_classes(["accent-button", "pill"])
         self.start_btn.connect("clicked", self._on_start_separation)
         actions_box.append(self.start_btn)
 
-        self.cancel_btn = Gtk.Button(label="Cancel")
+        self.cancel_btn = Gtk.Button()
         self.cancel_btn.set_css_classes(["destructive-action", "pill"])
         self.cancel_btn.set_sensitive(False)
         self.cancel_btn.connect("clicked", self._on_cancel_separation)
@@ -248,7 +230,84 @@ class SeparationView(Gtk.Box):
         right_box.append(actions_box)
         paned.set_end_child(right_box)
 
+        # Apply initial localized strings
+        self.update_locale()
+        self.model_row.set_selected(0)
+        self.device_row.set_selected(0)
+        self.quality_row.set_selected(1)
+        self.format_row.set_selected(0)
+
         self.append(paned)
+
+    def update_locale(self, lang: Optional[str] = None) -> None:
+        """Updates all text in SeparationView to reflect active language."""
+        self.q_title.set_label(t("queue_title"))
+        self.add_btn.set_label(t("add_files"))
+        self.clear_btn.set_label(t("clear"))
+        self.pref_group.set_title(t("settings_group_title"))
+        self.pref_group.set_description(t("settings_group_desc"))
+
+        # Model row
+        curr_m = self.model_row.get_selected()
+        self.model_row.set_title(t("demucs_model"))
+        self.model_row.set_model(Gtk.StringList.new([
+            t("model_htdemucs"),
+            t("model_htdemucs_ft"),
+            t("model_htdemucs_6s"),
+            t("model_mdx_extra"),
+        ]))
+        self.model_row.set_selected(curr_m if curr_m != 4294967295 else 0)
+
+        # Two-stems row
+        self.two_stems_row.set_title(t("two_stems_title"))
+        self.two_stems_row.set_subtitle(t("two_stems_sub"))
+
+        # Device row
+        hw = get_hardware_info()
+        curr_dev = self.device_row.get_selected()
+        self.device_row.set_title(t("device_title"))
+        dev_label = "CUDA GPU" if hw.cuda_available else "CPU"
+        dev_cuda_str = t("device_cuda", name=hw.name) if hw.cuda_available else "NVIDIA CUDA (N/A)"
+        self.device_row.set_model(Gtk.StringList.new([
+            t("device_auto", dev=dev_label),
+            dev_cuda_str,
+            t("device_cpu"),
+        ]))
+        self.device_row.set_selected(curr_dev if curr_dev != 4294967295 else 0)
+
+        # Quality row
+        curr_q = self.quality_row.get_selected()
+        self.quality_row.set_title(t("quality_title"))
+        self.quality_row.set_model(Gtk.StringList.new([
+            t("quality_fast"),
+            t("quality_balanced"),
+            t("quality_high"),
+        ]))
+        self.quality_row.set_selected(curr_q if curr_q != 4294967295 else 1)
+
+        # VRAM row
+        self.vram_row.set_title(t("low_vram_title"))
+        self.vram_row.set_subtitle(t("low_vram_sub"))
+
+        # Export format row
+        curr_f = self.format_row.get_selected()
+        self.format_row.set_title(t("export_format_title"))
+        self.format_row.set_model(Gtk.StringList.new([
+            t("format_wav"),
+            t("format_mp3"),
+        ]))
+        self.format_row.set_selected(curr_f if curr_f != 4294967295 else 0)
+
+        # Out dir row
+        self.out_dir_row.set_title(t("dest_dir_title"))
+
+        # Buttons
+        self.start_btn.set_label(t("btn_separate"))
+        self.cancel_btn.set_label(t("btn_cancel"))
+
+        # Update items in queue
+        for row in self._row_map.values():
+            row.update_locale()
 
     def add_track_to_queue(self, file_info: AudioFileInfo) -> None:
         """Constructs a SeparationTask and adds track to queue."""
@@ -321,7 +380,7 @@ class SeparationView(Gtk.Box):
 
     def _on_choose_out_dir(self, btn) -> None:
         dialog = Gtk.FileDialog.new()
-        dialog.set_title("Select Output Folder — steM.")
+        dialog.set_title(t("select_output_folder"))
         root = self.get_root()
         dialog.select_folder(root, None, self._on_out_dir_selected)
 

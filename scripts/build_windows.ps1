@@ -20,7 +20,6 @@ Set-Location $ProjectDir
 
 Write-Host "========================================================" -ForegroundColor Magenta
 Write-Host "  steM. — AI Audio Separation Studio Windows Builder" -ForegroundColor Cyan
-Write-Host "  Separate the sound. Keep the soul." -ForegroundColor White
 Write-Host "  Created by M. Özçelik" -ForegroundColor Gray
 Write-Host "========================================================" -ForegroundColor Magenta
 

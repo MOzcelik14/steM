@@ -8,7 +8,6 @@ VENV_DIR="$PROJECT_DIR/.venv"
 
 echo "========================================================"
 echo "  steM. — AI Audio Separation Studio Installer"
-echo "  Separate the sound. Keep the soul."
 echo "  Created by M. Özçelik"
 echo "========================================================"
 
@@ -55,7 +54,9 @@ cat << EOF > ~/.local/share/applications/com.mozcelik.stem.desktop
 [Desktop Entry]
 Name=steM.
 GenericName=AI Audio Separation Studio
-Comment=Separate the sound. Keep the soul.
+GenericName[tr]=Yapay Zekâ Destekli Ses Ayrıştırma Stüdyosu
+Comment=AI Audio Separation Studio
+Comment[tr]=Yapay Zekâ Destekli Ses Ayrıştırma Stüdyosu
 Exec=$PROJECT_DIR/run.sh %F
 Icon=com.mozcelik.stem
 Terminal=false

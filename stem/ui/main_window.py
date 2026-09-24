@@ -10,11 +10,12 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from stem.config import APP_NAME, APP_TAGLINE, settings
+from stem.config import APP_NAME, APP_SUBTITLE, settings
 from stem.core.audio_metadata import AudioFileInfo, inspect_audio_file
 from stem.core.exporter import AudioExporter, ExportOptions
 from stem.core.hardware import get_hardware_info
 from stem.core.queue_manager import QueueItem, QueueManager
+from stem.i18n import add_language_listener, t
 from stem.ui.about_dialog import show_about_dialog
 from stem.ui.mixer_view import MixerView
 from stem.ui.separation_view import SeparationView
@@ -27,7 +28,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app)
-        self.set_title(f"{APP_NAME} — AI Audio Separation Studio")
+        self.set_title(f"{APP_NAME} — {t('app_subtitle')}")
         self.set_default_size(980, 680)
 
         # Enforce dark theme for professional DAW look
@@ -48,46 +49,31 @@ class MainWindow(Adw.ApplicationWindow):
         # Header Bar
         self.header_bar = Adw.HeaderBar()
 
-        # Custom Title Box with steM. branding
-        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        title_box.set_valign(Gtk.Align.CENTER)
-
-        main_title = Gtk.Label(label="steM.")
-        main_title.set_css_classes(["heading"])
-        sub_title = Gtk.Label(label="AI Audio Separation Studio")
-        sub_title.set_css_classes(["caption", "dim-label"])
-
-        title_box.append(main_title)
-        title_box.append(sub_title)
-        self.header_bar.set_title_widget(title_box)
-
         # Left Header: Hardware indicator pill
         hw = get_hardware_info()
-        hw_label = Gtk.Label()
+        self.hw_label = Gtk.Label()
         if hw.cuda_available:
-            hw_label.set_label(f"CUDA: {hw.name.split()[-1]} (4GB)")
-            hw_label.set_css_classes(["hw-pill-cuda"])
+            self.hw_label.set_label(f"CUDA: {hw.name.split()[-1]} (4GB)")
+            self.hw_label.set_css_classes(["hw-pill-cuda"])
         else:
-            hw_label.set_label("CPU Mode")
-            hw_label.set_css_classes(["hw-pill-cpu"])
-        self.header_bar.pack_start(hw_label)
+            self.hw_label.set_label(t("hw_pill_cpu"))
+            self.hw_label.set_css_classes(["hw-pill-cpu"])
+        self.header_bar.pack_start(self.hw_label)
 
         # Right Header: Menu Button (Preferences, About)
-        menu = Gio.Menu.new()
-        menu.append("Preferences", "app.preferences")
-        menu.append("About steM.", "app.about")
-
-        menu_btn = Gtk.MenuButton()
-        menu_btn.set_icon_name("open-menu-symbolic")
-        menu_btn.set_menu_model(menu)
-        self.header_bar.pack_end(menu_btn)
+        self.menu_btn = Gtk.MenuButton()
+        self.menu_btn.set_icon_name("open-menu-symbolic")
+        self._build_menu()
+        self.header_bar.pack_end(self.menu_btn)
 
         # View Switcher in HeaderBar
         self.view_stack = Adw.ViewStack()
 
         # View 1: Welcome / Drop Zone
         self.welcome_view = WelcomeView(on_files_selected=self.import_files)
-        self.view_stack.add_titled_with_icon(self.welcome_view, "welcome", "Welcome", "folder-music-symbolic")
+        self.page_welcome = self.view_stack.add_titled_with_icon(
+            self.welcome_view, "welcome", t("tab_welcome"), "folder-music-symbolic"
+        )
 
         # View 2: Separation Queue & Controls
         self.separation_view = SeparationView(
@@ -95,27 +81,51 @@ class MainWindow(Adw.ApplicationWindow):
             on_add_files_requested=self._on_browse_files,
             on_open_mixer=self._on_open_mixer_for_item,
         )
-        self.view_stack.add_titled_with_icon(self.separation_view, "separation", "Separation", "edit-cut-symbolic")
+        self.page_separation = self.view_stack.add_titled_with_icon(
+            self.separation_view, "separation", t("tab_separation"), "edit-cut-symbolic"
+        )
 
         # View 3: Mixer Studio
         self.mixer_view = MixerView(on_export_requested=self._on_export_current_stems)
-        self.view_stack.add_titled_with_icon(self.mixer_view, "mixer", "Mixer Studio", "audio-volume-high-symbolic")
+        self.page_mixer = self.view_stack.add_titled_with_icon(
+            self.mixer_view, "mixer", t("tab_mixer"), "audio-volume-high-symbolic"
+        )
 
         # View Switcher Title
-        view_switcher_title = Adw.ViewSwitcherTitle()
-        view_switcher_title.set_stack(self.view_stack)
-        view_switcher_title.set_title("steM.")
-        view_switcher_title.set_subtitle("AI Audio Separation Studio")
-        self.header_bar.set_title_widget(view_switcher_title)
+        self.view_switcher_title = Adw.ViewSwitcherTitle()
+        self.view_switcher_title.set_stack(self.view_stack)
+        self.view_switcher_title.set_title(t("app_title"))
+        self.view_switcher_title.set_subtitle(t("app_subtitle"))
+        self.header_bar.set_title_widget(self.view_switcher_title)
 
         main_box.append(self.header_bar)
 
         # Toast Overlay
         self.toast_overlay = Adw.ToastOverlay()
         self.toast_overlay.set_child(self.view_stack)
+        add_language_listener(self.update_locale)
         main_box.append(self.toast_overlay)
 
         self.set_content(main_box)
+
+    def _build_menu(self) -> None:
+        menu = Gio.Menu.new()
+        menu.append(t("menu_preferences"), "app.preferences")
+        menu.append(t("menu_about"), "app.about")
+        self.menu_btn.set_menu_model(menu)
+
+    def update_locale(self, lang: Optional[str] = None) -> None:
+        self.set_title(f"{APP_NAME} — {t('app_subtitle')}")
+        self.page_welcome.set_title(t("tab_welcome"))
+        self.page_separation.set_title(t("tab_separation"))
+        self.page_mixer.set_title(t("tab_mixer"))
+        self.view_switcher_title.set_subtitle(t("app_subtitle"))
+        self._build_menu()
+        hw = get_hardware_info()
+        if hw.cuda_available:
+            self.hw_label.set_label(f"CUDA: {hw.name.split()[-1]} (4GB)")
+        else:
+            self.hw_label.set_label(t("hw_pill_cpu"))
 
     def _setup_window_drop_target(self) -> None:
         """Allows dropping audio files anywhere onto the window."""
@@ -141,15 +151,15 @@ class MainWindow(Adw.ApplicationWindow):
                 self.separation_view.add_track_to_queue(info)
                 valid_added += 1
             else:
-                self.show_toast(f"Skipped {p.name}: {info.error_message}")
+                self.show_toast(t("toast_file_skipped", filename=p.name, err=info.error_message or ""))
 
         if valid_added > 0:
-            self.show_toast(f"Added {valid_added} audio track(s) to separation queue.")
+            self.show_toast(t("toast_added_tracks", n=valid_added))
             self.view_stack.set_visible_child_name("separation")
 
     def _on_browse_files(self) -> None:
         dialog = Gtk.FileDialog.new()
-        dialog.set_title("Import Audio Files — steM.")
+        dialog.set_title(t("select_audio_dialog_title"))
         dialog.open_multiple(self, None, self._on_browse_result)
 
     def _on_browse_result(self, dialog, result) -> None:
@@ -166,12 +176,12 @@ class MainWindow(Adw.ApplicationWindow):
         if item.stems:
             self.mixer_view.load_stems_session(item.file_info, item.stems)
             self.view_stack.set_visible_child_name("mixer")
-            self.show_toast(f"Loaded stems for '{item.file_info.filename}' in Mixer.")
+            self.show_toast(t("toast_stems_loaded", track=item.file_info.filename))
 
     def _on_export_current_stems(self) -> None:
         """Exports currently loaded mixer stems to user destination."""
         if not self.mixer_view.stems_map:
-            self.show_toast("No stems available to export.")
+            self.show_toast(t("toast_no_stems"))
             return
 
         out_dir = Path(settings.get("output_dir"))
@@ -190,30 +200,30 @@ class MainWindow(Adw.ApplicationWindow):
 
         try:
             exported = AudioExporter.export_stems(self.mixer_view.stems_map, opts)
-            toast = Adw.Toast.new(f"Exported {len(exported)} stems to {out_dir.name}/{opts.track_title}")
-            toast.set_button_label("Open Folder")
+            dest_name = f"{out_dir.name}/{opts.track_title}"
+            toast = Adw.Toast.new(t("toast_exported_n_stems", n=len(exported), dest=dest_name))
+            toast.set_button_label(t("btn_open_folder"))
             target_folder = next(iter(exported.values())).parent if exported else out_dir
             toast.connect("button-clicked", lambda t: Gio.AppInfo.launch_default_for_uri(target_folder.as_uri(), None))
             self.toast_overlay.add_toast(toast)
         except Exception as e:
-            self.show_toast(f"Export failed: {e}")
+            self.show_toast(t("toast_export_error", err=str(e)))
 
     def _handle_oom_event(self, item: QueueItem, msg: str) -> None:
         """Prompts user to retry on CPU when CUDA OOM happens on 4GB VRAM."""
         dialog = Adw.AlertDialog.new(
-            "NVIDIA GPU Out of Memory (CUDA OOM)",
-            f"The track '{item.file_info.filename}' exceeded the 4 GB VRAM limit of your RTX 3050.\n\n"
-            "Would you like to retry separation on CPU?",
+            t("oom_dialog_title"),
+            t("oom_dialog_body", track=item.file_info.filename),
         )
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("retry_cpu", "Retry on CPU")
+        dialog.add_response("cancel", t("btn_cancel"))
+        dialog.add_response("retry_cpu", t("btn_retry_cpu"))
         dialog.set_response_appearance("retry_cpu", Adw.ResponseAppearance.SUGGESTED)
 
         def _on_response(d, response_id):
             if response_id == "retry_cpu":
                 item.task.device = "cpu"
                 item.status = item.status.PENDING
-                item.status_text = "Retrying on CPU..."
+                item.status_text = t("status_retrying_cpu")
                 self.queue_manager._notify_item(item)
                 self.queue_manager.start_queue()
 

@@ -14,7 +14,18 @@ from stem.config import STEM_METADATA, settings
 from stem.core.audio_metadata import AudioFileInfo, format_duration
 from stem.core.audio_player import MultiTrackPlayer
 from stem.core.waveform import WaveformExtractor
+from stem.i18n import add_language_listener, t
 from stem.ui.waveform_view import WaveformView
+
+
+def get_stem_label(stem_id: str) -> str:
+    """Returns localized display name for a stem ID."""
+    key = "stem_master" if stem_id == "original" else f"stem_{stem_id}"
+    label = t(key)
+    if label != key:
+        return label
+    meta = STEM_METADATA.get(stem_id, {})
+    return meta.get("label", stem_id.capitalize())
 
 
 class StemChannelStrip(Gtk.Box):
@@ -49,18 +60,17 @@ class StemChannelStrip(Gtk.Box):
         ms_box.set_halign(Gtk.Align.CENTER)
 
         self.mute_btn = Gtk.ToggleButton(label="M")
-        self.mute_btn.set_tooltip_text(f"Mute {name}")
         self.mute_btn.set_css_classes(["btn-mute"])
         self.mute_btn.connect("toggled", self._on_mute_click)
         ms_box.append(self.mute_btn)
 
         self.solo_btn = Gtk.ToggleButton(label="S")
-        self.solo_btn.set_tooltip_text(f"Solo {name}")
         self.solo_btn.set_css_classes(["btn-solo"])
         self.solo_btn.connect("toggled", self._on_solo_click)
         ms_box.append(self.solo_btn)
 
         self.append(ms_box)
+        self.update_locale()
 
         # Vertical Volume Fader
         self.volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL, 0.0, 1.5, 0.02)
@@ -98,6 +108,12 @@ class StemChannelStrip(Gtk.Box):
             btn.remove_css_class("active")
         self.on_solo_toggled(self.stem_id, active)
 
+    def update_locale(self) -> None:
+        name = get_stem_label(self.stem_id)
+        self.badge.set_label(name)
+        self.mute_btn.set_tooltip_text(t("tooltip_mute", name=name))
+        self.solo_btn.set_tooltip_text(t("tooltip_solo", name=name))
+
 
 class MixerView(Gtk.Box):
     """Complete DAW Playback & Stems Mixer studio interface."""
@@ -118,15 +134,17 @@ class MixerView(Gtk.Box):
         self.current_track_info: Optional[AudioFileInfo] = None
         self.stems_map: Dict[str, Path] = {}
         self.channel_strips: Dict[str, StemChannelStrip] = {}
+        self.export_btn: Optional[Gtk.Button] = None
 
         self._build_ui()
+        add_language_listener(self.update_locale)
 
     def _build_ui(self) -> None:
         # Header Info Card
         header_card = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         header_card.set_hexpand(True)
 
-        self.track_title_label = Gtk.Label(label="No Track Loaded")
+        self.track_title_label = Gtk.Label(label=t("no_track_loaded"))
         self.track_title_label.set_css_classes(["title-2"])
         self.track_title_label.set_halign(Gtk.Align.START)
         self.track_title_label.set_hexpand(True)
@@ -137,10 +155,10 @@ class MixerView(Gtk.Box):
         header_card.append(self.track_meta_label)
 
         if self.on_export_requested:
-            export_btn = Gtk.Button(label="Export Stems...")
-            export_btn.set_css_classes(["suggested-action", "pill"])
-            export_btn.connect("clicked", lambda b: self.on_export_requested())
-            header_card.append(export_btn)
+            self.export_btn = Gtk.Button(label=t("btn_export_stems"))
+            self.export_btn.set_css_classes(["suggested-action", "pill"])
+            self.export_btn.connect("clicked", lambda b: self.on_export_requested())
+            header_card.append(self.export_btn)
 
         self.append(header_card)
 
@@ -155,13 +173,15 @@ class MixerView(Gtk.Box):
         transport.set_halign(Gtk.Align.FILL)
 
         # Stop button
-        stop_btn = Gtk.Button.new_from_icon_name("media-playback-stop-symbolic")
-        stop_btn.set_css_classes(["flat", "circular"])
-        stop_btn.connect("clicked", lambda b: self.player.stop())
-        transport.append(stop_btn)
+        self.stop_btn = Gtk.Button.new_from_icon_name("media-playback-stop-symbolic")
+        self.stop_btn.set_tooltip_text(t("btn_stop"))
+        self.stop_btn.set_css_classes(["flat", "circular"])
+        self.stop_btn.connect("clicked", lambda b: self.player.stop())
+        transport.append(self.stop_btn)
 
         # Play / Pause button
         self.play_btn = Gtk.Button.new_from_icon_name("media-playback-start-symbolic")
+        self.play_btn.set_tooltip_text(t("btn_play"))
         self.play_btn.set_css_classes(["accent-button", "circular"])
         self.play_btn.connect("clicked", lambda b: self.player.toggle_playback())
         transport.append(self.play_btn)
@@ -169,7 +189,7 @@ class MixerView(Gtk.Box):
         # Loop Toggle
         self.loop_btn = Gtk.ToggleButton()
         self.loop_btn.set_icon_name("media-playlist-repeat-symbolic")
-        self.loop_btn.set_tooltip_text("Loop Playback")
+        self.loop_btn.set_tooltip_text(t("loop_playback"))
         self.loop_btn.set_css_classes(["flat", "circular"])
         self.loop_btn.connect("toggled", lambda b: setattr(self.player, "loop", b.get_active()))
         transport.append(self.loop_btn)
@@ -195,6 +215,17 @@ class MixerView(Gtk.Box):
         scrolled.set_child(self.strips_box)
 
         self.append(scrolled)
+
+    def update_locale(self, lang: Optional[str] = None) -> None:
+        """Updates all text in MixerView to reflect active language."""
+        if not self.current_track_info and not self.stems_map:
+            self.track_title_label.set_label(t("no_track_loaded"))
+        if self.export_btn:
+            self.export_btn.set_label(t("btn_export_stems"))
+        self.stop_btn.set_tooltip_text(t("btn_stop"))
+        self.loop_btn.set_tooltip_text(t("loop_playback"))
+        for strip in self.channel_strips.values():
+            strip.update_locale()
 
     def load_stems_session(
         self,
@@ -231,7 +262,7 @@ class MixerView(Gtk.Box):
         audio_map: Dict[str, Path] = {}
         if original_track and original_track.path.exists():
             audio_map["original"] = original_track.path
-            self._add_strip("original", "Master Track", "#e63946", "stem-badge-master")
+            self._add_strip("original", get_stem_label("original"), "#e63946", "stem-badge-master")
 
         # Add stem strips
         for stem_key, path in stems.items():
@@ -241,7 +272,7 @@ class MixerView(Gtk.Box):
                 "color": "#9d4edd",
             })
             badge_cls = f"stem-badge-{stem_key}" if stem_key in ("vocals", "drums", "bass", "other") else "stem-badge-master"
-            self._add_strip(stem_key, meta["label"], meta["color"], badge_cls)
+            self._add_strip(stem_key, get_stem_label(stem_key), meta["color"], badge_cls)
 
         self.player.load_tracks(audio_map)
         self.waveform_view.set_position(0.0, self.player.duration)

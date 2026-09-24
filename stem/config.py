@@ -13,7 +13,7 @@ APP_ID = "com.mozcelik.stem"
 APP_NAME = "steM."
 APP_VERSION = "1.0.0"
 APP_AUTHOR = "M. Özçelik"
-APP_TAGLINE = "Separate the sound. Keep the soul."
+APP_SUBTITLE = "AI Audio Separation Studio"
 GITHUB_URL = "https://github.com/MOzcelik14/steM"
 
 # Standard paths
@@ -120,6 +120,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "mp3_bitrate": 320,          # 192, 256, 320 kbps
     "normalize_output": True,
     "dark_theme": True,
+    "language": "auto",  # auto, tr, en
 }
 
 

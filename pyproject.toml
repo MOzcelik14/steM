@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stem-audio"
 version = "1.0.0"
-description = "steM. — AI Audio Separation Studio. Separate the sound. Keep the soul."
+description = "steM. — AI Audio Separation Studio."
 readme = "README.md"
 authors = [
     { name = "M. Özçelik" }

@@ -1,7 +1,7 @@
 # steM. on Windows — Setup & Build Guide
 
 <p align="center">
-  <strong>Separate the sound. Keep the soul.</strong><br>
+  <strong>AI Audio Separation Studio</strong><br>
   <em>Created by <strong>M. Özçelik</strong></em>
 </p>
 

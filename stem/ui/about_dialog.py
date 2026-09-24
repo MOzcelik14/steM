@@ -13,23 +13,22 @@ from stem.config import (
     APP_AUTHOR,
     APP_ID,
     APP_NAME,
-    APP_TAGLINE,
+    APP_SUBTITLE,
     APP_VERSION,
     GITHUB_URL,
 )
 from stem.core.hardware import get_hardware_info
+from stem.i18n import t
 
 
 def show_about_dialog(parent_window: Gtk.Window) -> None:
     """Displays the Libadwaita About dialog with steM. branding."""
     hw = get_hardware_info()
-    comments = (
-        f"{APP_TAGLINE}\n\n"
-        f"• Python {sys.version.split()[0]}\n"
-        f"• GTK 4 & Libadwaita\n"
-        f"• GStreamer 1.0 Multi-Track Audio Engine\n"
-        f"• AI Model: Demucs v4 (Hybrid Transformer)\n"
-        f"• GPU Acceleration: {hw.name} ({hw.vram_total_mb} MB VRAM)"
+    gpu_desc = f"{hw.name} ({hw.vram_total_mb} MB VRAM)" if hw.cuda_available else "CPU"
+    comments = f"{t('app_subtitle')}\n\n" + t(
+        "about_comments",
+        py_ver=sys.version.split()[0],
+        gpu_info=gpu_desc,
     )
 
     dialog = Adw.AboutDialog()

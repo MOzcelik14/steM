@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Separate the sound. Keep the soul.</strong><br>
+  <strong>Yapay Zekâ Destekli Ses Ayrıştırma Stüdyosu</strong><br>
   <em>Geliştirici: <strong>M. Özçelik</strong></em>
 </p>
 

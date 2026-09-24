@@ -39,7 +39,6 @@ Maintainer: M. Özçelik <mozcelik@users.noreply.github.com>
 Depends: python3 (>= 3.12), python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gstreamer1.0-tools, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-ugly, gstreamer1.0-libav, libsndfile1, ffmpeg
 Homepage: https://github.com/MOzcelik14/steM
 Description: steM. - AI Audio Separation Studio
- Separate the sound. Keep the soul.
  Modern GTK4 and Libadwaita audio workstation powered by Demucs v4
  deep learning models with synchronized phase-locked stem playback.
 EOF

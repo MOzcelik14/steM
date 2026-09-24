@@ -10,8 +10,9 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk
 
-from stem.config import APP_AUTHOR, APP_NAME, APP_TAGLINE
+from stem.config import APP_AUTHOR, APP_NAME, APP_SUBTITLE
 from stem.core.hardware import get_hardware_info
+from stem.i18n import add_language_listener, t
 
 
 class WelcomeView(Gtk.Box):
@@ -31,6 +32,7 @@ class WelcomeView(Gtk.Box):
 
         self._build_ui()
         self._setup_drop_target()
+        add_language_listener(self.update_locale)
 
     def _build_ui(self) -> None:
         # Brand Container
@@ -52,14 +54,14 @@ class WelcomeView(Gtk.Box):
         welcome_box.append(title_box)
 
         # Creator Attribution
-        author_label = Gtk.Label(label=f"by {APP_AUTHOR}")
-        author_label.set_css_classes(["brand-author"])
-        welcome_box.append(author_label)
+        self.author_label = Gtk.Label(label=t("by_author", author=APP_AUTHOR))
+        self.author_label.set_css_classes(["brand-author"])
+        welcome_box.append(self.author_label)
 
-        # Tagline
-        tagline_label = Gtk.Label(label=APP_TAGLINE)
-        tagline_label.set_css_classes(["brand-tagline"])
-        welcome_box.append(tagline_label)
+        # Subtitle / Studio description
+        self.subtitle_label = Gtk.Label(label=t("app_subtitle"))
+        self.subtitle_label.set_css_classes(["brand-tagline"])
+        welcome_box.append(self.subtitle_label)
 
         self.append(welcome_box)
 
@@ -73,36 +75,48 @@ class WelcomeView(Gtk.Box):
         drop_icon.set_css_classes(["drop-zone-icon"])
         self.drop_box.append(drop_icon)
 
-        drop_hint = Gtk.Label(label="Drag & Drop Audio Files Here")
-        drop_hint.set_css_classes(["heading"])
-        self.drop_box.append(drop_hint)
+        self.drop_hint = Gtk.Label(label=t("drag_drop_title"))
+        self.drop_hint.set_css_classes(["heading"])
+        self.drop_box.append(self.drop_hint)
 
-        format_hint = Gtk.Label(label="Supports MP3, WAV, FLAC, OGG, M4A, AAC")
-        format_hint.set_css_classes(["dim-label"])
-        self.drop_box.append(format_hint)
+        self.format_hint = Gtk.Label(label=t("supported_formats"))
+        self.format_hint.set_css_classes(["dim-label"])
+        self.drop_box.append(self.format_hint)
 
-        browse_btn = Gtk.Button(label="Browse Files...")
-        browse_btn.set_css_classes(["accent-button", "pill"])
-        browse_btn.set_halign(Gtk.Align.CENTER)
-        browse_btn.connect("clicked", self._on_browse_clicked)
-        self.drop_box.append(browse_btn)
+        self.browse_btn = Gtk.Button(label=t("browse_files"))
+        self.browse_btn.set_css_classes(["accent-button", "pill"])
+        self.browse_btn.set_halign(Gtk.Align.CENTER)
+        self.browse_btn.connect("clicked", self._on_browse_clicked)
+        self.drop_box.append(self.browse_btn)
 
         self.append(self.drop_box)
 
         # Hardware Info Status Pill
-        hw = get_hardware_info()
+        self.hw = get_hardware_info()
         hw_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         hw_box.set_halign(Gtk.Align.CENTER)
 
-        if hw.cuda_available:
-            hw_pill = Gtk.Label(label=f"NVIDIA CUDA: {hw.name} ({hw.vram_total_mb} MB VRAM)")
-            hw_pill.set_css_classes(["hw-pill-cuda"])
-        else:
-            hw_pill = Gtk.Label(label="Processing Mode: CPU Fallback")
-            hw_pill.set_css_classes(["hw-pill-cpu"])
-
-        hw_box.append(hw_pill)
+        self.hw_pill = Gtk.Label()
+        self._update_hw_label()
+        hw_box.append(self.hw_pill)
         self.append(hw_box)
+
+    def _update_hw_label(self) -> None:
+        if self.hw.cuda_available:
+            self.hw_pill.set_label(t("hw_cuda", name=self.hw.name, vram=self.hw.vram_total_mb))
+            self.hw_pill.set_css_classes(["hw-pill-cuda"])
+        else:
+            self.hw_pill.set_label(t("hw_cpu"))
+            self.hw_pill.set_css_classes(["hw-pill-cpu"])
+
+    def update_locale(self, lang: Optional[str] = None) -> None:
+        """Refreshes all displayed strings when language changes."""
+        self.author_label.set_label(t("by_author", author=APP_AUTHOR))
+        self.subtitle_label.set_label(t("app_subtitle"))
+        self.drop_hint.set_label(t("drag_drop_title"))
+        self.format_hint.set_label(t("supported_formats"))
+        self.browse_btn.set_label(t("browse_files"))
+        self._update_hw_label()
 
     def _setup_drop_target(self) -> None:
         """Sets up GTK4 drop target to handle files dragged from file manager."""
@@ -131,12 +145,12 @@ class WelcomeView(Gtk.Box):
     def _on_browse_clicked(self, btn) -> None:
         """Opens GTK4 FileDialog to pick audio files."""
         dialog = Gtk.FileDialog.new()
-        dialog.set_title("Select Audio Files — steM.")
+        dialog.set_title(t("select_audio_dialog_title"))
 
         # Audio file filter
         filters = Gio.ListStore.new(Gtk.FileFilter)
         audio_filter = Gtk.FileFilter()
-        audio_filter.set_name("Audio Files (*.mp3, *.wav, *.flac, *.ogg, *.m4a)")
+        audio_filter.set_name(t("audio_files_filter"))
         audio_filter.add_mime_type("audio/*")
         audio_filter.add_pattern("*.mp3")
         audio_filter.add_pattern("*.wav")
