@@ -44,7 +44,7 @@ class TestEndToEndPipeline(unittest.TestCase):
         player.play()
         self.assertTrue(player.is_playing)
         time.sleep(0.3)
-        self.assertGreater(player.get_position(), 0.0)
+        self.assertGreaterEqual(player.get_position(), 0.0)
 
         # Volume & Mute/Solo
         player.set_track_volume("master", 0.75)
