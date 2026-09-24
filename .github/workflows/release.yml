@@ -79,11 +79,11 @@ jobs:
             gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
             gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav \
-            libsndfile1 python3-soundfile python3-numpy python3-scipy dpkg-dev
+            libsndfile1 python3-soundfile python3-numpy python3-scipy dpkg-dev xvfb
 
       - name: Run automated test suite
         run: |
-          python3 -m unittest discover -s tests -p "test_*.py" -v
+          xvfb-run -a python3 -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Build Debian (.deb) package
         run: |

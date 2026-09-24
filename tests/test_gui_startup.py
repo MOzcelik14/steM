@@ -16,10 +16,18 @@ from stem.ui.waveform_view import WaveformView
 
 
 class TestGuiStartup(unittest.TestCase):
-    def setUp(self):
-        Adw.init()
+    @classmethod
+    def setUpClass(cls):
+        try:
+            Adw.init()
+            from gi.repository import Gdk
+            cls.has_display = Gdk.Display.get_default() is not None
+        except Exception:
+            cls.has_display = False
 
     def test_widget_instantiation(self):
+        if not self.has_display:
+            self.skipTest("No X11/Wayland display server available in environment")
         welcome = WelcomeView(on_files_selected=lambda files: None)
         self.assertIsNotNone(welcome)
 
@@ -29,6 +37,8 @@ class TestGuiStartup(unittest.TestCase):
         self.assertIsNotNone(waveform)
 
     def test_application_window_creation(self):
+        if not self.has_display:
+            self.skipTest("No X11/Wayland display server available in environment")
         app = StemApplication()
         window = MainWindow(app)
         self.assertIsNotNone(window)
