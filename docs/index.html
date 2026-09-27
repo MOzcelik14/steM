@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101016">
+  <meta name="description" content="steM. — Demucs destekli masaüstü ses ayrıştırma stüdyosu. Müziği vokal, davul, bas ve diğer kanallara ayır.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="steM. — Sesin her katmanını duy.">
+  <meta property="og:description" content="Ses ayrıştırma, çok kanallı dinleme ve dışa aktarma. Tek bir masaüstü stüdyosunda.">
+  <meta property="og:url" content="https://mozcelik14.github.io/steM/">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <title>steM. — Sesin her katmanını duy.</title>
+  <style>
+    :root{color-scheme:dark;--bg:#101016;--panel:#18171f;--panel-2:#1d1b25;--line:#302c39;--line-soft:#25232e;--text:#f4f0f8;--muted:#b3abba;--subtle:#827b8d;--accent:#c39aff;--accent-deep:#9d4edd;--green:#88d4b0;--orange:#ffbe80;--cyan:#83d6e7;--max:1160px}
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:90px}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+    body::before{content:"";position:absolute;inset:0 0 auto;height:770px;pointer-events:none;background:radial-gradient(ellipse 43% 43% at 82% 36%,rgba(130,64,195,.17),transparent 75%),linear-gradient(180deg,#15121d 0%,transparent 82%);z-index:-1}
+    a{color:inherit;text-decoration:none}a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+    button{font:inherit;cursor:pointer}svg{display:block}img{max-width:100%}
+    .wrap{width:min(var(--max),calc(100% - 48px));margin-inline:auto}
+    .topbar{height:79px;border-bottom:1px solid #2a2633;background:rgba(16,16,22,.88);backdrop-filter:blur(18px);position:sticky;top:0;z-index:20}
+    .top-inner{height:100%;display:flex;align-items:center;justify-content:space-between;gap:28px}
+    .brand{display:inline-flex;gap:11px;align-items:center;font-size:23px;font-weight:760;letter-spacing:-1.5px;white-space:nowrap}
+    .brand img{width:37px;height:37px}.brand span span{color:var(--accent)}
+    nav{display:flex;align-items:center;gap:32px;margin-left:auto;font-size:13px;color:var(--muted)}nav a:hover,.foot a:hover{color:#fff}
+    .actions{display:flex;align-items:center;gap:14px}
+    .lang{background:transparent;border:1px solid var(--line);color:var(--text);border-radius:7px;padding:8px 11px;font-size:12px;font-weight:700;letter-spacing:.05em;min-width:49px}
+    .lang:hover{border-color:#9d7bbc}
+    .top-download{font-size:13px;font-weight:720;border:1px solid #a879d8;border-radius:7px;padding:9px 15px;background:#261c35;white-space:nowrap}
+    .top-download:hover{background:#352243}
+    .hero{padding:100px 0 103px;display:grid;grid-template-columns:.94fr 1.06fr;gap:58px;align-items:center}
+    .eyebrow,.kicker,.smallcap{font-size:11px;text-transform:uppercase;letter-spacing:.18em;font-weight:750;color:var(--accent)}
+    .eyebrow{display:flex;align-items:center;gap:12px}.eyebrow::before{content:"";height:1px;width:25px;background:var(--accent)}
+    h1,h2,h3,p{margin-top:0}h1{margin:23px 0 23px;font-size:clamp(54px,5.45vw,83px);letter-spacing:-.075em;line-height:1.055;font-weight:750}
+    h1 em{font-style:normal;color:var(--accent)}
+    .hero-copy>p{color:var(--muted);font-size:18px;line-height:1.75;max-width:480px;margin-bottom:33px}
+    .buttons{display:flex;gap:11px;flex-wrap:wrap}
+    .btn{display:inline-flex;gap:13px;align-items:center;justify-content:center;border-radius:7px;padding:13px 19px;font-size:14px;font-weight:730;line-height:1.3;border:1px solid var(--line);transition:background .2s,transform .2s}
+    .btn:hover{transform:translateY(-2px)}.btn svg{width:17px;height:17px}
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#21172d}.btn.primary:hover{background:#d6b6ff}
+    .btn.secondary{color:var(--text);background:rgba(255,255,255,.025)}.btn.secondary:hover{background:#24202b}
+    .hero-note{margin-top:23px;color:var(--subtle);font-size:12px;letter-spacing:.02em}
+    .hero-note strong{color:var(--muted);font-weight:650}
+    .studio{background:var(--panel);border:1px solid #42364e;border-radius:12px;overflow:hidden;box-shadow:0 25px 70px #08060c9c,0 0 90px #6d369022}
+    .studio-head{height:43px;display:flex;align-items:center;justify-content:space-between;background:#211d2a;border-bottom:1px solid #3b3245;padding:0 16px;color:#a99eb5;font:11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace}
+    .dots{display:flex;gap:6px}.dots i{display:block;width:8px;height:8px;border-radius:50%;background:#655a6e}.dots i:first-child{background:#9d5775}.dots i:nth-child(2){background:#af8960}
+    .studio-title{color:#e3dcec;font-weight:800;letter-spacing:.03em}
+    .studio-meta{display:flex;align-items:center;justify-content:space-between;padding:24px 23px 20px;border-bottom:1px solid var(--line-soft);gap:10px}
+    .studio-meta .name{font-size:13px;font-weight:750;letter-spacing:-.02em}.studio-meta .desc{color:var(--subtle);font:10px ui-monospace,monospace;margin-top:3px}
+    .chip{font:10px ui-monospace,monospace;color:var(--green);border:1px solid #325546;border-radius:5px;background:#20332b;padding:6px 8px;white-space:nowrap}
+    .track-area{padding:14px 17px 19px}.track{display:grid;grid-template-columns:83px minmax(0,1fr) 28px;gap:10px;align-items:center;padding:11px 4px;border-bottom:1px solid #302b35}.track:last-child{border-bottom:0}
+    .track-label{font-size:11px;font-weight:700}.track-label span{display:block;color:var(--subtle);font:9px ui-monospace,monospace;margin-top:2px}.track svg{width:100%;height:43px}
+    .track-tag{font:10px ui-monospace,monospace;color:#8c8297}.vocals{color:#d5a6ff}.drums{color:var(--orange)}.bass{color:var(--cyan)}.other{color:var(--green)}
+    .studio-foot{display:flex;justify-content:space-between;align-items:center;padding:13px 22px;border-top:1px solid var(--line);background:#201c28;color:#b2a8bf;font:10px ui-monospace,monospace}
+    .studio-foot b{font-weight:600;color:#e1d7ed}.studio-foot .signal{color:var(--green)}
+    .keyline{border-top:1px solid var(--line)}
+    .band{display:grid;grid-template-columns:repeat(4,1fr);padding:23px 0;gap:20px}
+    .band>div{border-right:1px solid var(--line);padding-left:20px}.band>div:first-child{padding-left:0}.band>div:last-child{border-right:0}
+    .band b{display:block;font-size:16px;font-weight:750;letter-spacing:-.02em}.band span{display:block;font-size:12px;color:var(--subtle);margin-top:3px}
+    section{padding:106px 0}section .intro{display:flex;align-items:end;justify-content:space-between;gap:35px;margin-bottom:49px}
+    .intro h2{font-size:clamp(35px,4.5vw,54px);line-height:1.12;letter-spacing:-.055em;font-weight:730;max-width:650px;margin:15px 0 0}
+    .intro p{font-size:15px;color:var(--muted);max-width:315px;margin:0}
+    .features{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+    .feature{padding:34px 29px 36px 0;min-height:240px}.feature+.feature{padding-left:30px;border-left:1px solid var(--line)}
+    .index{display:block;color:var(--accent);font:12px ui-monospace,monospace;margin-bottom:31px}
+    .feature h3{font-size:20px;letter-spacing:-.03em;margin-bottom:13px}.feature p{color:var(--muted);font-size:14px;line-height:1.75;margin:0}
+    .feature-footer{margin-top:19px;color:var(--subtle);font:11px ui-monospace,monospace}
+    .process{background:#15131b;border-block:1px solid var(--line)}
+    .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}.step{border-top:1px solid #5b486c;padding-top:22px}
+    .step-number{font:12px ui-monospace,monospace;color:var(--accent)}
+    .step h3{margin:24px 0 10px;font-size:21px;letter-spacing:-.035em}
+    .step p{color:var(--muted);font-size:14px;max-width:305px;line-height:1.8}
+    .download-panel{display:grid;grid-template-columns:1fr 1fr;gap:35px;border:1px solid #4c385f;border-radius:12px;padding:42px;background:linear-gradient(125deg,#1e1829 0%,#17151c 70%)}
+    .download-panel h2{font-size:clamp(37px,4vw,52px);line-height:1.13;letter-spacing:-.055em;margin:14px 0}
+    .download-panel p{font-size:14px;color:var(--muted);line-height:1.8;max-width:405px}
+    .download-platforms{display:grid;gap:12px;align-content:center}
+    .platform{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:20px;border:1px solid #4a4050;background:#211d29;border-radius:8px;transition:background .2s}
+    .platform:hover{background:#292232}.platform strong{display:block;font-size:15px}.platform small{display:block;color:var(--muted);font-size:12px;margin-top:4px}.arrow{color:var(--accent);font-size:23px;line-height:1}
+    .terminal{margin-top:27px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#111016}
+    .terminal-top{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;background:#22202a;border-bottom:1px solid var(--line);font:11px ui-monospace,monospace;color:var(--muted)}
+    .copy{background:transparent;border:0;color:var(--accent);font:11px ui-monospace,monospace;padding:3px}.copy:hover{color:#fff}
+    pre{margin:0;overflow-x:auto;padding:20px 16px;color:#e7deed;font:12px/1.9 ui-monospace,SFMono-Regular,Consolas,monospace}
+    .prompt{color:var(--accent)}
+    .bottom-note{font-size:12px;color:var(--subtle);line-height:1.7;margin-top:20px}
+    footer{border-top:1px solid var(--line);padding:30px 0 35px}
+    .foot{display:flex;justify-content:space-between;gap:20px;align-items:center}
+    .foot .brand{font-size:20px}.foot .brand img{width:30px;height:30px}
+    .foot-right{display:flex;gap:21px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+    .copyright{font-size:11px;color:var(--subtle);margin-top:16px}
+    [lang="tr"] .en,[lang="en"] .tr{display:none!important}
+    @media(max-width:1000px){.hero{gap:25px}.studio-meta{padding-inline:14px}.track-area{padding-inline:10px}.track{grid-template-columns:66px minmax(0,1fr) 22px;gap:6px}.track-label{font-size:10px}.feature{padding-right:20px}.feature+.feature{padding-left:20px}}
+    @media(max-width:760px){.wrap{width:min(var(--max),calc(100% - 36px))}.topbar{height:70px}nav{display:none}.top-inner{gap:8px}.brand{font-size:22px}.top-download{font-size:12px;padding:9px 10px}.hero{padding:69px 0 68px;grid-template-columns:1fr;gap:49px}.hero-copy>p{font-size:16px}.studio{max-width:575px;width:100%;justify-self:center}.band{grid-template-columns:repeat(2,1fr);row-gap:25px}.band>div:nth-child(3){padding-left:0}.band>div:nth-child(2){border-right:0}section{padding:76px 0}section .intro{display:block;margin-bottom:32px}.intro p{max-width:520px;margin-top:22px}.features{grid-template-columns:1fr}.feature,.feature+.feature{padding:25px 0;min-height:auto;border-left:0;border-top:1px solid var(--line)}.feature:first-child{border-top:0}.index{margin-bottom:15px}.steps{grid-template-columns:1fr;gap:19px}.step h3{margin-top:12px}.download-panel{grid-template-columns:1fr;padding:28px;gap:17px}.foot{align-items:start;flex-direction:column}}
+    @media(max-width:440px){.wrap{width:calc(100% - 30px)}.top-download{display:none}.hero h1{font-size:54px}.studio-meta{padding:16px 12px}.track-area{padding:9px}.track{grid-template-columns:58px minmax(0,1fr) 17px}.track svg{height:34px}.track-label{font-size:9px}.studio-foot{padding:12px;font-size:9px}.download-panel{padding:23px}.platform{padding:15px}pre{font-size:11px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn,.platform{transition:none}.btn:hover{transform:none}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap top-inner">
+      <a href="#home" class="brand" aria-label="steM."><img src="./icon.svg" alt="" width="37" height="37"><span>steM<span>.</span></span></a>
+      <nav aria-label="Main navigation">
+        <a href="#features"><span class="tr">Özellikler</span><span class="en">Features</span></a>
+        <a href="#workflow"><span class="tr">İş akışı</span><span class="en">Workflow</span></a>
+        <a href="#download"><span class="tr">Kurulum</span><span class="en">Install</span></a>
+        <a href="https://github.com/MOzcelik14/steM" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      </nav>
+      <div class="actions">
+        <button class="lang" id="lang-toggle" type="button" aria-label="Switch language" title="Switch language">EN</button>
+        <a class="top-download" href="#download"><span class="tr">steM. edin ↗</span><span class="en">Get steM. ↗</span></a>
+      </div>
+    </div>
+  </header>
+
+  <main id="home">
+    <div class="wrap hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="tr">MASAÜSTÜ SES AYRIŞTIRMA STÜDYOSU</span><span class="en">DESKTOP AUDIO SEPARATION STUDIO</span></div>
+        <h1 class="tr">Sesin her<br>katmanını <em>duy.</em></h1>
+        <h1 class="en">Hear every<br>layer of <em>sound.</em></h1>
+        <p class="tr">Bir parçayı vokal, davul, bas ve diğer seslere ayır. Her kanalı ayrı dinle, seviyelerini düzenle ve istediğin formatta dışa aktar. Hepsi tek bir masaüstü stüdyosunda.</p>
+        <p class="en">Split a track into vocals, drums, bass and other sounds. Listen to each channel, adjust the levels and export your stems. All in one desktop studio.</p>
+        <div class="buttons">
+          <a class="btn primary" href="#download"><span class="tr">İndir ve kur</span><span class="en">Download &amp; install</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v13m0 0 5-5m-5 5-5-5M4 17v4h16v-4"/></svg></a>
+          <a class="btn secondary" href="https://github.com/MOzcelik14/steM" target="_blank" rel="noopener noreferrer"><span class="tr">Kaynak kodu</span><span class="en">View source</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m8 4-6 8 6 8m8-16 6 8-6 8M14 2l-4 20"/></svg></a>
+        </div>
+        <div class="hero-note"><strong>Demucs v4</strong> &nbsp;·&nbsp; GTK4 / Libadwaita &nbsp;·&nbsp; <span class="tr">Açık kaynak</span><span class="en">Open source</span></div>
+      </div>
+
+      <div class="studio" role="img" aria-label="Illustrative steM. studio mixer with four separated audio waveforms">
+        <div class="studio-head"><div class="dots" aria-hidden="true"><i></i><i></i><i></i></div><span class="studio-title">steM. / SESSION</span><span>01 — 04</span></div>
+        <div class="studio-meta">
+          <div><div class="name tr">Parçanın içindeki parçalar.</div><div class="name en">The tracks inside the track.</div><div class="desc">DEMUCS / HTDEMUCS / 4 STEMS</div></div>
+          <span class="chip">● READY</span>
+        </div>
+        <div class="track-area">
+          <div class="track">
+            <div class="track-label vocals">VOCALS<span>CH 01</span></div>
+            <svg viewBox="0 0 380 43" preserveAspectRatio="none" aria-hidden="true"><path d="M0 21L8 21 13 12 18 30 24 9 28 35 34 17 39 26 45 3 50 40 55 14 61 28 68 8 73 32 79 19 84 22 91 5 96 39 101 20 108 15 113 29 120 8 126 35 132 13 137 30 143 2 149 39 155 17 162 24 168 6 174 35 180 11 186 28 194 18 202 24 208 10 214 32 220 21 227 12 233 32 239 16 245 25 250 3 258 39 265 16 271 24 277 10 285 34 291 17 296 28 303 6 310 36 316 13 322 29 329 18 336 23 344 9 350 33 356 17 363 27 369 13 375 29 380 21" fill="none" stroke="#c99cfc" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <div class="track-tag">01</div>
+          </div>
+          <div class="track">
+            <div class="track-label drums">DRUMS<span>CH 02</span></div>
+            <svg viewBox="0 0 380 43" preserveAspectRatio="none" aria-hidden="true"><path d="M0 21 12 21 15 5 18 38 21 21 40 21 43 15 46 27 49 21 66 21 69 4 72 39 75 21 94 21 97 14 100 27 103 21 119 21 122 6 125 36 128 21 147 21 150 14 153 28 156 21 173 21 176 5 179 38 182 21 201 21 204 15 207 28 210 21 226 21 229 4 232 39 235 21 254 21 257 13 260 29 263 21 279 21 282 5 285 38 288 21 307 21 310 15 313 27 316 21 332 21 335 4 338 39 341 21 360 21 363 15 366 28 369 21 380 21" fill="none" stroke="#ffbe80" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <div class="track-tag">02</div>
+          </div>
+          <div class="track">
+            <div class="track-label bass">BASS<span>CH 03</span></div>
+            <svg viewBox="0 0 380 43" preserveAspectRatio="none" aria-hidden="true"><path d="M0 21C10 21 10 10 21 10S32 33 43 33 54 11 65 11 76 33 87 33 98 10 109 10 120 32 131 32 142 11 153 11 164 33 175 33 186 10 197 10 208 32 219 32 230 11 241 11 252 33 263 33 274 10 285 10 296 32 307 32 318 11 329 11 340 33 351 33 362 21 380 21" fill="none" stroke="#83d6e7" stroke-width="2" stroke-linecap="round"/></svg>
+            <div class="track-tag">03</div>
+          </div>
+          <div class="track">
+            <div class="track-label other">OTHER<span>CH 04</span></div>
+            <svg viewBox="0 0 380 43" preserveAspectRatio="none" aria-hidden="true"><path d="M0 21 8 17 16 23 24 16 32 25 40 11 48 27 56 18 64 22 72 14 80 30 88 16 96 22 104 17 112 28 120 13 128 25 136 20 144 15 152 28 160 11 168 22 176 18 184 29 192 15 200 25 208 17 216 21 224 13 232 29 240 16 248 24 256 13 264 28 272 19 280 23 288 15 296 27 304 12 312 24 320 18 328 28 336 15 344 25 352 18 360 22 368 15 376 24 380 21" fill="none" stroke="#88d4b0" stroke-width="1.8" stroke-linejoin="round"/></svg>
+            <div class="track-tag">04</div>
+          </div>
+        </div>
+        <div class="studio-foot"><span>00:00 <b>/</b> 03:45</span><span class="signal">● CUDA / CPU</span><span>WAV · MP3</span></div>
+      </div>
+    </div>
+
+    <div class="keyline"><div class="wrap band">
+      <div><b>4 / 6 <span class="tr">kanal</span><span class="en">stems</span></b><span class="tr">Modele göre ayrıştırma</span><span class="en">Model-dependent separation</span></div>
+      <div><b>WAV / MP3</b><span class="tr">Dışa aktarma seçenekleri</span><span class="en">Export formats</span></div>
+      <div><b>CUDA / CPU</b><span class="tr">Donanımına göre çalışır</span><span class="en">Works with your hardware</span></div>
+      <div><b>MIT</b><span class="tr">Açık kaynak lisansı</span><span class="en">Open-source license</span></div>
+    </div></div>
+
+    <section id="features" class="wrap">
+      <div class="intro">
+        <div><div class="kicker tr">01 / ÖZELLİKLER</div><div class="kicker en">01 / FEATURES</div><h2 class="tr">Ayrıştırmanın ötesinde<br>bir çalışma alanı.</h2><h2 class="en">More than separation.<br>A place to work.</h2></div>
+        <p class="tr">Sadece dosya üretmek için değil, ortaya çıkan kanalları gerçekten duymak ve kullanmak için tasarlandı.</p><p class="en">Built not just to produce files, but to listen to and work with what is inside them.</p>
+      </div>
+      <div class="features">
+        <article class="feature"><span class="index">01 / SEPARATE</span><h3 class="tr">Dört kanaldan altıya.</h3><h3 class="en">Four stems. Or six.</h3><p class="tr">Demucs v4 ile vokal, davul, bas ve diğerlerini ayır. Uygun modelle piyano ve gitar kanallarını da çıkar. İstersen sadece vokal ve altyapıyı al.</p><p class="en">Separate vocals, drums, bass and other with Demucs v4. Choose a six-stem model for piano and guitar, or extract vocals and instrumental only.</p><div class="feature-footer">DEMUCS V4 · MODEL SELECTION</div></article>
+        <article class="feature"><span class="index">02 / LISTEN</span><h3 class="tr">Kanalları kendi başına dinle.</h3><h3 class="en">Listen to every part.</h3><p class="tr">Senkronize çok kanallı oynatıcı, bağımsız ses seviyeleri, solo ve mute kontrolleri. Dalga formunda gezin, ihtiyacın olan sesi bul.</p><p class="en">Synchronized multitrack playback, independent levels, solo and mute. Scrub the waveform and focus on the sound you need.</p><div class="feature-footer">GSTREAMER · MIXER · WAVEFORM</div></article>
+        <article class="feature"><span class="index">03 / EXPORT</span><h3 class="tr">Dosyalarını al, devam et.</h3><h3 class="en">Export and keep moving.</h3><p class="tr">Kanalları 24-bit WAV veya 320 kbps MP3 olarak kaydet. Toplu işlem kuyruğuyla birden fazla parçayı sıraya koy.</p><p class="en">Save stems as 24-bit WAV or 320 kbps MP3. Queue multiple tracks and process them one by one.</p><div class="feature-footer">24-BIT WAV · 320 KBPS MP3</div></article>
+      </div>
+    </section>
+
+    <section id="workflow" class="process">
+      <div class="wrap">
+        <div class="intro"><div><div class="kicker tr">02 / İŞ AKIŞI</div><div class="kicker en">02 / WORKFLOW</div><h2 class="tr">Üç adım. Tek stüdyo.</h2><h2 class="en">Three steps. One studio.</h2></div><p class="tr">Dosyadan ayrı kanallara uzanan sade bir akış.</p><p class="en">A straightforward path from audio file to individual stems.</p></div>
+        <div class="steps">
+          <div class="step"><span class="step-number">01 — INPUT</span><h3 class="tr">Parçanı içe aktar.</h3><h3 class="en">Bring in your track.</h3><p class="tr">MP3, WAV, FLAC ve diğer desteklenen formatlardan bir dosya seç veya sürükleyip bırak.</p><p class="en">Choose or drop an MP3, WAV, FLAC or another supported audio format.</p></div>
+          <div class="step"><span class="step-number">02 — PROCESS</span><h3 class="tr">Modelini seç, ayır.</h3><h3 class="en">Choose a model. Separate.</h3><p class="tr">Demucs modelini ve kalite ayarlarını belirle. Uyumlu NVIDIA GPU'larda CUDA, diğer sistemlerde CPU kullan.</p><p class="en">Pick a Demucs model and quality settings. Use CUDA with compatible NVIDIA GPUs, or run on CPU.</p></div>
+          <div class="step"><span class="step-number">03 — OUTPUT</span><h3 class="tr">Dinle ve dışa aktar.</h3><h3 class="en">Listen, then export.</h3><p class="tr">Ayrılan kanalları mikserde kontrol et. İstediğin formatı seçip projene taşı.</p><p class="en">Check the separated channels in the mixer. Export them for your next project.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="download" class="wrap">
+      <div class="download-panel">
+        <div>
+          <div class="kicker tr">03 / BAŞLA</div><div class="kicker en">03 / GET STARTED</div>
+          <h2 class="tr">Müziğin içine<br>biraz daha gir.</h2><h2 class="en">Go a little deeper<br>into the music.</h2>
+          <p class="tr">steM. ücretsiz ve açık kaynaklıdır. Linux'ta kaynak koddan kurabilir, Windows paketleri için yayınlanan sürümleri kontrol edebilirsin.</p><p class="en">steM. is free and open source. Install from source on Linux, or check published releases for Windows packages.</p>
+          <a class="btn primary" href="https://github.com/MOzcelik14/steM/releases" target="_blank" rel="noopener noreferrer"><span class="tr">GitHub Releases ↗</span><span class="en">GitHub Releases ↗</span></a>
+        </div>
+        <div class="download-platforms">
+          <a class="platform" href="https://github.com/MOzcelik14/steM#installation" target="_blank" rel="noopener noreferrer"><span><strong>Linux</strong><small class="tr">Mint / Ubuntu · Kaynak koddan kurulum</small><small class="en">Mint / Ubuntu · Install from source</small></span><span class="arrow">↗</span></a>
+          <a class="platform" href="https://github.com/MOzcelik14/steM/releases" target="_blank" rel="noopener noreferrer"><span><strong>Windows</strong><small class="tr">Yayınlanan paketleri kontrol et</small><small class="en">Check available release packages</small></span><span class="arrow">↗</span></a>
+          <a class="platform" href="https://github.com/MOzcelik14/steM" target="_blank" rel="noopener noreferrer"><span><strong>GitHub</strong><small class="tr">Kod, belgeler ve geliştirme</small><small class="en">Source, docs and development</small></span><span class="arrow">↗</span></a>
+        </div>
+      </div>
+      <div class="terminal">
+        <div class="terminal-top"><span class="tr">LINUX / HIZLI KURULUM</span><span class="en">LINUX / QUICK SETUP</span><button id="copy-command" type="button" class="copy"><span class="tr">Kopyala</span><span class="en">Copy</span></button></div>
+        <pre><code><span class="prompt">$ </span>git clone https://github.com/MOzcelik14/steM.git
+<span class="prompt">$ </span>cd steM
+<span class="prompt">$ </span>./install.sh</code></pre>
+      </div>
+      <p class="bottom-note tr">Kurulum Linux Mint 22.3 ve Ubuntu 24.04 tabanlı sistemler için belgelenmiştir. İlk ayrıştırmada seçilen Demucs modelinin indirilmesi gerekebilir. Kurulum ayrıntıları ve Windows yönergeleri GitHub deposundadır.</p>
+      <p class="bottom-note en">Installation is documented for Linux Mint 22.3 and Ubuntu 24.04 based systems. Your first separation may require a Demucs model download. See the repository for complete Linux and Windows instructions.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <a href="#home" class="brand"><img src="./icon.svg" alt="" width="30" height="30"><span>steM<span>.</span></span></a>
+      <div class="foot-right"><a href="https://github.com/MOzcelik14/steM" target="_blank" rel="noopener noreferrer">GitHub ↗</a><a href="https://github.com/MOzcelik14/steM/blob/main/README.tr.md" target="_blank" rel="noopener noreferrer" class="tr">Belgeler ↗</a><a href="https://github.com/MOzcelik14/steM/blob/main/README.md" target="_blank" rel="noopener noreferrer" class="en">Documentation ↗</a><a href="https://github.com/MOzcelik14/steM/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License ↗</a></div>
+    </div>
+    <div class="wrap copyright">© 2026 M. Özçelik. <span class="tr">Müzik için yapıldı.</span><span class="en">Made for music.</span> &nbsp;·&nbsp; <span class="tr">Üstteki stüdyo görseli, arayüzün temsili çizimidir.</span><span class="en">Studio visual is an illustration of the interface.</span></div>
+  </footer>
+  <script>
+    (function () {
+      var toggle = document.getElementById("lang-toggle");
+      var copy = document.getElementById("copy-command");
+      var command = "git clone https://github.com/MOzcelik14/steM.git\ncd steM\n./install.sh";
+      function setLanguage(language) {
+        var lang = language === "en" ? "en" : "tr";
+        document.documentElement.lang = lang;
+        toggle.textContent = lang === "tr" ? "EN" : "TR";
+        toggle.setAttribute("aria-label", lang === "tr" ? "Switch to English" : "Türkçeye geç");
+        document.title = lang === "tr" ? "steM. — Sesin her katmanını duy." : "steM. — Hear every layer of sound.";
+        try { localStorage.setItem("stem-site-language", lang); } catch (_) {}
+      }
+      var saved = null;
+      try { saved = localStorage.getItem("stem-site-language"); } catch (_) {}
+      setLanguage(saved || (navigator.language && navigator.language.toLowerCase().startsWith("tr") ? "tr" : "en"));
+      toggle.addEventListener("click", function () { setLanguage(document.documentElement.lang === "tr" ? "en" : "tr"); });
+      copy.addEventListener("click", function () {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          var selection = window.getSelection();
+          var range = document.createRange();
+          range.selectNodeContents(document.querySelector(".terminal code"));
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return;
+        }
+        navigator.clipboard.writeText(command).then(function () {
+          copy.textContent = document.documentElement.lang === "tr" ? "Kopyalandı ✓" : "Copied ✓";
+          copy.setAttribute("aria-label", copy.textContent);
+        }).catch(function () {
+          copy.textContent = document.documentElement.lang === "tr" ? "Metni seç" : "Select text";
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
