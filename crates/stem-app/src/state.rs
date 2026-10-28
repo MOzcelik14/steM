@@ -2,7 +2,77 @@
 
 use stem_audio::DecodedAudio;
 use stem_core::peaks::PeakPyramid;
+use stem_core::waveform::{WaveformDocument, WaveformHistory};
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppViewMode {
+    Multitrack,
+    Waveform,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaveformDragOp {
+    Selecting { anchor_frame: u64 },
+    DragLeftEdge,
+    DragRightEdge,
+    ScrubPlayhead,
+}
+
+#[derive(Debug, Clone)]
+pub struct WaveformViewState {
+    pub pixels_per_second: f32,
+    pub scroll_x: f32,
+    pub selection: Option<(u64, u64)>,
+    pub snap_to_zero_crossing: bool,
+    pub loop_selection: bool,
+    pub drag_op: Option<WaveformDragOp>,
+    pub document: Option<WaveformDocument>,
+    pub history: WaveformHistory,
+    pub active_source_id: Option<Uuid>,
+    pub active_clip_info: Option<(Uuid, Uuid)>, // (clip_id, track_id)
+    pub file_name: String,
+    pub playhead_frame: u64,
+    pub pyramid: Option<PeakPyramid>,
+    pub cached_planar: Option<Vec<Vec<f32>>>,
+}
+
+impl Default for WaveformViewState {
+    fn default() -> Self {
+        Self {
+            pixels_per_second: 120.0,
+            scroll_x: 0.0,
+            selection: None,
+            snap_to_zero_crossing: false,
+            loop_selection: false,
+            drag_op: None,
+            document: None,
+            history: WaveformHistory::new(),
+            active_source_id: None,
+            active_clip_info: None,
+            file_name: String::new(),
+            playhead_frame: 0,
+            pyramid: None,
+            cached_planar: None,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl WaveformViewState {
+    #[inline]
+    pub fn frame_to_x(&self, frame: u64, sample_rate: u32) -> f32 {
+        let sec = frame as f32 / sample_rate as f32;
+        sec * self.pixels_per_second - self.scroll_x
+    }
+
+    #[inline]
+    pub fn x_to_frame(&self, x: f32, sample_rate: u32) -> u64 {
+        let total_x = (x + self.scroll_x).max(0.0);
+        let sec = total_x / self.pixels_per_second;
+        (sec * sample_rate as f32).round() as u64
+    }
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]

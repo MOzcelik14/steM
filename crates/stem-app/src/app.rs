@@ -14,13 +14,14 @@ use stem_audio::{
 use stem_core::history::{Action, UndoRedoStack};
 use stem_core::peaks::PeakPyramid;
 use stem_core::project::{Clip, Project, Track};
+use stem_core::waveform::{AudioClipboard, WaveformDocument};
 use stem_i18n::{I18n, Locale, TimecodeMode};
 
-use crate::state::{TimelineViewState, WorkerMessage};
+use crate::state::{AppViewMode, TimelineViewState, WaveformViewState, WorkerMessage};
 use crate::views::{
     render_dialogs, render_effects_dialog, render_menu_bar, render_mixer_panel,
-    render_spectrogram_panel, render_timeline_view, render_transport_bar, EffectsRackState,
-    SpectrogramState,
+    render_spectrogram_panel, render_timeline_view, render_transport_bar, render_waveform_editor,
+    EffectsRackState, SpectrogramState,
 };
 
 pub struct StemApp {
@@ -29,6 +30,11 @@ pub struct StemApp {
     pub i18n: I18n,
     pub history: UndoRedoStack,
     pub timeline_state: TimelineViewState,
+
+    // View Mode & Waveform Editor State
+    pub view_mode: AppViewMode,
+    pub waveform_state: WaveformViewState,
+    pub clipboard: Option<AudioClipboard>,
 
     // Audio Engine & Buffers
     pub audio_engine: Option<AudioEngine>,
@@ -101,6 +107,10 @@ impl StemApp {
             history: UndoRedoStack::new(),
             timeline_state: TimelineViewState::default(),
 
+            view_mode: AppViewMode::Multitrack,
+            waveform_state: WaveformViewState::default(),
+            clipboard: None,
+
             audio_engine,
             audio_recorder,
             telemetry: AudioTelemetry::default(),
@@ -145,6 +155,324 @@ impl StemApp {
             self.active_timeline = Some(timeline.clone());
             if let Some(ref mut engine) = self.audio_engine {
                 engine.update_timeline(timeline);
+            }
+        }
+    }
+
+    /// Re-renders active waveform document into a SharedAudioTimeline buffer and sends it to the real-time engine.
+    pub fn sync_waveform_to_audio_engine(&mut self) {
+        if let Some(ref planar) = self.waveform_state.cached_planar {
+            let total_frames = self
+                .waveform_state
+                .document
+                .as_ref()
+                .map(|d| d.total_frames())
+                .unwrap_or(0);
+            let timeline = Arc::new(SharedAudioTimeline {
+                channels: planar.clone(),
+                total_frames,
+            });
+            self.active_timeline = Some(timeline.clone());
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.update_timeline(timeline);
+                self.sync_waveform_playback_loop();
+            }
+        }
+    }
+
+    pub fn sync_waveform_playback_loop(&mut self) {
+        if let Some(ref mut engine) = self.audio_engine {
+            if self.waveform_state.loop_selection {
+                if let Some((start, end)) = self.waveform_state.selection {
+                    if end > start {
+                        engine.set_loop(true, start, end);
+                        return;
+                    }
+                }
+            }
+            let total = self
+                .waveform_state
+                .document
+                .as_ref()
+                .map(|d| d.total_frames())
+                .unwrap_or(0);
+            engine.set_loop(false, 0, total);
+        }
+    }
+
+    pub fn recompute_waveform_cache(&mut self) {
+        if let Some(ref doc) = self.waveform_state.document {
+            let planar = doc.render_planar(&self.source_buffers);
+            let channel_refs: Vec<&[f32]> = planar.iter().map(|ch| ch.as_slice()).collect();
+            let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+            self.waveform_state.cached_planar = Some(planar);
+            self.waveform_state.pyramid = Some(pyramid);
+            if self.view_mode == AppViewMode::Waveform {
+                self.sync_waveform_to_audio_engine();
+            }
+        } else {
+            self.waveform_state.cached_planar = None;
+            self.waveform_state.pyramid = None;
+        }
+    }
+
+    pub fn load_source_into_waveform_editor(
+        &mut self,
+        source_id: Uuid,
+        file_name: &str,
+        clip_info: Option<(Uuid, Uuid)>,
+    ) {
+        let source = self.project.sources.get(&source_id).cloned();
+        if let Some(source) = source {
+            let doc = WaveformDocument::from_source(&source);
+            self.waveform_state.document = Some(doc);
+            self.waveform_state.active_source_id = Some(source_id);
+            self.waveform_state.file_name = file_name.to_string();
+            self.waveform_state.active_clip_info = clip_info;
+            self.waveform_state.selection = None;
+            self.waveform_state.history = stem_core::waveform::WaveformHistory::new();
+            self.waveform_state.playhead_frame = 0;
+            self.recompute_waveform_cache();
+            self.view_mode = AppViewMode::Waveform;
+            self.action_seek_waveform(0);
+        }
+    }
+
+    pub fn action_open_clip_in_waveform_editor(&mut self, clip_id: Uuid) {
+        for track in &self.project.tracks {
+            if let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) {
+                let track_id = track.id;
+                let clip_name = clip.name.clone();
+                let source_id = clip.source_id;
+                self.load_source_into_waveform_editor(
+                    source_id,
+                    &clip_name,
+                    Some((clip_id, track_id)),
+                );
+                break;
+            }
+        }
+    }
+
+    pub fn action_open_file_in_waveform_editor(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Audio Files", &["wav", "flac", "mp3", "ogg", "aac", "m4a"])
+            .pick_file()
+        {
+            self.status_text = self.i18n.t("status-loading");
+            match stem_audio::decode_file(&path) {
+                Ok(decoded) => {
+                    let source = decoded.source.clone();
+                    let source_id = source.id;
+                    let filename = source.filename.clone();
+                    self.project.add_source(source);
+                    self.source_buffers.insert(source_id, decoded.channels);
+
+                    self.load_source_into_waveform_editor(source_id, &filename, None);
+                    self.status_text =
+                        self.i18n
+                            .t_arg("status-imported-file", "filename", filename);
+                }
+                Err(e) => {
+                    self.status_text = format!("Failed to open file: {e}");
+                }
+            }
+        }
+    }
+
+    pub fn action_switch_to_multitrack(&mut self) {
+        if self.is_playing {
+            self.action_stop();
+        }
+        self.view_mode = AppViewMode::Multitrack;
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_switch_to_waveform(&mut self) {
+        if self.is_playing {
+            self.action_stop();
+        }
+        self.view_mode = AppViewMode::Waveform;
+        if self.waveform_state.document.is_some() {
+            self.sync_waveform_to_audio_engine();
+        }
+    }
+
+    pub fn action_seek_waveform(&mut self, frame: u64) {
+        self.waveform_state.playhead_frame = frame;
+        if let Some(ref mut engine) = self.audio_engine {
+            engine.seek(frame);
+        }
+        self.telemetry.playhead_frame = frame;
+    }
+
+    pub fn action_waveform_cut(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            if let Some((s, e)) = self.waveform_state.selection {
+                if e > s {
+                    self.waveform_state.history.push_state(doc.clone());
+                    self.clipboard = doc.cut_range(s, e, &self.source_buffers);
+                    self.waveform_state.selection = None;
+                    self.status_text = self.i18n.t("waveform-status-cut");
+                    self.recompute_waveform_cache();
+                }
+            }
+        }
+    }
+
+    pub fn action_waveform_copy(&mut self) {
+        if let Some(ref doc) = self.waveform_state.document {
+            if let Some((s, e)) = self.waveform_state.selection {
+                if e > s {
+                    self.clipboard = doc.copy_range(s, e, &self.source_buffers);
+                    self.status_text = self.i18n.t("waveform-status-copied");
+                }
+            }
+        }
+    }
+
+    pub fn action_waveform_paste(&mut self) {
+        if let Some(ref clip) = self.clipboard.clone() {
+            if let Some(ref mut doc) = self.waveform_state.document {
+                self.waveform_state.history.push_state(doc.clone());
+                let paste_at = if let Some((s, e)) = self.waveform_state.selection {
+                    if e > s {
+                        doc.delete_range(s, e);
+                    }
+                    s
+                } else {
+                    self.waveform_state.playhead_frame
+                };
+                doc.paste_clipboard(paste_at, clip, &mut self.source_buffers);
+                let dur = clip.duration_frames;
+                self.waveform_state.selection = Some((paste_at, paste_at + dur));
+                self.status_text = self.i18n.t("waveform-status-pasted");
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_delete(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            if let Some((s, e)) = self.waveform_state.selection {
+                if e > s {
+                    self.waveform_state.history.push_state(doc.clone());
+                    doc.delete_range(s, e);
+                    self.waveform_state.selection = None;
+                    self.status_text = self.i18n.t("waveform-status-deleted");
+                    self.recompute_waveform_cache();
+                }
+            }
+        }
+    }
+
+    pub fn action_waveform_trim(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            if let Some((s, e)) = self.waveform_state.selection {
+                if e > s {
+                    self.waveform_state.history.push_state(doc.clone());
+                    doc.trim_to_range(s, e);
+                    self.waveform_state.selection = None;
+                    self.status_text = self.i18n.t("waveform-status-trimmed");
+                    self.recompute_waveform_cache();
+                }
+            }
+        }
+    }
+
+    pub fn action_waveform_insert_silence(&mut self) {
+        let sample_rate = self.project.sample_rate;
+        if let Some(ref mut doc) = self.waveform_state.document {
+            self.waveform_state.history.push_state(doc.clone());
+            let at = if let Some((s, _)) = self.waveform_state.selection {
+                s
+            } else {
+                self.waveform_state.playhead_frame
+            };
+            doc.insert_silence(at, sample_rate as u64);
+            self.status_text = self.i18n.t("waveform-status-silence-inserted");
+            self.recompute_waveform_cache();
+        }
+    }
+
+    pub fn action_waveform_reverse(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            self.waveform_state.history.push_state(doc.clone());
+            let (s, e) = self
+                .waveform_state
+                .selection
+                .unwrap_or((0, doc.total_frames()));
+            doc.reverse_range(s, e);
+            self.status_text = self.i18n.t("waveform-status-reversed");
+            self.recompute_waveform_cache();
+        }
+    }
+
+    pub fn action_waveform_invert_phase(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            self.waveform_state.history.push_state(doc.clone());
+            let (s, e) = self
+                .waveform_state
+                .selection
+                .unwrap_or((0, doc.total_frames()));
+            doc.invert_phase_range(s, e);
+            self.status_text = self.i18n.t("waveform-status-phase-inverted");
+            self.recompute_waveform_cache();
+        }
+    }
+
+    pub fn action_waveform_undo(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            if self.waveform_state.history.undo(doc) {
+                self.status_text = "Waveform edit undone".to_string();
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_redo(&mut self) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            if self.waveform_state.history.redo(doc) {
+                self.status_text = "Waveform edit redone".to_string();
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_apply_to_project(&mut self) {
+        if let Some((clip_id, track_id)) = self.waveform_state.active_clip_info {
+            if let Some(ref doc) = self.waveform_state.document {
+                let planar = doc.render_planar(&self.source_buffers);
+                let new_source_id = Uuid::new_v4();
+                let dur_frames = doc.total_frames();
+                let source_name = format!("{}_edited", self.waveform_state.file_name);
+
+                let source = stem_core::project::AudioSource {
+                    id: new_source_id,
+                    path: PathBuf::from(&source_name),
+                    filename: source_name.clone(),
+                    sample_rate: self.project.sample_rate,
+                    channels: doc.channels,
+                    duration_frames: dur_frames,
+                    file_hash: None,
+                };
+                self.project.add_source(source);
+
+                let channel_refs: Vec<&[f32]> = planar.iter().map(|ch| ch.as_slice()).collect();
+                let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+                self.peak_pyramids.insert(new_source_id, pyramid);
+                self.source_buffers.insert(new_source_id, planar);
+
+                if let Some(track) = self.project.get_track_mut(track_id) {
+                    if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
+                        clip.source_id = new_source_id;
+                        clip.source_start_frame = 0;
+                        clip.length_frames = dur_frames;
+                    }
+                }
+
+                self.status_text = self.i18n.t("waveform-status-applied");
+                self.sync_timeline_to_audio_engine();
             }
         }
     }
@@ -349,6 +677,20 @@ impl StemApp {
     // -------------------------------------------------------------------------
 
     pub fn action_toggle_play(&mut self) {
+        if self.view_mode == AppViewMode::Waveform {
+            if self.waveform_state.document.is_none() {
+                return;
+            }
+            if !self.is_playing {
+                self.sync_waveform_to_audio_engine();
+                if let Some((start, end)) = self.waveform_state.selection {
+                    let cur = self.waveform_state.playhead_frame;
+                    if cur < start || cur >= end {
+                        self.action_seek_waveform(start);
+                    }
+                }
+            }
+        }
         if let Some(ref mut engine) = self.audio_engine {
             engine.toggle_play();
             self.is_playing = engine.is_playing();
@@ -368,6 +710,9 @@ impl StemApp {
             engine.stop();
             self.is_playing = false;
             self.telemetry.playhead_frame = 0;
+            if self.view_mode == AppViewMode::Waveform {
+                self.waveform_state.playhead_frame = 0;
+            }
             self.status_text = self.i18n.t("status-ready");
         }
     }
@@ -563,31 +908,74 @@ impl StemApp {
             self.action_toggle_play();
         }
 
-        // S: Split selected clip at playhead
-        if input.key_pressed(egui::Key::S) {
-            self.action_split_selected_clip();
+        // View switching: 1 for Multitrack, 2 for Waveform
+        if input.key_pressed(egui::Key::Num1) {
+            self.action_switch_to_multitrack();
+        }
+        if input.key_pressed(egui::Key::Num2) {
+            self.action_switch_to_waveform();
         }
 
-        // Delete / Backspace: Delete selected clip
-        if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
-            self.action_delete_selected_clip();
-        }
+        if self.view_mode == AppViewMode::Waveform {
+            if input.modifiers.command && input.key_pressed(egui::Key::X) {
+                self.action_waveform_cut();
+            }
+            if input.modifiers.command && input.key_pressed(egui::Key::C) {
+                self.action_waveform_copy();
+            }
+            if input.modifiers.command && input.key_pressed(egui::Key::V) {
+                self.action_waveform_paste();
+            }
+            if input.modifiers.command && input.key_pressed(egui::Key::T) {
+                self.action_waveform_trim();
+            }
+            if input.modifiers.command && input.key_pressed(egui::Key::I) {
+                self.action_waveform_insert_silence();
+            }
+            if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
+                self.action_waveform_delete();
+            }
+            if input.modifiers.command && !input.modifiers.shift && input.key_pressed(egui::Key::Z)
+            {
+                self.action_waveform_undo();
+            }
+            if (input.modifiers.command && input.key_pressed(egui::Key::Y))
+                || (input.modifiers.command
+                    && input.modifiers.shift
+                    && input.key_pressed(egui::Key::Z))
+            {
+                self.action_waveform_redo();
+            }
+        } else {
+            // S: Split selected clip at playhead
+            if input.key_pressed(egui::Key::S) {
+                self.action_split_selected_clip();
+            }
 
-        // Home: Seek to frame 0
-        if input.key_pressed(egui::Key::Home) {
-            self.action_seek(0);
-        }
+            // Delete / Backspace: Delete selected clip
+            if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
+                self.action_delete_selected_clip();
+            }
 
-        // Ctrl+Z: Undo
-        if input.modifiers.command && !input.modifiers.shift && input.key_pressed(egui::Key::Z) {
-            self.action_undo();
-        }
+            // Home: Seek to frame 0
+            if input.key_pressed(egui::Key::Home) {
+                self.action_seek(0);
+            }
 
-        // Ctrl+Y or Ctrl+Shift+Z: Redo
-        if (input.modifiers.command && input.key_pressed(egui::Key::Y))
-            || (input.modifiers.command && input.modifiers.shift && input.key_pressed(egui::Key::Z))
-        {
-            self.action_redo();
+            // Ctrl+Z: Undo
+            if input.modifiers.command && !input.modifiers.shift && input.key_pressed(egui::Key::Z)
+            {
+                self.action_undo();
+            }
+
+            // Ctrl+Y or Ctrl+Shift+Z: Redo
+            if (input.modifiers.command && input.key_pressed(egui::Key::Y))
+                || (input.modifiers.command
+                    && input.modifiers.shift
+                    && input.key_pressed(egui::Key::Z))
+            {
+                self.action_redo();
+            }
         }
     }
 }
@@ -606,6 +994,18 @@ impl eframe::App for StemApp {
         if let Some(ref mut engine) = self.audio_engine {
             self.telemetry = engine.poll_telemetry();
             self.is_playing = engine.is_playing();
+        }
+
+        if self.view_mode == AppViewMode::Waveform && self.is_playing {
+            self.waveform_state.playhead_frame = self.telemetry.playhead_frame;
+            if !self.waveform_state.loop_selection {
+                if let Some((_, end)) = self.waveform_state.selection {
+                    if self.telemetry.playhead_frame >= end {
+                        self.action_toggle_play();
+                        self.action_seek_waveform(end);
+                    }
+                }
+            }
         }
 
         // Drain messages from background workers (decoding, peak caching, export)
@@ -695,31 +1095,38 @@ impl eframe::App for StemApp {
             });
         });
 
-        // ----------------- Bottom Mixer Panel (Collapsible) -----------------
-        if self.show_mixer_panel {
-            egui::TopBottomPanel::bottom("mixer_panel")
-                .resizable(true)
-                .default_height(200.0)
-                .min_height(140.0)
-                .show(ctx, |ui| {
-                    render_mixer_panel(self, ui);
-                });
-        }
+        if self.view_mode == AppViewMode::Multitrack {
+            // ----------------- Bottom Mixer Panel (Collapsible) -----------------
+            if self.show_mixer_panel {
+                egui::TopBottomPanel::bottom("mixer_panel")
+                    .resizable(true)
+                    .default_height(200.0)
+                    .min_height(140.0)
+                    .show(ctx, |ui| {
+                        render_mixer_panel(self, ui);
+                    });
+            }
 
-        // ----------------- Bottom Spectrogram Panel (Collapsible) -----------------
-        if self.show_spectrogram_panel {
-            egui::TopBottomPanel::bottom("spectrogram_panel")
-                .resizable(true)
-                .default_height(140.0)
-                .show(ctx, |ui| {
-                    render_spectrogram_panel(self, ui);
-                });
-        }
+            // ----------------- Bottom Spectrogram Panel (Collapsible) -----------------
+            if self.show_spectrogram_panel {
+                egui::TopBottomPanel::bottom("spectrogram_panel")
+                    .resizable(true)
+                    .default_height(140.0)
+                    .show(ctx, |ui| {
+                        render_spectrogram_panel(self, ui);
+                    });
+            }
 
-        // ----------------- Central Timeline Canvas -----------------
-        egui::CentralPanel::default().show(ctx, |ui| {
-            render_timeline_view(self, ui);
-        });
+            // ----------------- Central Timeline Canvas -----------------
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_timeline_view(self, ui);
+            });
+        } else {
+            // ----------------- Waveform Editor Canvas -----------------
+            egui::CentralPanel::default().show(ctx, |ui| {
+                render_waveform_editor(self, ui);
+            });
+        }
 
         // ----------------- Modal Dialogs -----------------
         render_dialogs(self, ctx);

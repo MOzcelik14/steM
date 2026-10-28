@@ -235,6 +235,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
         let mouse_pos = response.hover_pos();
         let is_mouse_down = ui.input(|i| i.pointer.primary_down());
+        let mut open_clip_in_waveform: Option<uuid::Uuid> = None;
 
         for (t_idx, track) in app.project.tracks.iter().enumerate() {
             let track_top = tracks_top + t_idx as f32 * (track_height + 4.0);
@@ -403,23 +404,31 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
-                        } else {
-                            if ui.input(|i| i.pointer.primary_clicked()) {
-                                app.timeline_state.selected_clip_id = Some(clip.id);
-                                app.timeline_state.selected_track_id = Some(track.id);
+                        } else if ui.input(|i| {
+                            i.pointer
+                                .button_double_clicked(egui::PointerButton::Primary)
+                        }) {
+                            open_clip_in_waveform = Some(clip.id);
+                        } else if ui.input(|i| i.pointer.primary_clicked()) {
+                            app.timeline_state.selected_clip_id = Some(clip.id);
+                            app.timeline_state.selected_track_id = Some(track.id);
 
-                                // Start Move Clip drag operation
-                                app.timeline_state.drag_op = Some(DragOp::MoveClip {
-                                    clip_id: clip.id,
-                                    track_id: track.id,
-                                    original_track_offset: clip.track_offset_frames,
-                                    drag_start_x: mp.x,
-                                });
-                            }
+                            // Start Move Clip drag operation
+                            app.timeline_state.drag_op = Some(DragOp::MoveClip {
+                                clip_id: clip.id,
+                                track_id: track.id,
+                                original_track_offset: clip.track_offset_frames,
+                                drag_start_x: mp.x,
+                            });
                         }
                     }
                 }
             }
+        }
+
+        if let Some(clip_id) = open_clip_in_waveform {
+            app.action_open_clip_in_waveform_editor(clip_id);
+            return;
         }
 
         // ---------------- Musical Grid Lines Overlay ----------------

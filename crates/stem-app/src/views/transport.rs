@@ -134,6 +134,32 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             app.show_effects_dialog = !app.show_effects_dialog;
         }
 
+        ui.separator();
+
+        // View Mode Switcher
+        let is_multi = app.view_mode == crate::state::AppViewMode::Multitrack;
+        if ui
+            .selectable_label(
+                is_multi,
+                format!("𝄃 {}", app.i18n.t("view-mode-multitrack")),
+            )
+            .on_hover_text("Multitrack Session View (Key: 1)")
+            .clicked()
+            && !is_multi
+        {
+            app.action_switch_to_multitrack();
+        }
+
+        let is_wave = app.view_mode == crate::state::AppViewMode::Waveform;
+        if ui
+            .selectable_label(is_wave, format!("∿ {}", app.i18n.t("view-mode-waveform")))
+            .on_hover_text("Single-File Waveform Editor (Key: 2)")
+            .clicked()
+            && !is_wave
+        {
+            app.action_switch_to_waveform();
+        }
+
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // ----------------- Master VU Meter -----------------
             render_master_vu_meter(app, ui);

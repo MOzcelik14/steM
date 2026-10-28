@@ -49,6 +49,10 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 app.action_import_audio();
                 ui.close_menu();
             }
+            if ui.button(app.i18n.t("menu-file-open-waveform")).clicked() {
+                app.action_open_file_in_waveform_editor();
+                ui.close_menu();
+            }
             if ui
                 .button(format!("{} (Ctrl+E)", app.i18n.t("menu-file-export")))
                 .clicked()
@@ -70,59 +74,180 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
 
         // ------------------ Edit Menu ------------------
         ui.menu_button(app.i18n.t("menu-edit"), |ui| {
-            let can_undo = app.history.can_undo();
-            if ui
-                .add_enabled(
-                    can_undo,
-                    egui::Button::new(format!("{} (Ctrl+Z)", app.i18n.t("menu-edit-undo"))),
-                )
-                .clicked()
-            {
-                app.action_undo();
-                ui.close_menu();
-            }
-            let can_redo = app.history.can_redo();
-            if ui
-                .add_enabled(
-                    can_redo,
-                    egui::Button::new(format!("{} (Ctrl+Y)", app.i18n.t("menu-edit-redo"))),
-                )
-                .clicked()
-            {
-                app.action_redo();
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui
-                .button(format!("{} (S)", app.i18n.t("menu-edit-split")))
-                .clicked()
-            {
-                app.action_split_selected_clip();
-                ui.close_menu();
-            }
-            if ui
-                .button(format!("{} (Del)", app.i18n.t("menu-edit-delete")))
-                .clicked()
-            {
-                app.action_delete_selected_clip();
-                ui.close_menu();
+            if app.view_mode == crate::state::AppViewMode::Waveform {
+                let has_doc = app.waveform_state.document.is_some();
+                let has_sel = app.waveform_state.selection.is_some();
+                let can_undo = app.waveform_state.history.can_undo();
+                let can_redo = app.waveform_state.history.can_redo();
+
+                if ui
+                    .add_enabled(
+                        has_doc && can_undo,
+                        egui::Button::new(format!("{} (Ctrl+Z)", app.i18n.t("menu-edit-undo"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_undo();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc && can_redo,
+                        egui::Button::new(format!("{} (Ctrl+Y)", app.i18n.t("menu-edit-redo"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_redo();
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        has_doc && has_sel,
+                        egui::Button::new(format!("{} (Ctrl+X)", app.i18n.t("waveform-btn-cut"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_cut();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc && has_sel,
+                        egui::Button::new(format!("{} (Ctrl+C)", app.i18n.t("waveform-btn-copy"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_copy();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc && app.clipboard.is_some(),
+                        egui::Button::new(format!("{} (Ctrl+V)", app.i18n.t("waveform-btn-paste"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_paste();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc && has_sel,
+                        egui::Button::new(format!("{} (Del)", app.i18n.t("waveform-btn-delete"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_delete();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc && has_sel,
+                        egui::Button::new(format!("{} (Ctrl+T)", app.i18n.t("waveform-btn-trim"))),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_trim();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc,
+                        egui::Button::new(format!(
+                            "{} (Ctrl+I)",
+                            app.i18n.t("waveform-btn-silence")
+                        )),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_insert_silence();
+                    ui.close_menu();
+                }
+            } else {
+                let can_undo = app.history.can_undo();
+                if ui
+                    .add_enabled(
+                        can_undo,
+                        egui::Button::new(format!("{} (Ctrl+Z)", app.i18n.t("menu-edit-undo"))),
+                    )
+                    .clicked()
+                {
+                    app.action_undo();
+                    ui.close_menu();
+                }
+                let can_redo = app.history.can_redo();
+                if ui
+                    .add_enabled(
+                        can_redo,
+                        egui::Button::new(format!("{} (Ctrl+Y)", app.i18n.t("menu-edit-redo"))),
+                    )
+                    .clicked()
+                {
+                    app.action_redo();
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .button(format!("{} (S)", app.i18n.t("menu-edit-split")))
+                    .clicked()
+                {
+                    app.action_split_selected_clip();
+                    ui.close_menu();
+                }
+                if ui
+                    .button(format!("{} (Del)", app.i18n.t("menu-edit-delete")))
+                    .clicked()
+                {
+                    app.action_delete_selected_clip();
+                    ui.close_menu();
+                }
             }
         });
 
         // ------------------ View Menu ------------------
         ui.menu_button(app.i18n.t("menu-view"), |ui| {
+            if ui
+                .button(format!("{} (1)", app.i18n.t("view-mode-multitrack")))
+                .clicked()
+            {
+                app.action_switch_to_multitrack();
+                ui.close_menu();
+            }
+            if ui
+                .button(format!("{} (2)", app.i18n.t("view-mode-waveform")))
+                .clicked()
+            {
+                app.action_switch_to_waveform();
+                ui.close_menu();
+            }
+            ui.separator();
             if ui.button(app.i18n.t("menu-view-zoom-in")).clicked() {
-                app.timeline_state.pixels_per_second =
-                    (app.timeline_state.pixels_per_second * 1.25).min(500.0);
+                if app.view_mode == crate::state::AppViewMode::Waveform {
+                    app.waveform_state.pixels_per_second =
+                        (app.waveform_state.pixels_per_second * 1.25).min(5000.0);
+                } else {
+                    app.timeline_state.pixels_per_second =
+                        (app.timeline_state.pixels_per_second * 1.25).min(500.0);
+                }
                 ui.close_menu();
             }
             if ui.button(app.i18n.t("menu-view-zoom-out")).clicked() {
-                app.timeline_state.pixels_per_second =
-                    (app.timeline_state.pixels_per_second * 0.8).max(5.0);
+                if app.view_mode == crate::state::AppViewMode::Waveform {
+                    app.waveform_state.pixels_per_second =
+                        (app.waveform_state.pixels_per_second * 0.8).max(5.0);
+                } else {
+                    app.timeline_state.pixels_per_second =
+                        (app.timeline_state.pixels_per_second * 0.8).max(5.0);
+                }
                 ui.close_menu();
             }
             if ui.button(app.i18n.t("menu-view-reset-zoom")).clicked() {
-                app.timeline_state.pixels_per_second = 60.0;
+                if app.view_mode == crate::state::AppViewMode::Waveform {
+                    app.waveform_state.pixels_per_second = 120.0;
+                } else {
+                    app.timeline_state.pixels_per_second = 60.0;
+                }
                 ui.close_menu();
             }
             ui.separator();

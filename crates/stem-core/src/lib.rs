@@ -5,6 +5,7 @@ pub mod error;
 pub mod history;
 pub mod peaks;
 pub mod project;
+pub mod waveform;
 
 pub use demo::generate_demo_project;
 pub use error::ProjectError;
@@ -12,6 +13,9 @@ pub use history::{Action, UndoRedoStack};
 pub use peaks::{PeakBucket, PeakLevel, PeakPyramid};
 pub use project::{
     AudioSource, Clip, EffectConfig, EqBandConfig, FadeCurve, FilterType, Project, Track,
+};
+pub use waveform::{
+    find_nearest_zero_crossing, AudioClipboard, AudioSegment, WaveformDocument, WaveformHistory,
 };
 
 /// The user-facing display name constant re-exported from stem-i18n.

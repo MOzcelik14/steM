@@ -249,6 +249,20 @@ pub enum TimecodeMode {
     Samples,
 }
 
+impl TimecodeMode {
+    pub fn format_time(&self, seconds: f64, sample_rate: u32) -> String {
+        match self {
+            TimecodeMode::TimeCode => format_time_code(seconds),
+            TimecodeMode::Smpte => format_smpte(seconds, 30.0),
+            TimecodeMode::BarsBeats => format_bars_beats(seconds, 120.0, (4, 4)),
+            TimecodeMode::Samples => {
+                let frames = (seconds * sample_rate as f64).max(0.0).round() as u64;
+                format_samples(frames)
+            }
+        }
+    }
+}
+
 /// Formats seconds as SMPTE timecode: HH:MM:SS:FF.
 pub fn format_smpte(seconds: f64, fps: f32) -> String {
     if !seconds.is_finite() || seconds < 0.0 {
