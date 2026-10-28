@@ -1,0 +1,13 @@
+[package]
+name = "stem-i18n"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+fluent-bundle = { workspace = true }
+unic-langid = { workspace = true }
+sys-locale = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

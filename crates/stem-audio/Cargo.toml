@@ -1,0 +1,18 @@
+[package]
+name = "stem-audio"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+stem-core = { workspace = true }
+stem-dsp = { workspace = true }
+cpal = { workspace = true }
+rtrb = { workspace = true }
+symphonia = { workspace = true }
+hound = { workspace = true }
+flacenc = { workspace = true }
+crossbeam-channel = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }

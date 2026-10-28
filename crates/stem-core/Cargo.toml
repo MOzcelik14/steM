@@ -1,0 +1,13 @@
+[package]
+name = "stem-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+stem-i18n = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,205 @@
+# steM. Türkçe yerelleştirme dosyası
+
+app-title = steM.
+app-tagline = Tahribatsız Ses Düzenleyici ve Karıştırıcı
+
+# Menü Çubuğu - Dosya
+menu-file = Dosya
+menu-file-new = Yeni Proje
+menu-file-open = Proje Aç...
+menu-file-save = Projeyi Kaydet
+menu-file-save-as = Projeyi Farklı Kaydet...
+menu-file-import-audio = Ses İçe Aktar...
+menu-file-export = Dışa Aktar...
+menu-file-export-selection = Seçimi Dışa Aktar...
+menu-file-preferences = Tercihler...
+menu-file-exit = Çıkış
+
+# Menü Çubuğu - Düzenle
+menu-edit = Düzenle
+menu-edit-undo = Geri Al
+menu-edit-redo = Yinele
+menu-edit-cut = Kes
+menu-edit-copy = Kopyala
+menu-edit-paste = Yapıştır
+menu-edit-delete = Sil
+menu-edit-split = Oynatma Başlığından Böl
+menu-edit-select-all = Tümünü Seç
+menu-edit-deselect = Seçimi Kaldır
+
+# Menü Çubuğu - Görünüm
+menu-view = Görünüm
+menu-view-zoom-in = Yakınlaştır
+menu-view-zoom-out = Uzaklaştır
+menu-view-zoom-fit = Ekrana Sığdır
+menu-view-reset-zoom = Yakınlaştırmayı Sıfırla
+menu-view-toggle-mixer = Karıştırıcı
+menu-view-toggle-spectrogram = Spektrogram
+menu-view-toggle-meters = Seviye Göstergeleri
+menu-view-toggle-history = Geçmiş
+
+# Menü Çubuğu - Parça
+menu-track = Parça
+menu-track-add-audio = Ses Parçası Ekle
+menu-track-duplicate = Parçayı Çoğalt
+menu-track-delete = Parçayı Sil
+menu-track-mute-all = Tüm Parçaları Sustur
+menu-track-unmute-all = Tüm Parçaların Sesini Aç
+
+# Menü Çubuğu - Yardım
+menu-help = Yardım
+menu-help-documentation = Belgeler
+menu-help-about = steM. Hakkında
+
+# Aktarım Denetimleri (Transport)
+transport-play = Oynat
+transport-pause = Duraklat
+transport-stop = Durdur
+transport-record = Kayıt
+transport-loop = Döngüsel Çalma
+transport-timecode = Zaman
+transport-samples = Örnek
+transport-tempo = Tempo (BPM)
+transport-time-signature = Ölçü
+transport-master-volume = Ana Ses Düzeyi
+
+# Parça Başlıkları ve Denetimleri
+track-header-mute = M
+track-header-solo = S
+track-header-arm = R
+track-header-volume = Kazanç
+track-header-pan = Pan
+track-header-effects = Efektler
+track-header-add-clip = Parça Klibi Ekle
+track-default-name = Parça { $number }
+track-master-name = Ana Çıkış
+
+# Klip İşlemleri
+clip-fade-in = Açma (Fade In)
+clip-fade-out = Kısma (Fade Out)
+clip-gain = Klip Kazancı
+clip-split = Böl
+clip-trim = Kırp
+
+# Karıştırıcı Paneli (Mixer)
+mixer-title = Karıştırıcı
+mixer-track-label = Parça
+mixer-master-label = Ana Çıkış
+mixer-fader = Potansiyometre
+mixer-pan-center = Merkez
+mixer-pan-left = Sol %{ $value }
+mixer-pan-right = Sağ %{ $value }
+mixer-peak = Tepe Değeri (Peak)
+mixer-rms = RMS
+mixer-lufs = LUFS
+
+# Ses DSP ve Efektler
+effect-equalizer = Ekolayzır
+effect-compressor = Kompresör
+effect-limiter = Sınırlayıcı
+effect-reverb = Yankı
+effect-delay = Gecikme
+effect-noise-reduction = Gürültü Azaltma
+effect-normalize = Normalleştir
+effect-gain = Kazanç
+effect-threshold = Eşik Değeri
+effect-ratio = Oran
+effect-attack = Saldırı (Attack)
+effect-release = Bırakma (Release)
+effect-makeup-gain = Telafi Kazancı
+effect-frequency = Frekans
+effect-q-factor = Q Faktörü
+effect-dry-wet = Kuru / Islak
+
+# Görünümler
+view-waveform = Dalga Biçimi
+view-spectrogram = Spektrogram
+view-history-title = Düzenleme Geçmişi
+view-no-history = Henüz işlem yapılmadı
+
+# İletişim Pencereleri ve Ayarlar
+dialog-about-title = steM. Hakkında
+dialog-about-description = steM. yüksek performanslı, tahribatsız bir ses düzenleme ve çok kanallı karıştırma istasyonudur.
+dialog-about-license = Lisans: GNU Genel Kamu Lisansı v3.0
+dialog-about-built-with = Rust, egui, cpal, symphonia, hound, flacenc, rubato ve realfft ile geliştirilmiştir.
+dialog-preferences-title = Tercihler
+dialog-preferences-language = Dil
+dialog-preferences-audio-device = Çıkış Aygıtı
+dialog-preferences-sample-rate = Örnekleme Hızı
+dialog-preferences-buffer-size = Arabellek Boyutu
+dialog-preferences-latency = Tahmini Gecikme
+dialog-close = Kapat
+dialog-apply = Uygula
+dialog-cancel = İptal
+
+# Dışa Aktarma Penceresi
+export-title = Sesi Dışa Aktar
+export-format = Biçim
+export-format-wav = WAV (Kayıpsız PCM)
+export-format-flac = FLAC (Kayıpsız Sıkıştırılmış)
+export-format-mp3 = MP3 (MPEG Katman-3)
+export-sample-rate = Örnekleme Hızı
+export-bit-depth = Bit Derinliği
+export-16bit = 16-bit Tamsayı
+export-24bit = 24-bit Tamsayı
+export-32bit-float = 32-bit Kayan Nokta
+export-dither = TPDF Dither
+export-dither-enabled = Etkin (Bit derinliği azaltma için önerilir)
+export-dither-disabled = Devre Dışı
+export-normalize-before = Dışa Aktarmadan Önce Normalleştir
+export-target-lufs = Hedef Ses Gürlüğü (LUFS)
+export-range = Aralık
+export-range-entire = Tüm Proje
+export-range-selection = Zaman Seçimi
+export-btn-start = Dışa Aktar
+export-btn-cancel = Dışa Aktarmayı İptal Et
+export-btn-browse = Gözat...
+export-status-in-progress = Ses dışa aktarılıyor...
+export-status-success = Dışa aktarma başarıyla tamamlandı!
+export-status-cancelled = Dışa aktarma kullanıcı tarafından iptal edildi.
+export-status-error = Dışa aktarma başarısız oldu: { $reason }
+
+# Durum Çubuğu ve Bildirimler
+status-ready = Hazır
+status-playing = Oynatılıyor
+status-paused = Duraklatıldı
+status-recording = Kayıt Yapılıyor
+status-loading = Ses yükleniyor...
+status-generating-peaks = Dalga biçimi önbelleği oluşturuluyor...
+status-project-saved = Proje başarıyla kaydedildi.
+status-imported-file = { $filename } içe aktarıldı
+
+# Birimler ve Biçimlendirme
+unit-db = dB
+unit-hz = Hz
+unit-khz = kHz
+unit-ms = ms
+unit-sec = sn
+unit-samples = örnek
+unit-bpm = BPM
+
+# Gelişmiş Zaman Kodu ve Izgara
+transport-mode-timecode = Zaman (DD:SS.mmm)
+transport-mode-smpte = SMPTE (SS:DD:SS:KK)
+transport-mode-bars = Ölçü ve Vuruş (Ölçü.Vuruş.Tik)
+transport-mode-samples = Örnek (Mutlak)
+
+# Etkileşimli Efektler ve Görselleştiriciler
+effect-eq-title = Parametrik Ekolayzır
+effect-comp-title = Dinamik Kompresör
+effect-band-lowshelf = Alçak Raf (Low Shelf)
+effect-band-peaking = Çan (Peaking)
+effect-band-highshelf = Yüksek Raf (High Shelf)
+effect-band-highpass = Yüksek Geçiren
+effect-band-lowpass = Alçak Geçiren
+effect-band-bypass = Devre Dışı (Bypass)
+track-add-effect = Efekt Ekle...
+track-effects-rack = Efekt Rafı
+
+# Demo Oturumu ve Kayıt
+menu-file-load-demo = Tanıtım Oturumunu Yükle
+status-demo-loaded = Tanıtım çok kanallı oturumu yüklendi!
+status-recording-armed = Kayıt için hazırlandı
+status-recording-saved = Kayıt yeni klip olarak kaydedildi
+recording-input-device = Giriş Aygıtı
+recording-armed-track = Kayıt için silahlandırıldı

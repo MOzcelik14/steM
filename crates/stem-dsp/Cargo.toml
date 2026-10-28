@@ -1,0 +1,15 @@
+[package]
+name = "stem-dsp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+stem-core = { workspace = true }
+rubato = { workspace = true }
+realfft = { workspace = true }
+rustfft = { workspace = true }
+ebur128 = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,205 @@
+# steM. English localization file
+
+app-title = steM.
+app-tagline = Non-destructive Audio Editor & Mixer
+
+# Menu Bar - File
+menu-file = File
+menu-file-new = New Project
+menu-file-open = Open Project...
+menu-file-save = Save Project
+menu-file-save-as = Save Project As...
+menu-file-import-audio = Import Audio...
+menu-file-export = Export Audio...
+menu-file-export-selection = Export Selection...
+menu-file-preferences = Preferences...
+menu-file-exit = Exit
+
+# Menu Bar - Edit
+menu-edit = Edit
+menu-edit-undo = Undo
+menu-edit-redo = Redo
+menu-edit-cut = Cut
+menu-edit-copy = Copy
+menu-edit-paste = Paste
+menu-edit-delete = Delete
+menu-edit-split = Split at Playhead
+menu-edit-select-all = Select All
+menu-edit-deselect = Deselect All
+
+# Menu Bar - View
+menu-view = View
+menu-view-zoom-in = Zoom In
+menu-view-zoom-out = Zoom Out
+menu-view-zoom-fit = Zoom to Fit
+menu-view-reset-zoom = Reset Zoom
+menu-view-toggle-mixer = Mixer
+menu-view-toggle-spectrogram = Spectrogram
+menu-view-toggle-meters = Level Meters
+menu-view-toggle-history = History
+
+# Menu Bar - Track
+menu-track = Track
+menu-track-add-audio = Add Audio Track
+menu-track-duplicate = Duplicate Track
+menu-track-delete = Delete Track
+menu-track-mute-all = Mute All Tracks
+menu-track-unmute-all = Unmute All Tracks
+
+# Menu Bar - Help
+menu-help = Help
+menu-help-documentation = Documentation
+menu-help-about = About steM.
+
+# Transport Controls
+transport-play = Play
+transport-pause = Pause
+transport-stop = Stop
+transport-record = Record
+transport-loop = Loop Playback
+transport-timecode = Time
+transport-samples = Samples
+transport-tempo = Tempo (BPM)
+transport-time-signature = Signature
+transport-master-volume = Master Volume
+
+# Track Controls & Headers
+track-header-mute = M
+track-header-solo = S
+track-header-arm = R
+track-header-volume = Gain
+track-header-pan = Pan
+track-header-effects = Effects
+track-header-add-clip = Add Clip
+track-default-name = Track { $number }
+track-master-name = Master
+
+# Clip Operations
+clip-fade-in = Fade In
+clip-fade-out = Fade Out
+clip-gain = Clip Gain
+clip-split = Split
+clip-trim = Trim
+
+# Mixer Panel
+mixer-title = Mixer
+mixer-track-label = Track
+mixer-master-label = Master
+mixer-fader = Fader
+mixer-pan-center = Center
+mixer-pan-left = L { $value }%
+mixer-pan-right = R { $value }%
+mixer-peak = Peak
+mixer-rms = RMS
+mixer-lufs = LUFS
+
+# Audio DSP & Effects
+effect-equalizer = Equalizer
+effect-compressor = Compressor
+effect-limiter = Limiter
+effect-reverb = Reverb
+effect-delay = Delay
+effect-noise-reduction = Noise Reduction
+effect-normalize = Normalize
+effect-gain = Gain
+effect-threshold = Threshold
+effect-ratio = Ratio
+effect-attack = Attack
+effect-release = Release
+effect-makeup-gain = Makeup Gain
+effect-frequency = Frequency
+effect-q-factor = Q Factor
+effect-dry-wet = Dry / Wet
+
+# Views & Displays
+view-waveform = Waveform
+view-spectrogram = Spectrogram
+view-history-title = Edit History
+view-no-history = No actions performed yet
+
+# Dialogs & Settings
+dialog-about-title = About steM.
+dialog-about-description = steM. is a high-performance, non-destructive audio editor and multi-track mixing workstation.
+dialog-about-license = License: GNU General Public License v3.0
+dialog-about-built-with = Built with Rust, egui, cpal, symphonia, hound, flacenc, rubato, and realfft.
+dialog-preferences-title = Preferences
+dialog-preferences-language = Language
+dialog-preferences-audio-device = Output Device
+dialog-preferences-sample-rate = Sample Rate
+dialog-preferences-buffer-size = Buffer Size
+dialog-preferences-latency = Estimated Latency
+dialog-close = Close
+dialog-apply = Apply
+dialog-cancel = Cancel
+
+# Export Dialog
+export-title = Export Audio
+export-format = Format
+export-format-wav = WAV (Lossless PCM)
+export-format-flac = FLAC (Lossless Compressed)
+export-format-mp3 = MP3 (MPEG Layer-3)
+export-sample-rate = Sample Rate
+export-bit-depth = Bit Depth
+export-16bit = 16-bit Integer
+export-24bit = 24-bit Integer
+export-32bit-float = 32-bit Float
+export-dither = TPDF Dither
+export-dither-enabled = Enabled (Recommended for bit-depth reduction)
+export-dither-disabled = Disabled
+export-normalize-before = Normalize Before Export
+export-target-lufs = Target Loudness (LUFS)
+export-range = Range
+export-range-entire = Entire Project
+export-range-selection = Time Selection
+export-btn-start = Export
+export-btn-cancel = Cancel Export
+export-btn-browse = Browse...
+export-status-in-progress = Exporting audio...
+export-status-success = Export completed successfully!
+export-status-cancelled = Export cancelled by user.
+export-status-error = Export failed: { $reason }
+
+# Status Bar & Notifications
+status-ready = Ready
+status-playing = Playing
+status-paused = Paused
+status-recording = Recording
+status-loading = Loading audio...
+status-generating-peaks = Building waveform peak cache...
+status-project-saved = Project saved successfully.
+status-imported-file = Imported { $filename }
+
+# Units & Formatting
+unit-db = dB
+unit-hz = Hz
+unit-khz = kHz
+unit-ms = ms
+unit-sec = s
+unit-samples = spl
+unit-bpm = BPM
+
+# Advanced Timecode & Grid
+transport-mode-timecode = Time (MM:SS.mmm)
+transport-mode-smpte = SMPTE (HH:MM:SS:FF)
+transport-mode-bars = Bars & Beats (Bar.Beat.Tick)
+transport-mode-samples = Samples (Absolute)
+
+# Interactive Effects & Visualizers
+effect-eq-title = Parametric Equalizer
+effect-comp-title = Dynamics Compressor
+effect-band-lowshelf = Low Shelf
+effect-band-peaking = Peaking
+effect-band-highshelf = High Shelf
+effect-band-highpass = High Pass
+effect-band-lowpass = Low Pass
+effect-band-bypass = Bypass
+track-add-effect = Add Effect...
+track-effects-rack = Effects Rack
+
+# Demo Session & Recording
+menu-file-load-demo = Load Demo Session
+status-demo-loaded = Loaded demo multi-track session!
+status-recording-armed = Ready to record on armed tracks
+status-recording-saved = Recording saved to new take clip
+recording-input-device = Input Device
+recording-armed-track = Armed for recording

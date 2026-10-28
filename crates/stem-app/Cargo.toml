@@ -1,0 +1,23 @@
+[package]
+name = "stem-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "stem"
+path = "src/main.rs"
+
+[dependencies]
+stem-i18n = { workspace = true }
+stem-core = { workspace = true }
+stem-dsp = { workspace = true }
+stem-audio = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+rfd = { workspace = true }
+crossbeam-channel = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+uuid = { workspace = true }
