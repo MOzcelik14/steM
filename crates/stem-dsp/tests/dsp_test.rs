@@ -432,3 +432,184 @@ fn test_biquad_eq_math() {
         "High shelf high gain should be -6 dB: got {gain_hs_high}"
     );
 }
+
+#[test]
+fn test_parameter_smoothing_continuity() {
+    let sample_rate = 48000.0;
+    // 20ms smoothing constant
+    let mut param = stem_dsp::chain::SmoothedParam::new(0.0, sample_rate, 20.0);
+
+    // Sudden jump target from 0.0 to 1.0
+    param.set_target(1.0);
+
+    let mut prev = 0.0f32;
+    let mut max_delta = 0.0f32;
+
+    for _ in 0..1000 {
+        let current = param.next();
+        let delta = (current - prev).abs();
+        if delta > max_delta {
+            max_delta = delta;
+        }
+        // No discontinuous jump allowed!
+        assert!(
+            delta < 0.01,
+            "Discontinuous parameter jump detected: delta={delta}"
+        );
+        prev = current;
+    }
+
+    // After 1000 samples (~20.8 ms = ~1 time constant), param should have reached ~63.2% of target
+    assert!(
+        (param.current() - 1.0).abs() < 0.40,
+        "Param did not reach expected target: current={}",
+        param.current()
+    );
+
+    // Run 3000 more samples (total 4000 samples ≈ 83.3 ms = ~4.16 time constants)
+    for _ in 0..3000 {
+        param.next();
+    }
+    assert!(
+        (param.current() - 1.0).abs() < 0.02,
+        "Param should be within 0.02 of 1.0: got {}",
+        param.current()
+    );
+
+    // After 8000 samples (>7 time constants), param should be virtually at 1.0
+    for _ in 0..4000 {
+        param.next();
+    }
+    assert!(
+        (param.current() - 1.0).abs() < 0.001,
+        "Param should be virtually at 1.0: got {}",
+        param.current()
+    );
+}
+
+#[test]
+fn test_effect_chain_bypass_bit_exact_passthrough() {
+    let sample_rate = 48000.0;
+    let mut chain = stem_dsp::chain::EffectChain::new();
+
+    let mut eq = stem_dsp::chain::EqEffect::new(sample_rate);
+    eq.bypassed = true;
+    chain.add_effect(stem_dsp::chain::InsertEffect::Equalizer(eq));
+
+    let mut comp =
+        stem_dsp::chain::CompressorEffect::new(sample_rate, -20.0, 4.0, 10.0, 100.0, 6.0);
+    comp.bypassed = true;
+    chain.add_effect(stem_dsp::chain::InsertEffect::Compressor(comp));
+
+    let mut lim = stem_dsp::chain::LimiterEffect::new(sample_rate, -1.0, 50.0);
+    lim.bypassed = true;
+    chain.add_effect(stem_dsp::chain::InsertEffect::Limiter(lim));
+
+    let mut delay = stem_dsp::chain::DelayEffect::new(sample_rate, 250.0, 0.5, 0.5);
+    delay.bypassed = true;
+    chain.add_effect(stem_dsp::chain::InsertEffect::Delay(delay));
+
+    let mut reverb = stem_dsp::chain::ReverbEffect::new(sample_rate, 0.8, 0.5, 0.3);
+    reverb.bypassed = true;
+    chain.add_effect(stem_dsp::chain::InsertEffect::Reverb(reverb));
+
+    // Feed a non-trivial audio signal
+    for i in 0..5000 {
+        let t = i as f32 / sample_rate;
+        let in_l = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.75;
+        let in_r = (2.0 * std::f32::consts::PI * 880.0 * t).cos() * 0.65;
+
+        let (out_l, out_r) = chain.process_stereo(in_l, in_r);
+
+        // Bit-exact identity check
+        assert_eq!(
+            in_l.to_bits(),
+            out_l.to_bits(),
+            "Left channel bit mismatch on bypassed chain at sample {i}"
+        );
+        assert_eq!(
+            in_r.to_bits(),
+            out_r.to_bits(),
+            "Right channel bit mismatch on bypassed chain at sample {i}"
+        );
+    }
+}
+
+#[test]
+fn test_effect_chain_order_strictly_respected() {
+    let sample_rate = 48000.0;
+
+    // Chain 1: [EQ +18 dB boost at 1 kHz] THEN [Limiter at -20 dB = 0.1 linear]
+    let mut chain_eq_then_lim = stem_dsp::chain::EffectChain::new();
+    let mut eq1 = stem_dsp::chain::EqEffect::new(sample_rate);
+    eq1.set_band(
+        1,
+        stem_core::project::EqBandConfig {
+            enabled: true,
+            filter_type: FilterType::Peaking,
+            frequency: 1000.0,
+            gain_db: 18.0,
+            q: 2.0,
+        },
+    );
+    chain_eq_then_lim.add_effect(stem_dsp::chain::InsertEffect::Equalizer(eq1));
+    chain_eq_then_lim.add_effect(stem_dsp::chain::InsertEffect::Limiter(
+        stem_dsp::chain::LimiterEffect::new(sample_rate, -20.0, 10.0),
+    ));
+
+    // Chain 2: [Limiter at -20 dB = 0.1 linear] THEN [EQ +18 dB boost at 1 kHz]
+    let mut chain_lim_then_eq = stem_dsp::chain::EffectChain::new();
+    chain_lim_then_eq.add_effect(stem_dsp::chain::InsertEffect::Limiter(
+        stem_dsp::chain::LimiterEffect::new(sample_rate, -20.0, 10.0),
+    ));
+    let mut eq2 = stem_dsp::chain::EqEffect::new(sample_rate);
+    eq2.set_band(
+        1,
+        stem_core::project::EqBandConfig {
+            enabled: true,
+            filter_type: FilterType::Peaking,
+            frequency: 1000.0,
+            gain_db: 18.0,
+            q: 2.0,
+        },
+    );
+    chain_lim_then_eq.add_effect(stem_dsp::chain::InsertEffect::Equalizer(eq2));
+
+    let mut peak_chain1 = 0.0f32;
+    let mut peak_chain2 = 0.0f32;
+
+    for i in 0..4000 {
+        let t = i as f32 / sample_rate;
+        let s = (2.0 * std::f32::consts::PI * 1000.0 * t).sin() * 0.5;
+
+        let (out1, _) = chain_eq_then_lim.process_stereo(s, s);
+        let (out2, _) = chain_lim_then_eq.process_stereo(s, s);
+
+        if i > 1000 {
+            if out1.abs() > peak_chain1 {
+                peak_chain1 = out1.abs();
+            }
+            if out2.abs() > peak_chain2 {
+                peak_chain2 = out2.abs();
+            }
+        }
+    }
+
+    // In Chain 1 (EQ -> Limiter), the limiter clamps the post-EQ signal to ~0.1
+    assert!(
+        peak_chain1 < 0.15,
+        "Chain 1 (EQ -> Limiter) failed to clamp to limiter ceiling: peak={peak_chain1}"
+    );
+
+    // In Chain 2 (Limiter -> EQ), limiter clamps to 0.1, THEN EQ boosts +18 dB (~8x) to ~0.8
+    assert!(
+        peak_chain2 > 0.6,
+        "Chain 2 (Limiter -> EQ) failed to boost post-limiter signal: peak={peak_chain2}"
+    );
+
+    // Peak 2 must be significantly greater than Peak 1 (> 4x difference)
+    assert!(
+        peak_chain2 > peak_chain1 * 4.0,
+        "Effect chain order was not respected: peak1={peak_chain1}, peak2={peak_chain2}"
+    );
+}

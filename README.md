@@ -107,10 +107,13 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 - Dedicated transactional history (`WaveformHistory`) provides snapshot-based undo and redo.
 - Fast multi-resolution peak pyramids (`PeakPyramid`) deliver smooth 60fps rendering at arbitrary zoom levels with $O(1)$ query overhead.
 
-### Real-Time Audio Engine Safety
+### Real-Time Audio Engine Safety & Effects Chains
 - The audio callback runs with zero heap allocations, zero locking (`Mutex`/`RwLock`), zero system calls, and zero file I/O.
 - State swaps between the GUI thread and audio callback use atomic pointers and lock-free single-producer single-consumer ring buffers (`rtrb`).
 - Retired timeline buffers are transmitted across a dedicated channel back to the UI thread to ensure deallocations never happen on the audio thread.
+- Real-time per-track insert effect chains (EQ, Compressor, Limiter, Delay, Reverb) and master chain execute sample-by-sample inside the audio callback with support for dynamic reordering, bypass, and reset.
+- Dynamic parameter updates are smoothly interpolated on every sample using single-pole exponential smoothing (`SmoothedParam`), eliminating zipper noise and audio clicks.
+- Fade operations (Linear, Logarithmic, Exponential, S-Curve) and peak normalization operate on audio selections non-destructively, rendering virtual slices into the edit list without modifying files on disk.
 
 ---
 
@@ -118,8 +121,8 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 
 - [x] **Milestone 1**: Project skeleton, localization engine (EN/TR), playback engine, lock-free telemetry.
 - [x] **Phase A (Milestone 2)**: Single-file waveform editor mode, non-destructive edit list, zero-crossing snapping, selection playback, clipboard.
-- [ ] **Phase B (Milestone 3)**: Real-time effects rack with live preview, parameter automation, master/track routing.
-- [ ] **Phase C (Milestone 4)**: Cleanup tools (spectral edit, hum removal, click/pop removal) and loudness analysis.
+- [x] **Phase B (Milestone 3)**: Real-time per-track and master insert effect chains (EQ, Compressor, Limiter, Delay, Reverb) in audio callback, live preview, lock-free parameter smoothing (`SmoothedParam`), reordering, per-effect bypass/reset, fade curve operations (Linear, Logarithmic, Exponential, S-Curve), peak normalization, and selection rendering.
+- [ ] **Phase C (Milestone 4)**: Cleanup tools (spectral edit, hum removal, click/pop removal) and loudness analysis gaps.
 - [ ] **Phase D (Milestone 5)**: Multi-channel recording completeness, punch-in/out, latency compensation.
 - [ ] **Phase E (Milestone 7)**: Advanced multitrack session (busses, sends/returns, grouping).
 - [ ] **Phase F (Milestone 8)**: Workflow polish, custom keybindings, theme support, session recovery.

@@ -45,9 +45,19 @@ impl FadeCurve {
         match self {
             FadeCurve::Linear => t,
             FadeCurve::Logarithmic => (1.0 + 9.0 * t).log10(),
-            FadeCurve::Exponential => t * t,
+            FadeCurve::Exponential => (10.0f32.powf(t) - 1.0) / 9.0,
             FadeCurve::SCurve => 0.5 * (1.0 - (std::f32::consts::PI * t).cos()),
         }
+    }
+
+    #[inline]
+    pub fn evaluate_fade_in(&self, t: f32) -> f32 {
+        self.evaluate(t)
+    }
+
+    #[inline]
+    pub fn evaluate_fade_out(&self, t: f32) -> f32 {
+        self.evaluate(1.0 - t.clamp(0.0, 1.0))
     }
 }
 

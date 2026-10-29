@@ -55,6 +55,8 @@ impl AudioClipboard {
     }
 }
 
+pub use crate::project::FadeCurve;
+
 /// A non-destructive single-file waveform document with an edit list of segments.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WaveformDocument {
@@ -470,6 +472,174 @@ impl WaveformDocument {
                 }
             }
             acc += seg_len;
+        }
+    }
+
+    /// Render audio in range [start_frame, end_frame) into planar channel buffers.
+    pub fn render_range(
+        &self,
+        start_frame: u64,
+        end_frame: u64,
+        source_buffers: &HashMap<Uuid, Vec<Vec<f32>>>,
+    ) -> Option<Vec<Vec<f32>>> {
+        let total = self.total_frames();
+        let s = start_frame.min(total);
+        let e = end_frame.min(total).max(s);
+        if s >= e {
+            return None;
+        }
+
+        let full_render = self.render_planar(source_buffers);
+        let mut clip_channels = Vec::with_capacity(full_render.len());
+        for ch in &full_render {
+            let slice = ch[s as usize..e as usize].to_vec();
+            clip_channels.push(slice);
+        }
+        Some(clip_channels)
+    }
+
+    /// Replace range [start_frame, end_frame) with pre-rendered planar audio channels.
+    pub fn replace_range_with_rendered(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        rendered_channels: Vec<Vec<f32>>,
+        source_buffers: &mut HashMap<Uuid, Vec<Vec<f32>>>,
+    ) {
+        let dur = rendered_channels
+            .first()
+            .map(|ch| ch.len() as u64)
+            .unwrap_or(0);
+        if dur == 0 {
+            return;
+        }
+
+        let total = self.total_frames();
+        let s = start_frame.min(total);
+        let e = end_frame.min(total).max(s);
+
+        self.delete_range(s, e);
+
+        let new_src_id = Uuid::new_v4();
+        source_buffers.insert(new_src_id, rendered_channels);
+
+        self.split_at(s);
+
+        let mut acc = 0u64;
+        let mut insert_idx = self.segments.len();
+        for (i, seg) in self.segments.iter().enumerate() {
+            if acc == s {
+                insert_idx = i;
+                break;
+            }
+            acc += seg.length_frames();
+        }
+
+        self.segments.insert(
+            insert_idx,
+            AudioSegment::SourceSlice {
+                source_id: new_src_id,
+                start_frame: 0,
+                length_frames: dur,
+                reversed: false,
+                inverted: false,
+            },
+        );
+    }
+
+    /// Apply a fade-in curve to range [start_frame, end_frame).
+    pub fn apply_fade_in_range(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        curve: FadeCurve,
+        source_buffers: &mut HashMap<Uuid, Vec<Vec<f32>>>,
+    ) {
+        if let Some(mut channels) = self.render_range(start_frame, end_frame, source_buffers) {
+            let dur = channels[0].len();
+            if dur > 0 {
+                let divisor = if dur > 1 { (dur - 1) as f32 } else { 1.0 };
+                for i in 0..dur {
+                    let t = i as f32 / divisor;
+                    let g = curve.evaluate_fade_in(t);
+                    for ch in &mut channels {
+                        ch[i] *= g;
+                    }
+                }
+                self.replace_range_with_rendered(start_frame, end_frame, channels, source_buffers);
+            }
+        }
+    }
+
+    /// Apply a fade-out curve to range [start_frame, end_frame).
+    pub fn apply_fade_out_range(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        curve: FadeCurve,
+        source_buffers: &mut HashMap<Uuid, Vec<Vec<f32>>>,
+    ) {
+        if let Some(mut channels) = self.render_range(start_frame, end_frame, source_buffers) {
+            let dur = channels[0].len();
+            if dur > 0 {
+                let divisor = if dur > 1 { (dur - 1) as f32 } else { 1.0 };
+                for i in 0..dur {
+                    let t = i as f32 / divisor;
+                    let g = curve.evaluate_fade_out(t);
+                    for ch in &mut channels {
+                        ch[i] *= g;
+                    }
+                }
+                self.replace_range_with_rendered(start_frame, end_frame, channels, source_buffers);
+            }
+        }
+    }
+
+    /// Peak-normalize audio in range [start_frame, end_frame) to `target_db`.
+    pub fn normalize_range(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        target_db: f32,
+        source_buffers: &mut HashMap<Uuid, Vec<Vec<f32>>>,
+    ) {
+        if let Some(mut channels) = self.render_range(start_frame, end_frame, source_buffers) {
+            let mut peak = 0.0f32;
+            for ch in &channels {
+                for &s in ch {
+                    let abs_s = s.abs();
+                    if abs_s > peak {
+                        peak = abs_s;
+                    }
+                }
+            }
+
+            if peak > 1e-7 {
+                let target_linear = 10.0f32.powf(target_db / 20.0);
+                let gain = target_linear / peak;
+                for ch in &mut channels {
+                    for s in ch.iter_mut() {
+                        *s *= gain;
+                    }
+                }
+                self.replace_range_with_rendered(start_frame, end_frame, channels, source_buffers);
+            }
+        }
+    }
+
+    /// Process range [start_frame, end_frame) in-place with an arbitrary audio processor callback.
+    pub fn apply_processor_to_range<F>(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        source_buffers: &mut HashMap<Uuid, Vec<Vec<f32>>>,
+        processor: F,
+    ) where
+        F: FnOnce(&mut [Vec<f32>]),
+    {
+        if let Some(mut channels) = self.render_range(start_frame, end_frame, source_buffers) {
+            processor(&mut channels);
+            self.replace_range_with_rendered(start_frame, end_frame, channels, source_buffers);
         }
     }
 }

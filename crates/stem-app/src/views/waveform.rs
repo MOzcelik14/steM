@@ -174,6 +174,76 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
 
         ui.separator();
 
+        // Fade In with Curve Submenu
+        ui.add_enabled_ui(has_doc, |ui| {
+            ui.menu_button(format!("◢ {}", app.i18n.t("waveform-btn-fade-in")), |ui| {
+                if ui.button(app.i18n.t("waveform-fade-linear")).clicked() {
+                    app.action_waveform_fade_in(stem_core::waveform::FadeCurve::Linear);
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("waveform-fade-log")).clicked() {
+                    app.action_waveform_fade_in(stem_core::waveform::FadeCurve::Logarithmic);
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("waveform-fade-exp")).clicked() {
+                    app.action_waveform_fade_in(stem_core::waveform::FadeCurve::Exponential);
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("waveform-fade-scurve")).clicked() {
+                    app.action_waveform_fade_in(stem_core::waveform::FadeCurve::SCurve);
+                    ui.close_menu();
+                }
+            });
+        });
+
+        // Fade Out with Curve Submenu
+        ui.add_enabled_ui(has_doc, |ui| {
+            ui.menu_button(
+                format!("◣ {}", app.i18n.t("waveform-btn-fade-out")),
+                |ui| {
+                    if ui.button(app.i18n.t("waveform-fade-linear")).clicked() {
+                        app.action_waveform_fade_out(stem_core::waveform::FadeCurve::Linear);
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("waveform-fade-log")).clicked() {
+                        app.action_waveform_fade_out(stem_core::waveform::FadeCurve::Logarithmic);
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("waveform-fade-exp")).clicked() {
+                        app.action_waveform_fade_out(stem_core::waveform::FadeCurve::Exponential);
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("waveform-fade-scurve")).clicked() {
+                        app.action_waveform_fade_out(stem_core::waveform::FadeCurve::SCurve);
+                        ui.close_menu();
+                    }
+                },
+            );
+        });
+
+        // Normalize button
+        if ui
+            .add_enabled(
+                has_doc,
+                egui::Button::new(format!("⇪ {}", app.i18n.t("waveform-btn-normalize"))),
+            )
+            .on_hover_text("Peak normalize audio range to target dBFS")
+            .clicked()
+        {
+            app.waveform_state.show_normalize_dialog = true;
+        }
+
+        // Effects Rack button
+        if ui
+            .button(format!("🎛 {}", app.i18n.t("track-effects-rack")))
+            .on_hover_text("Open Insert Effects Rack with live preview")
+            .clicked()
+        {
+            app.show_effects_dialog = true;
+        }
+
+        ui.separator();
+
         // Snap to Zero-Crossing Toggle
         let mut snap_zc = app.waveform_state.snap_to_zero_crossing;
         if ui
@@ -672,6 +742,8 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
             app.waveform_state.drag_op = None;
         }
     }
+
+    render_normalize_dialog(app, ui.ctx());
 }
 
 /// Renders channel peaks for a given channel using the multi-resolution PeakPyramid.
@@ -713,5 +785,54 @@ fn render_channel_peaks(
             [pos2(x, top_y), pos2(x, bot_y.max(top_y + 1.0))],
             Stroke::new(1.0_f32, color),
         );
+    }
+}
+
+fn render_normalize_dialog(app: &mut StemApp, ctx: &egui::Context) {
+    if !app.waveform_state.show_normalize_dialog {
+        return;
+    }
+
+    let mut open = true;
+    egui::Window::new(app.i18n.t("dialog-normalize-title"))
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+        .show(ctx, |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(app.i18n.t("dialog-normalize-target"));
+                    ui.add(
+                        egui::DragValue::new(&mut app.waveform_state.normalize_target_db)
+                            .range(-30.0..=0.0)
+                            .speed(0.1)
+                            .suffix(" dBFS"),
+                    );
+                });
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(app.i18n.t("dialog-normalize-btn-apply"))
+                        .clicked()
+                    {
+                        let target = app.waveform_state.normalize_target_db;
+                        app.action_waveform_normalize(target);
+                        app.waveform_state.show_normalize_dialog = false;
+                    }
+
+                    if ui.button(app.i18n.t("export-btn-cancel")).clicked() {
+                        app.waveform_state.show_normalize_dialog = false;
+                    }
+                });
+            });
+        });
+
+    if !open {
+        app.waveform_state.show_normalize_dialog = false;
     }
 }

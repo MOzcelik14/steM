@@ -207,6 +207,64 @@ pub fn render_project_mixdown_range(
     Ok(vec![master_left, master_right])
 }
 
+/// Renders planar audio buffers for each individual track without track fader/pan.
+/// This allows real-time per-track insert effects and mixing in the audio thread callback.
+pub fn render_project_tracks(
+    project: &Project,
+    source_buffers: &HashMap<Uuid, Vec<Vec<f32>>>,
+) -> Vec<Vec<Vec<f32>>> {
+    let total_frames = project.total_frames() as usize;
+    if total_frames == 0 {
+        return Vec::new();
+    }
+
+    let mut track_buffers = Vec::with_capacity(project.tracks.len());
+
+    for track in &project.tracks {
+        let mut track_left = vec![0.0f32; total_frames];
+        let mut track_right = vec![0.0f32; total_frames];
+
+        for clip in &track.clips {
+            let src_data = match source_buffers.get(&clip.source_id) {
+                Some(buf) if !buf.is_empty() => buf,
+                _ => continue,
+            };
+
+            let src_left = &src_data[0];
+            let src_right = if src_data.len() > 1 {
+                &src_data[1]
+            } else {
+                &src_data[0]
+            };
+
+            let clip_gain = 10.0f32.powf(clip.gain_db / 20.0);
+            let clip_len = clip.length_frames as usize;
+            let src_start = clip.source_start_frame as usize;
+            let timeline_start = clip.track_offset_frames as usize;
+
+            for i in 0..clip_len {
+                let out_idx = timeline_start + i;
+                if out_idx >= total_frames {
+                    break;
+                }
+                let s_idx = src_start + i;
+                let in_l = src_left.get(s_idx).copied().unwrap_or(0.0);
+                let in_r = src_right.get(s_idx).copied().unwrap_or(0.0);
+
+                let fade_gain = clip.gain_at_relative_frame(i as u64);
+                let net_gain = clip_gain * fade_gain;
+
+                track_left[out_idx] += in_l * net_gain;
+                track_right[out_idx] += in_r * net_gain;
+            }
+        }
+
+        track_buffers.push(vec![track_left, track_right]);
+    }
+
+    track_buffers
+}
+
 /// Offline export of the project to a file with all options applied.
 pub fn export_project_to_file<P: AsRef<Path>>(
     project: &Project,

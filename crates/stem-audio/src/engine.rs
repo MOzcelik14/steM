@@ -208,6 +208,53 @@ impl AudioEngine {
         });
     }
 
+    /// Set effect bypass state on track (Some(idx)) or master (None).
+    pub fn set_effect_bypass(
+        &mut self,
+        track_idx: Option<usize>,
+        effect_idx: usize,
+        bypassed: bool,
+    ) {
+        let _ = self.command_tx.push(AudioCommand::SetEffectBypass {
+            track_idx,
+            effect_idx,
+            bypassed,
+        });
+    }
+
+    /// Set effect parameter on track (Some(idx)) or master (None).
+    pub fn set_effect_param(
+        &mut self,
+        track_idx: Option<usize>,
+        effect_idx: usize,
+        param_id: u8,
+        value: f32,
+    ) {
+        let _ = self.command_tx.push(AudioCommand::SetEffectParam {
+            track_idx,
+            effect_idx,
+            param_id,
+            value,
+        });
+    }
+
+    /// Reorder effect in insert chain.
+    pub fn reorder_effect(&mut self, track_idx: Option<usize>, from: usize, to: usize) {
+        let _ = self.command_tx.push(AudioCommand::ReorderEffect {
+            track_idx,
+            from,
+            to,
+        });
+    }
+
+    /// Reset effect state.
+    pub fn reset_effect(&mut self, track_idx: Option<usize>, effect_idx: usize) {
+        let _ = self.command_tx.push(AudioCommand::ResetEffect {
+            track_idx,
+            effect_idx,
+        });
+    }
+
     /// Update the shared audio timeline data played by the audio callback.
     pub fn update_timeline(&self, timeline: Arc<SharedAudioTimeline>) {
         let _ = self.timeline_tx.send(timeline);

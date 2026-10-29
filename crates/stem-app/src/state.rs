@@ -35,6 +35,8 @@ pub struct WaveformViewState {
     pub playhead_frame: u64,
     pub pyramid: Option<PeakPyramid>,
     pub cached_planar: Option<Vec<Vec<f32>>>,
+    pub show_normalize_dialog: bool,
+    pub normalize_target_db: f32,
 }
 
 impl Default for WaveformViewState {
@@ -54,6 +56,8 @@ impl Default for WaveformViewState {
             playhead_frame: 0,
             pyramid: None,
             cached_planar: None,
+            show_normalize_dialog: false,
+            normalize_target_db: -0.1,
         }
     }
 }

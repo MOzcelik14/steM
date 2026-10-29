@@ -45,6 +45,22 @@ impl Compressor {
         self.release_coeff = (-1.0 / (self.sample_rate * release_s)).exp();
     }
 
+    pub fn set_params(
+        &mut self,
+        threshold_db: f32,
+        ratio: f32,
+        attack_ms: f32,
+        release_ms: f32,
+        makeup_gain_db: f32,
+    ) {
+        self.threshold_db = threshold_db;
+        self.ratio = ratio.max(1.0);
+        self.attack_ms = attack_ms;
+        self.release_ms = release_ms;
+        self.makeup_gain_linear = 10.0f32.powf(makeup_gain_db / 20.0);
+        self.update_coefficients();
+    }
+
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate;
         self.update_coefficients();
@@ -129,6 +145,12 @@ impl Limiter {
 
     pub fn reset(&mut self) {
         self.gain = 1.0;
+    }
+
+    pub fn set_params(&mut self, threshold_db: f32, release_ms: f32) {
+        let release_s = (release_ms * 0.001).max(0.001);
+        self.threshold_linear = 10.0f32.powf(threshold_db / 20.0);
+        self.release_coeff = (-1.0 / (self._sample_rate * release_s)).exp();
     }
 
     #[inline]

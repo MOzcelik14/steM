@@ -6,6 +6,7 @@
 
 pub mod analysis;
 pub mod biquad;
+pub mod chain;
 pub mod dither;
 pub mod dynamics;
 pub mod peaks;
@@ -14,6 +15,10 @@ pub mod spatial;
 
 pub use analysis::{analyze_loudness, LoudnessResult, SpectrumAnalyzer};
 pub use biquad::{BiquadCoeffs, BiquadFilter};
+pub use chain::{
+    CompressorEffect, DelayEffect, EffectChain, EqEffect, InsertEffect, LimiterEffect,
+    ReverbEffect, SmoothedParam,
+};
 pub use dither::TpdfDither;
 pub use dynamics::{Compressor, Limiter};
 pub use peaks::build_peak_pyramid;

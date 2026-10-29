@@ -215,3 +215,103 @@ fn test_waveform_undo_redo_history() {
     assert_eq!(doc.total_frames(), 35000);
     assert!(!history.can_redo());
 }
+
+#[test]
+fn test_waveform_fade_curves_math() {
+    let sample_rate = 48000;
+    let mut buffers = HashMap::new();
+
+    // Constant 1.0 signal (1000 frames)
+    let source_id = Uuid::new_v4();
+    let ones = vec![vec![1.0f32; 1000], vec![1.0f32; 1000]];
+    buffers.insert(source_id, ones);
+
+    let source = AudioSource {
+        id: source_id,
+        path: std::path::PathBuf::from("ones.wav"),
+        filename: "ones.wav".to_string(),
+        sample_rate,
+        channels: 2,
+        duration_frames: 1000,
+        file_hash: None,
+    };
+
+    use stem_core::waveform::FadeCurve;
+
+    // Test Linear Fade In: starts at 0.0, ends at 1.0
+    let mut doc_lin = WaveformDocument::from_source(&source);
+    doc_lin.apply_fade_in_range(0, 1000, FadeCurve::Linear, &mut buffers);
+    let rendered_lin = doc_lin.render_planar(&buffers);
+    assert!((rendered_lin[0][0] - 0.0).abs() < 1e-4);
+    assert!((rendered_lin[0][500] - 0.5).abs() < 0.01);
+    assert!((rendered_lin[0][999] - 1.0).abs() < 1e-4);
+
+    // Test S-Curve Fade In: starts at 0.0, midpoint is 0.5, ends at 1.0
+    let mut doc_scurve = WaveformDocument::from_source(&source);
+    doc_scurve.apply_fade_in_range(0, 1000, FadeCurve::SCurve, &mut buffers);
+    let rendered_scurve = doc_scurve.render_planar(&buffers);
+    assert!((rendered_scurve[0][0] - 0.0).abs() < 1e-4);
+    assert!((rendered_scurve[0][500] - 0.5).abs() < 0.01);
+    assert!((rendered_scurve[0][999] - 1.0).abs() < 1e-4);
+
+    // Test Logarithmic vs Exponential: Logarithmic is concave down (louder faster), Exponential is concave up (quieter longer)
+    let mut doc_log = WaveformDocument::from_source(&source);
+    doc_log.apply_fade_in_range(0, 1000, FadeCurve::Logarithmic, &mut buffers);
+    let rendered_log = doc_log.render_planar(&buffers);
+
+    let mut doc_exp = WaveformDocument::from_source(&source);
+    doc_exp.apply_fade_in_range(0, 1000, FadeCurve::Exponential, &mut buffers);
+    let rendered_exp = doc_exp.render_planar(&buffers);
+
+    // At 25% duration, Logarithmic gain > Linear gain > Exponential gain
+    let t250 = 250;
+    assert!(rendered_log[0][t250] > rendered_lin[0][t250]);
+    assert!(rendered_lin[0][t250] > rendered_exp[0][t250]);
+
+    // Test Fade Out (SCurve): starts at 1.0, ends at 0.0
+    let mut doc_fade_out = WaveformDocument::from_source(&source);
+    doc_fade_out.apply_fade_out_range(0, 1000, FadeCurve::SCurve, &mut buffers);
+    let rendered_out = doc_fade_out.render_planar(&buffers);
+    assert!((rendered_out[0][0] - 1.0).abs() < 1e-4);
+    assert!((rendered_out[0][500] - 0.5).abs() < 0.01);
+    assert!((rendered_out[0][999] - 0.0).abs() < 1e-4);
+}
+
+#[test]
+fn test_waveform_peak_normalize() {
+    let sample_rate = 48000;
+    let mut buffers = HashMap::new();
+
+    // Signal with peak at 0.5
+    let source_id = Uuid::new_v4();
+    let half_signal = vec![vec![0.5f32; 1000], vec![0.25f32; 1000]];
+    buffers.insert(source_id, half_signal);
+
+    let source = AudioSource {
+        id: source_id,
+        path: std::path::PathBuf::from("half.wav"),
+        filename: "half.wav".to_string(),
+        sample_rate,
+        channels: 2,
+        duration_frames: 1000,
+        file_hash: None,
+    };
+
+    let mut doc = WaveformDocument::from_source(&source);
+
+    // Normalize to 0.0 dBFS (peak = 1.0)
+    doc.normalize_range(0, 1000, 0.0, &mut buffers);
+    let rendered = doc.render_planar(&buffers);
+    let max_peak_l = rendered[0].iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+    let max_peak_r = rendered[1].iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+
+    assert!((max_peak_l - 1.0).abs() < 1e-4);
+    assert!((max_peak_r - 0.5).abs() < 1e-4); // Relative channel balance preserved!
+
+    // Normalize to -6.0 dBFS (approx 0.501)
+    doc.normalize_range(0, 1000, -6.0, &mut buffers);
+    let rendered_m6 = doc.render_planar(&buffers);
+    let max_peak_m6 = rendered_m6[0].iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+    let expected = 10.0f32.powf(-6.0 / 20.0);
+    assert!((max_peak_m6 - expected).abs() < 1e-3);
+}

@@ -8,8 +8,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use stem_audio::{
-    export_project_to_file, render_project_mixdown, AudioEngine, AudioRecorder, AudioTelemetry,
-    ExportSettings, SharedAudioTimeline,
+    export_project_to_file, render_project_mixdown, render_project_tracks, AudioEngine,
+    AudioRecorder, AudioTelemetry, ExportSettings, SharedAudioTimeline,
 };
 use stem_core::history::{Action, UndoRedoStack};
 use stem_core::peaks::PeakPyramid;
@@ -148,8 +148,10 @@ impl StemApp {
     pub fn sync_timeline_to_audio_engine(&mut self) {
         if let Ok(mix) = render_project_mixdown(&self.project, &self.source_buffers, None) {
             let total_frames = self.project.total_frames();
+            let track_channels = render_project_tracks(&self.project, &self.source_buffers);
             let timeline = Arc::new(SharedAudioTimeline {
                 channels: mix,
+                track_channels,
                 total_frames,
             });
             self.active_timeline = Some(timeline.clone());
@@ -170,6 +172,7 @@ impl StemApp {
                 .unwrap_or(0);
             let timeline = Arc::new(SharedAudioTimeline {
                 channels: planar.clone(),
+                track_channels: Vec::new(),
                 total_frames,
             });
             self.active_timeline = Some(timeline.clone());
@@ -418,6 +421,70 @@ impl StemApp {
             doc.invert_phase_range(s, e);
             self.status_text = self.i18n.t("waveform-status-phase-inverted");
             self.recompute_waveform_cache();
+        }
+    }
+
+    pub fn action_waveform_fade_in(&mut self, curve: stem_core::waveform::FadeCurve) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+            if s < e {
+                self.waveform_state.history.push_state(doc.clone());
+                doc.apply_fade_in_range(s, e, curve, &mut self.source_buffers);
+                self.status_text = self.i18n.t("status-fade-applied");
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_fade_out(&mut self, curve: stem_core::waveform::FadeCurve) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+            if s < e {
+                self.waveform_state.history.push_state(doc.clone());
+                doc.apply_fade_out_range(s, e, curve, &mut self.source_buffers);
+                self.status_text = self.i18n.t("status-fade-applied");
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_normalize(&mut self, target_db: f32) {
+        if let Some(ref mut doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+            if s < e {
+                self.waveform_state.history.push_state(doc.clone());
+                doc.normalize_range(s, e, target_db, &mut self.source_buffers);
+                self.status_text = self.i18n.t("status-normalized");
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_waveform_apply_active_effects(&mut self) {
+        let sample_rate = self.project.sample_rate as f32;
+        let mut dsp_chain = self.effects_state.build_dsp_chain(sample_rate);
+        if let Some(ref mut doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+            if s < e {
+                self.waveform_state.history.push_state(doc.clone());
+                doc.apply_processor_to_range(s, e, &mut self.source_buffers, |channels| {
+                    if channels.len() >= 2 {
+                        let (first, rest) = channels.split_at_mut(1);
+                        dsp_chain.process_buffer(&mut first[0], &mut rest[0]);
+                    } else if !channels.is_empty() {
+                        for s in &mut channels[0] {
+                            let (l, _) = dsp_chain.process_stereo(*s, *s);
+                            *s = l;
+                        }
+                    }
+                });
+                self.status_text = self.i18n.t("status-effect-applied");
+                self.recompute_waveform_cache();
+            }
         }
     }
 

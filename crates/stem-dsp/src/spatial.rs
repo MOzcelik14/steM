@@ -28,6 +28,11 @@ impl Delay {
         self.mix = mix.clamp(0.0, 1.0);
     }
 
+    pub fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.write_pos = 0;
+    }
+
     #[inline]
     pub fn process_sample(&mut self, input: f32) -> f32 {
         let delay_samples = ((self.time_ms * 0.001) * self.sample_rate).round() as usize;
@@ -76,6 +81,12 @@ impl CombFilter {
         self.index = (self.index + 1) % self.buffer.len();
         output
     }
+
+    fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.index = 0;
+        self.filter_store = 0.0;
+    }
 }
 
 /// Allpass filter used for diffusing reverb reflections.
@@ -92,6 +103,11 @@ impl AllPassFilter {
             index: 0,
             feedback: 0.5,
         }
+    }
+
+    fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.index = 0;
     }
 
     #[inline]
@@ -145,6 +161,15 @@ impl Reverb {
         for comb in self.combs.iter_mut() {
             comb.feedback = self.room_size;
             comb.damp = self.damping;
+        }
+    }
+
+    pub fn reset(&mut self) {
+        for comb in &mut self.combs {
+            comb.reset();
+        }
+        for allpass in &mut self.allpasses {
+            allpass.reset();
         }
     }
 
