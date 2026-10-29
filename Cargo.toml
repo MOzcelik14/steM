@@ -13,8 +13,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["steM. Contributors"]
 license = "GPL-3.0"
-repository = "https://github.com/stem-audio/stem"
-homepage = "https://github.com/stem-audio/stem"
+repository = "https://github.com/MOzcelik14/steM"
+homepage = "https://github.com/MOzcelik14/steM"
 readme = "README.md"
 
 [workspace.dependencies]
