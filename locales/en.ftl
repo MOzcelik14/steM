@@ -316,3 +316,36 @@ spectrogram-mode-waterfall = Spectrogram (2D)
 spectrogram-mode-curve = Spectrum (1D)
 meter-peak = Peak
 meter-rms = RMS
+
+# Phase D: Recording Completeness
+recording-input-level = Input Level
+recording-monitoring = Input Monitoring
+recording-monitoring-enabled = Software input monitoring enabled
+recording-monitoring-disabled = Software input monitoring disabled
+recording-count-in = Count-in
+recording-count-in-off = Off
+recording-count-in-1bar = 1 Bar
+recording-count-in-2bars = 2 Bars
+recording-count-in-2s = 2 Seconds
+recording-count-in-4s = 4 Seconds
+recording-count-in-active = Count-in in progress...
+recording-punch-in = Punch-In Recording
+recording-punch-enabled = Punch-In Enabled
+recording-punch-region = Punch Region
+recording-punch-set-selection = Set Punch from Selection
+recording-punch-clear = Clear Punch Region
+recording-punch-preroll = Preroll playback (waiting for punch-in)...
+recording-latency-compensation = Latency Compensation
+recording-latency-ms = Latency Offset (ms)
+recording-latency-samples = { $samples } samples
+recording-device-lost = Audio input device disconnected! Take safely preserved.
+recording-device-connected = Audio input device connected
+recording-no-device = No audio input device available to record
+recording-device-warning-title = Audio Device Disconnected
+recording-device-warning-msg = The audio recording device was disconnected. Your current recording take was safely preserved. Please reconnect the device or select an alternate device in Preferences.
+recording-input-routing = Input Routing
+recording-input-mono1 = Mono (In 1)
+recording-input-mono2 = Mono (In 2)
+recording-input-stereo = Stereo (1+2)
+recording-input-none = No Input
+

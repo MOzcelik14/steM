@@ -19,7 +19,7 @@ use stem_i18n::{I18n, Locale, TimecodeMode};
 
 use crate::state::{
     AppViewMode, ClickRemoverDialogState, LoudnessReportDialogState, NoiseReductionDialogState,
-    TimelineViewState, WaveformViewState, WorkerMessage,
+    RecordingState, TimelineViewState, WaveformViewState, WorkerMessage,
 };
 use crate::views::{
     render_dialogs, render_effects_dialog, render_menu_bar, render_mixer_panel,
@@ -45,6 +45,7 @@ pub struct StemApp {
     pub telemetry: AudioTelemetry,
     pub is_playing: bool,
     pub is_recording: bool,
+    pub recording_state: RecordingState,
     pub source_buffers: HashMap<Uuid, Vec<Vec<f32>>>,
     pub peak_pyramids: HashMap<Uuid, PeakPyramid>,
     pub active_timeline: Option<Arc<SharedAudioTimeline>>,
@@ -87,7 +88,7 @@ impl StemApp {
         let i18n = I18n::new(Locale::from_system());
         let (worker_tx, worker_rx) = unbounded();
 
-        let audio_engine = match AudioEngine::new() {
+        let mut audio_engine = match AudioEngine::new() {
             Ok(engine) => Some(engine),
             Err(err) => {
                 eprintln!("steM. audio engine init warning: {err}");
@@ -95,12 +96,30 @@ impl StemApp {
             }
         };
 
-        let audio_recorder = match AudioRecorder::new() {
+        let monitor_tx = audio_engine
+            .as_mut()
+            .and_then(|e| e.take_monitor_producer());
+
+        let audio_recorder = match AudioRecorder::new(monitor_tx) {
             Ok(rec) => Some(rec),
             Err(err) => {
                 eprintln!("steM. audio recorder init warning: {err}");
                 None
             }
+        };
+
+        let available_inputs = AudioRecorder::available_input_devices();
+        let selected_input = audio_recorder.as_ref().map(|r| r.device_name().to_string());
+        let selected_sr = audio_recorder
+            .as_ref()
+            .map(|r| r.sample_rate())
+            .unwrap_or(48000);
+
+        let recording_state = RecordingState {
+            available_input_devices: available_inputs,
+            selected_input_device: selected_input,
+            selected_sample_rate: selected_sr,
+            ..Default::default()
         };
 
         let project = Project::new("Untitled Project", 48000);
@@ -122,6 +141,7 @@ impl StemApp {
             telemetry: AudioTelemetry::default(),
             is_playing: false,
             is_recording: false,
+            recording_state,
             source_buffers: HashMap::new(),
             peak_pyramids: HashMap::new(),
             active_timeline: None,
@@ -938,52 +958,221 @@ impl StemApp {
     }
 
     pub fn action_toggle_record(&mut self) {
-        if self.is_recording {
-            // Stop recording take
-            if let Some(ref recorder) = self.audio_recorder {
-                if let Some((source, planar)) = recorder.stop_recording() {
-                    let source_id = source.id;
-                    let source_frames = source.duration_frames;
-                    let filename = source.filename.clone();
-
-                    let channel_refs: Vec<&[f32]> = planar.iter().map(|ch| ch.as_slice()).collect();
-                    let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
-
-                    self.project.add_source(source);
-                    self.source_buffers.insert(source_id, planar);
-                    self.peak_pyramids.insert(source_id, pyramid);
-
-                    // Place recorded clip on armed track or first track
-                    let target_track_id = self
-                        .project
-                        .tracks
-                        .iter()
-                        .find(|t| t.armed)
-                        .map(|t| t.id)
-                        .or_else(|| self.project.tracks.first().map(|t| t.id));
-
-                    if let Some(t_id) = target_track_id {
-                        let playhead = self.telemetry.playhead_frame;
-                        let clip = Clip::new(&filename, source_id, 0, source_frames, playhead);
-                        let _ = self.project.add_clip_to_track(t_id, clip);
-                    }
-
-                    self.status_text = self.i18n.t("status-recording-saved");
-                    self.sync_timeline_to_audio_engine();
-                }
+        if self.is_recording || self.recording_state.count_in_active {
+            // Stop recording / cancel count-in
+            if self.recording_state.count_in_active {
+                self.recording_state.count_in_active = false;
+                self.is_recording = false;
+                self.status_text = self.i18n.t("status-ready");
+                return;
             }
+
+            self.finish_recording_take();
             self.is_recording = false;
+            self.recording_state.is_punching = false;
         } else {
-            // Start recording take
-            if let Some(ref recorder) = self.audio_recorder {
-                recorder.start_recording();
-                self.is_recording = true;
-                self.status_text = self.i18n.t("status-recording");
+            // Start recording flow
+            if self.audio_recorder.is_none() {
+                self.status_text = self.i18n.t("recording-no-device");
+                return;
+            }
+
+            // Check count-in
+            let count_in_dur = self
+                .project
+                .count_in_mode
+                .duration_seconds(self.project.tempo_bpm, self.project.time_signature.0);
+
+            if count_in_dur > 0.0 {
+                self.recording_state.count_in_active = true;
+                self.recording_state.count_in_seconds_remaining = count_in_dur;
+                self.recording_state.count_in_total_seconds = count_in_dur;
+                self.status_text = self.i18n.t("recording-count-in-active");
                 if !self.is_playing {
                     self.action_toggle_play();
                 }
             } else {
-                self.status_text = "No audio input device available to record".to_string();
+                self.start_actual_recording();
+            }
+        }
+    }
+
+    /// Engages audio recording from the hardware stream.
+    pub fn start_actual_recording(&mut self) {
+        if self.audio_recorder.is_none() {
+            return;
+        }
+
+        let playhead = self.telemetry.playhead_frame;
+        self.recording_state.record_start_frame = playhead;
+
+        if self.project.punch_in_enabled {
+            if let Some((punch_in, punch_out)) = self.project.punch_region {
+                if playhead < punch_in {
+                    // Playhead is in preroll before punch-in point
+                    self.is_recording = true;
+                    self.recording_state.is_punching = false;
+                    self.status_text = self.i18n.t("recording-punch-preroll");
+                    if !self.is_playing {
+                        self.action_toggle_play();
+                    }
+                    return;
+                } else if playhead >= punch_out {
+                    // Past punch-out: reposition playhead at punch-in
+                    self.action_seek(punch_in);
+                    self.recording_state.record_start_frame = punch_in;
+                }
+            }
+        }
+
+        if let Some(ref recorder) = self.audio_recorder {
+            recorder.start_recording();
+        }
+        self.is_recording = true;
+        self.recording_state.is_punching = self.project.punch_in_enabled;
+        self.status_text = self.i18n.t("status-recording");
+        if !self.is_playing {
+            self.action_toggle_play();
+        }
+    }
+
+    /// Stops hardware stream capture, applies latency compensation, routes channels, and places take clips.
+    pub fn finish_recording_take(&mut self) {
+        if let Some(ref recorder) = self.audio_recorder {
+            if let Some((source, planar)) = recorder.stop_recording() {
+                let source_frames = source.duration_frames;
+                if source_frames == 0 {
+                    return;
+                }
+
+                let latency_frames = self.project.latency_compensation_frames();
+                let start_frame = self.recording_state.record_start_frame;
+
+                // Determine armed tracks (or default to first track)
+                let armed_tracks: Vec<Uuid> = self
+                    .project
+                    .tracks
+                    .iter()
+                    .filter(|t| t.armed)
+                    .map(|t| t.id)
+                    .collect();
+
+                let target_tracks = if !armed_tracks.is_empty() {
+                    armed_tracks
+                } else if let Some(first) = self.project.tracks.first() {
+                    vec![first.id]
+                } else {
+                    Vec::new()
+                };
+
+                for &track_id in &target_tracks {
+                    let routing = self
+                        .project
+                        .get_track(track_id)
+                        .map(|t| t.input_routing)
+                        .unwrap_or_default();
+
+                    let routed_planar = routing.extract_channels(&planar);
+                    let track_channels = routed_planar.len();
+                    let channel_refs: Vec<&[f32]> =
+                        routed_planar.iter().map(|ch| ch.as_slice()).collect();
+                    let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+
+                    let take_source_id = Uuid::new_v4();
+                    let take_filename = format!(
+                        "Take_{}_{}.wav",
+                        self.project
+                            .get_track(track_id)
+                            .map(|t| t.name.as_str())
+                            .unwrap_or("Track"),
+                        &take_source_id.to_string()[..6]
+                    );
+
+                    let take_source = stem_core::project::AudioSource {
+                        id: take_source_id,
+                        path: std::path::PathBuf::from(&take_filename),
+                        filename: take_filename.clone(),
+                        sample_rate: self.project.sample_rate,
+                        channels: track_channels.max(1),
+                        duration_frames: source_frames,
+                        file_hash: None,
+                    };
+
+                    self.project.add_source(take_source);
+                    self.source_buffers.insert(take_source_id, routed_planar);
+                    self.peak_pyramids.insert(take_source_id, pyramid);
+
+                    // Latency compensation calculation
+                    let (adjusted_offset, source_start, clip_len) = if start_frame >= latency_frames
+                    {
+                        (start_frame - latency_frames, 0, source_frames)
+                    } else {
+                        let excess = latency_frames - start_frame;
+                        let excess_clamped = excess.min(source_frames);
+                        (0, excess_clamped, source_frames - excess_clamped)
+                    };
+
+                    let clip = Clip::new(
+                        &take_filename,
+                        take_source_id,
+                        source_start,
+                        clip_len,
+                        adjusted_offset,
+                    );
+
+                    if self.project.punch_in_enabled {
+                        let _ = self.project.punch_clip_into_track(track_id, clip);
+                    } else {
+                        let _ = self.project.add_clip_to_track(track_id, clip);
+                    }
+                }
+
+                self.status_text = self.i18n.t("status-recording-saved");
+                self.sync_timeline_to_audio_engine();
+            }
+        }
+    }
+
+    /// Toggle software input monitoring on or off.
+    pub fn action_toggle_input_monitoring(&mut self) {
+        self.project.input_monitoring = !self.project.input_monitoring;
+        let enabled = self.project.input_monitoring;
+        if let Some(ref recorder) = self.audio_recorder {
+            recorder.set_monitoring(enabled);
+        }
+        if let Some(ref mut engine) = self.audio_engine {
+            engine.set_input_monitoring(enabled);
+        }
+        self.status_text = if enabled {
+            self.i18n.t("recording-monitoring-enabled")
+        } else {
+            self.i18n.t("recording-monitoring-disabled")
+        };
+    }
+
+    /// Select hardware input device.
+    pub fn action_set_input_device(&mut self, device_name: Option<String>) {
+        self.recording_state.selected_input_device = device_name.clone();
+        let mon_tx = self
+            .audio_engine
+            .as_mut()
+            .and_then(|e| e.take_monitor_producer());
+        match AudioRecorder::with_config(
+            device_name.as_deref(),
+            Some(self.recording_state.selected_sample_rate),
+            mon_tx,
+        ) {
+            Ok(rec) => {
+                if self.project.input_monitoring {
+                    rec.set_monitoring(true);
+                }
+                self.audio_recorder = Some(rec);
+                self.recording_state.device_lost_warning = false;
+                self.status_text = self.i18n.t("recording-device-connected");
+            }
+            Err(err) => {
+                eprintln!("steM. error setting input device: {err}");
+                self.status_text = format!("Input device error: {err}");
             }
         }
     }
@@ -1202,18 +1391,76 @@ impl StemApp {
 
 impl eframe::App for StemApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Continuous repaint during playback or recording for 60fps animations
-        if self.is_playing || self.is_recording {
+        // Continuous repaint during playback, recording, count-in, or input monitoring
+        if self.is_playing
+            || self.is_recording
+            || self.recording_state.count_in_active
+            || self.project.input_monitoring
+        {
             ctx.request_repaint();
         }
 
         // Handle global keyboard shortcuts
         self.handle_keyboard_shortcuts(ctx);
 
+        // Check for audio hardware disconnection
+        let mut lost_device = false;
+        if let Some(ref recorder) = self.audio_recorder {
+            if recorder.is_device_lost() {
+                lost_device = true;
+            }
+        }
+        if lost_device {
+            if self.is_recording {
+                self.action_toggle_record();
+            }
+            self.recording_state.device_lost_warning = true;
+            self.audio_recorder = None;
+            self.status_text = self.i18n.t("recording-device-lost");
+        }
+
         // Drain telemetry from real-time audio thread
         if let Some(ref mut engine) = self.audio_engine {
             self.telemetry = engine.poll_telemetry();
             self.is_playing = engine.is_playing();
+        }
+
+        // Drain input telemetry from audio recorder
+        if let Some(ref mut recorder) = self.audio_recorder {
+            self.recording_state.input_telemetry = recorder.telemetry();
+        }
+
+        // Count-in countdown progression
+        if self.recording_state.count_in_active {
+            let dt = ctx.input(|i| i.stable_dt).min(0.1);
+            self.recording_state.count_in_seconds_remaining -= dt;
+            if self.recording_state.count_in_seconds_remaining <= 0.0 {
+                self.recording_state.count_in_active = false;
+                self.start_actual_recording();
+            }
+        }
+
+        // Punch-in boundary checking during playback
+        if self.is_recording && self.project.punch_in_enabled {
+            if let Some((punch_in, punch_out)) = self.project.punch_region {
+                let current_frame = self.telemetry.playhead_frame;
+                // Transition into punch recording
+                if !self.recording_state.is_punching
+                    && current_frame >= punch_in
+                    && current_frame < punch_out
+                {
+                    self.recording_state.is_punching = true;
+                    self.recording_state.record_start_frame = punch_in;
+                    if let Some(ref recorder) = self.audio_recorder {
+                        recorder.start_recording();
+                    }
+                    self.status_text = self.i18n.t("status-recording");
+                }
+                // Transition out of punch recording
+                else if self.recording_state.is_punching && current_frame >= punch_out {
+                    self.action_toggle_record();
+                }
+            }
         }
 
         if self.view_mode == AppViewMode::Waveform && self.is_playing {

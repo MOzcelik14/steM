@@ -3,6 +3,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -30,6 +31,9 @@ pub struct AudioEngine {
     telemetry_rx: Consumer<AudioTelemetry>,
     timeline_tx: crossbeam_channel::Sender<Arc<SharedAudioTimeline>>,
     retired_timeline_rx: crossbeam_channel::Receiver<Arc<SharedAudioTimeline>>,
+    monitor_tx: Option<Producer<f32>>,
+    device_lost: Arc<AtomicBool>,
+    is_input_monitoring: bool,
     device_name: String,
     sample_rate: u32,
     _channels: u16,
@@ -61,12 +65,16 @@ impl AudioEngine {
         // Ring buffers for lock-free communication
         let (cmd_tx, cmd_rx) = RingBuffer::<AudioCommand>::new(512);
         let (telem_tx, telem_rx) = RingBuffer::<AudioTelemetry>::new(512);
+        let (mon_tx, mon_rx) = RingBuffer::<f32>::new(8192);
 
         // Channels to exchange shared timeline without deallocating on audio thread
         let (timeline_tx, timeline_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(8);
         let (retired_tx, retired_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(8);
 
-        let mut processor = AudioProcessor::new(cmd_rx, telem_tx);
+        let mut processor = AudioProcessor::new(cmd_rx, telem_tx, Some(mon_rx));
+
+        let device_lost = Arc::new(AtomicBool::new(false));
+        let device_lost_cb = device_lost.clone();
 
         let stream = device.build_output_stream(
             &config,
@@ -81,8 +89,8 @@ impl AudioEngine {
 
                 processor.process_interleaved(data);
             },
-            |err| {
-                eprintln!("steM. audio stream error: {err}");
+            move |_err| {
+                device_lost_cb.store(true, Ordering::SeqCst);
             },
             None,
         )?;
@@ -95,6 +103,9 @@ impl AudioEngine {
             telemetry_rx: telem_rx,
             timeline_tx,
             retired_timeline_rx: retired_rx,
+            monitor_tx: Some(mon_tx),
+            device_lost,
+            is_input_monitoring: false,
             device_name,
             sample_rate,
             _channels: channels,
@@ -125,6 +136,28 @@ impl AudioEngine {
             }
         }
         devices
+    }
+
+    /// Check if the audio output stream encountered a hardware disconnection or error.
+    pub fn is_device_lost(&self) -> bool {
+        self.device_lost.load(Ordering::Relaxed)
+    }
+
+    /// Extracts the software input monitoring producer to connect to the input recorder.
+    pub fn take_monitor_producer(&mut self) -> Option<Producer<f32>> {
+        self.monitor_tx.take()
+    }
+
+    /// Enables or disables software input monitoring.
+    pub fn set_input_monitoring(&mut self, enabled: bool) {
+        self.is_input_monitoring = enabled;
+        let _ = self
+            .command_tx
+            .push(AudioCommand::SetInputMonitoring(enabled));
+    }
+
+    pub fn is_input_monitoring(&self) -> bool {
+        self.is_input_monitoring
     }
 
     /// Start playback.

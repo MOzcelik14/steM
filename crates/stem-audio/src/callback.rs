@@ -59,6 +59,7 @@ pub enum AudioCommand {
         track_idx: Option<usize>,
         effect_idx: usize,
     },
+    SetInputMonitoring(bool),
 }
 
 /// Telemetry metrics returned from the audio thread back to the UI.
@@ -118,12 +119,17 @@ pub struct AudioProcessor {
 
     // Shared timeline audio buffer
     audio_data: Option<Arc<SharedAudioTimeline>>,
+
+    // Software input monitoring
+    monitor_consumer: Option<Consumer<f32>>,
+    monitoring_enabled: bool,
 }
 
 impl AudioProcessor {
     pub fn new(
         command_consumer: Consumer<AudioCommand>,
         telemetry_producer: Producer<AudioTelemetry>,
+        monitor_consumer: Option<Consumer<f32>>,
     ) -> Self {
         let default_track_effects: [EffectChain; MAX_TRACKS] =
             std::array::from_fn(|_| EffectChain::default_chain(48000.0));
@@ -140,6 +146,8 @@ impl AudioProcessor {
             loop_start_frame: 0,
             loop_end_frame: 0,
             audio_data: None,
+            monitor_consumer,
+            monitoring_enabled: false,
         }
     }
 
@@ -249,6 +257,9 @@ impl AudioProcessor {
                     }
                     _ => {}
                 },
+                AudioCommand::SetInputMonitoring(enabled) => {
+                    self.monitoring_enabled = enabled;
+                }
             }
         }
     }
@@ -375,6 +386,35 @@ impl AudioProcessor {
             }
         } else {
             output.fill(0.0);
+        }
+
+        // Software input monitoring (live passthrough of inputs to playback outputs)
+        if self.monitoring_enabled {
+            if let Some(ref mut mon) = self.monitor_consumer {
+                for f in 0..num_frames {
+                    if let Ok(l_mon) = mon.pop() {
+                        let r_mon = mon.pop().unwrap_or(l_mon);
+                        output[f * 2] += l_mon;
+                        output[f * 2 + 1] += r_mon;
+
+                        if !self.is_playing {
+                            let abs_l = output[f * 2].abs();
+                            let abs_r = output[f * 2 + 1].abs();
+                            if abs_l > peak_l {
+                                peak_l = abs_l;
+                            }
+                            if abs_r > peak_r {
+                                peak_r = abs_r;
+                            }
+                            sum_sq_l += output[f * 2] * output[f * 2];
+                            sum_sq_r += output[f * 2 + 1] * output[f * 2 + 1];
+                            frames_counted += 1;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
 
         let count = frames_counted.max(1) as f32;

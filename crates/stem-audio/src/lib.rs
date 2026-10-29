@@ -13,4 +13,4 @@ pub use export::{
     export_project_to_file, render_project_mixdown, render_project_mixdown_range,
     render_project_tracks, BitDepth, ExportError, ExportFormat, ExportRange, ExportSettings,
 };
-pub use record::{AudioRecorder, RecordError};
+pub use record::{AudioRecorder, InputTelemetry, RecordError};

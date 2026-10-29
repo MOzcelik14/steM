@@ -25,16 +25,116 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             app.action_stop();
         }
 
-        // Record
+        // Record Button
         let is_recording = app.is_recording;
+        let is_count_in = app.recording_state.count_in_active;
         let rec_color = if is_recording {
             Color32::from_rgb(255, 30, 30)
+        } else if is_count_in {
+            Color32::from_rgb(255, 180, 30)
         } else {
             Color32::from_rgb(180, 50, 50)
         };
         let rec_btn = egui::Button::new(egui::RichText::new("⏺").size(16.0).color(rec_color));
-        if ui.add(rec_btn).clicked() {
+        if ui
+            .add(rec_btn)
+            .on_hover_text(app.i18n.t("transport-record"))
+            .clicked()
+        {
             app.action_toggle_record();
+        }
+
+        // Live Hardware Input Level Meter
+        render_input_vu_meter(app, ui);
+
+        // Software Input Monitoring
+        let monitoring = app.project.input_monitoring;
+        let mon_color = if monitoring {
+            Color32::from_rgb(80, 230, 100)
+        } else {
+            Color32::GRAY
+        };
+        if ui
+            .selectable_label(
+                monitoring,
+                egui::RichText::new("🎧 Mon").size(11.0).color(mon_color),
+            )
+            .on_hover_text(app.i18n.t("recording-monitoring"))
+            .clicked()
+        {
+            app.action_toggle_input_monitoring();
+        }
+
+        // Count-In Selector
+        let mut count_in = app.project.count_in_mode;
+        let count_in_label = match count_in {
+            stem_core::project::CountInMode::Off => app.i18n.t("recording-count-in-off"),
+            stem_core::project::CountInMode::OneBar => app.i18n.t("recording-count-in-1bar"),
+            stem_core::project::CountInMode::TwoBars => app.i18n.t("recording-count-in-2bars"),
+            stem_core::project::CountInMode::TwoSeconds => app.i18n.t("recording-count-in-2s"),
+            stem_core::project::CountInMode::FourSeconds => app.i18n.t("recording-count-in-4s"),
+        };
+        egui::ComboBox::from_id_salt("transport_count_in")
+            .selected_text(format!("⏱ {}", count_in_label))
+            .width(75.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut count_in,
+                    stem_core::project::CountInMode::Off,
+                    app.i18n.t("recording-count-in-off"),
+                );
+                ui.selectable_value(
+                    &mut count_in,
+                    stem_core::project::CountInMode::OneBar,
+                    app.i18n.t("recording-count-in-1bar"),
+                );
+                ui.selectable_value(
+                    &mut count_in,
+                    stem_core::project::CountInMode::TwoBars,
+                    app.i18n.t("recording-count-in-2bars"),
+                );
+                ui.selectable_value(
+                    &mut count_in,
+                    stem_core::project::CountInMode::TwoSeconds,
+                    app.i18n.t("recording-count-in-2s"),
+                );
+                ui.selectable_value(
+                    &mut count_in,
+                    stem_core::project::CountInMode::FourSeconds,
+                    app.i18n.t("recording-count-in-4s"),
+                );
+            });
+        app.project.count_in_mode = count_in;
+
+        // Punch-In Recording Toggle
+        let mut punch_enabled = app.project.punch_in_enabled;
+        let punch_color = if punch_enabled {
+            Color32::from_rgb(255, 120, 50)
+        } else {
+            Color32::GRAY
+        };
+        if ui
+            .selectable_label(
+                punch_enabled,
+                egui::RichText::new("🎯 Punch")
+                    .size(11.0)
+                    .color(punch_color),
+            )
+            .on_hover_text(app.i18n.t("recording-punch-in"))
+            .clicked()
+        {
+            punch_enabled = !punch_enabled;
+            app.project.punch_in_enabled = punch_enabled;
+            if punch_enabled && app.project.punch_region.is_none() {
+                // If punch region is unset, default to current selection or 4 bars from playhead
+                if let Some(sel) = app.waveform_state.selection {
+                    app.project.punch_region = Some(sel);
+                } else {
+                    let start = app.telemetry.playhead_frame;
+                    let len = (app.project.sample_rate as u64 * 4).max(48000);
+                    app.project.punch_region = Some((start, start + len));
+                }
+            }
         }
 
         // Loop
@@ -299,5 +399,64 @@ fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: 
         rect,
         Rounding::same(1.0),
         Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
+    );
+}
+
+/// Renders a compact dual Peak/RMS hardware input meter in the transport bar.
+pub fn render_input_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
+    let meter_size = Vec2::new(55.0, 18.0);
+    let (rect, response) = ui.allocate_exact_size(meter_size, egui::Sense::hover());
+
+    let telem = app.recording_state.input_telemetry;
+    let peak_l = telem.peak_l;
+    let peak_r = telem.peak_r;
+    let rms_l = telem.rms_l;
+    let rms_r = telem.rms_r;
+
+    let peak_db_l = if peak_l > 1e-5 {
+        20.0 * peak_l.log10()
+    } else {
+        -90.0
+    };
+    let peak_db_r = if peak_r > 1e-5 {
+        20.0 * peak_r.log10()
+    } else {
+        -90.0
+    };
+
+    response.on_hover_ui(|ui| {
+        ui.label(
+            egui::RichText::new(format!("🎙 {}", app.i18n.t("recording-input-level"))).strong(),
+        );
+        ui.label(format!("L Peak: {peak_db_l:.1} dBFS  |  RMS: {rms_l:.3}"));
+        ui.label(format!("R Peak: {peak_db_r:.1} dBFS  |  RMS: {rms_r:.3}"));
+    });
+
+    let painter = ui.painter_at(rect);
+
+    // Dark background
+    painter.rect_filled(rect, Rounding::same(2.0), Color32::from_rgb(18, 20, 24));
+
+    let bar_height = (rect.height() - 3.0) / 2.0;
+
+    // Top Bar: Input Left
+    let rect_l = Rect::from_min_size(
+        egui::pos2(rect.min.x + 1.0, rect.min.y + 1.0),
+        Vec2::new(rect.width() - 2.0, bar_height),
+    );
+    render_single_meter_bar(&painter, rect_l, peak_l, rms_l);
+
+    // Bottom Bar: Input Right
+    let rect_r = Rect::from_min_size(
+        egui::pos2(rect.min.x + 1.0, rect.min.y + 2.0 + bar_height),
+        Vec2::new(rect.width() - 2.0, bar_height),
+    );
+    render_single_meter_bar(&painter, rect_r, peak_r, rms_r);
+
+    // Overall frame outline
+    painter.rect_stroke(
+        rect,
+        Rounding::same(2.0),
+        Stroke::new(1.0_f32, Color32::from_rgb(50, 55, 65)),
     );
 }

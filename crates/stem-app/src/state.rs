@@ -268,3 +268,38 @@ impl Default for LoudnessReportDialogState {
         }
     }
 }
+
+/// Dynamic recording session and hardware state.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct RecordingState {
+    pub input_telemetry: stem_audio::InputTelemetry,
+    pub count_in_active: bool,
+    pub count_in_seconds_remaining: f32,
+    pub count_in_total_seconds: f32,
+    pub record_start_frame: u64,
+    pub is_punching: bool,
+    pub available_input_devices: Vec<String>,
+    pub selected_input_device: Option<String>,
+    pub selected_sample_rate: u32,
+    pub device_lost_warning: bool,
+    pub show_settings_dialog: bool,
+}
+
+impl Default for RecordingState {
+    fn default() -> Self {
+        Self {
+            input_telemetry: stem_audio::InputTelemetry::default(),
+            count_in_active: false,
+            count_in_seconds_remaining: 0.0,
+            count_in_total_seconds: 0.0,
+            record_start_frame: 0,
+            is_punching: false,
+            available_input_devices: Vec::new(),
+            selected_input_device: None,
+            selected_sample_rate: 48000,
+            device_lost_warning: false,
+            show_settings_dialog: false,
+        }
+    }
+}

@@ -329,3 +329,156 @@ fn test_fade_curves_and_gain_math() {
     assert!((db_to_linear(-20.0) - 0.1).abs() < 1e-4);
     assert!((db_to_linear(20.0) - 10.0).abs() < 1e-4);
 }
+
+#[test]
+fn test_recording_latency_compensation_math_and_clamping() {
+    let mut proj = Project::new("Latency Test", 48000);
+    proj.latency_compensation_ms = 20.0;
+    // At 48000 Hz, 20.0 ms = 0.02 * 48000 = 960 frames
+    assert_eq!(proj.latency_compensation_frames(), 960);
+
+    proj.latency_compensation_ms = 12.5;
+    // 0.0125 * 48000 = 600 frames
+    assert_eq!(proj.latency_compensation_frames(), 600);
+
+    // At 44100 Hz, 10.0 ms = 441 frames
+    let mut proj_44k = Project::new("44.1k Test", 44100);
+    proj_44k.latency_compensation_ms = 10.0;
+    assert_eq!(proj_44k.latency_compensation_frames(), 441);
+
+    // Offset clamping:
+    // Case 1: start_frame >= latency_frames
+    let start_frame = 2000_u64;
+    let latency = 960_u64;
+    let (offset, source_start, len) = if start_frame >= latency {
+        (start_frame - latency, 0_u64, 48000_u64)
+    } else {
+        let excess = latency - start_frame;
+        (0_u64, excess, 48000 - excess)
+    };
+    assert_eq!(offset, 1040);
+    assert_eq!(source_start, 0);
+    assert_eq!(len, 48000);
+
+    // Case 2: start_frame < latency_frames (clamped to 0 timeline offset)
+    let start_frame_early = 200_u64;
+    let (offset_early, source_start_early, len_early) = if start_frame_early >= latency {
+        (start_frame_early - latency, 0_u64, 48000_u64)
+    } else {
+        let excess = latency - start_frame_early;
+        (0_u64, excess, 48000 - excess)
+    };
+    assert_eq!(offset_early, 0);
+    assert_eq!(source_start_early, 760);
+    assert_eq!(len_early, 48000 - 760);
+}
+
+#[test]
+fn test_punch_in_non_destructive_slicing_and_placement() {
+    use stem_core::project::Clip;
+
+    let mut proj = Project::new("Punch Session", 48000);
+    let track_id = proj.tracks[0].id;
+    let src_id = Uuid::new_v4();
+
+    // 1. Initial clip spanning timeline frames [1000..5000] (length 4000)
+    let clip = Clip::new("Original Take", src_id, 0, 4000, 1000);
+    proj.add_clip_to_track(track_id, clip).unwrap();
+
+    // 2. Punch-in take placed over region [2000..3500] (length 1500)
+    let punch_src_id = Uuid::new_v4();
+    let punch_take = Clip::new("Punch In Take", punch_src_id, 0, 1500, 2000);
+    proj.punch_clip_into_track(track_id, punch_take).unwrap();
+
+    let track = proj.get_track(track_id).unwrap();
+    assert_eq!(
+        track.clips.len(),
+        3,
+        "Clip should be cleanly split into 3 pieces"
+    );
+
+    // Left piece: [1000..2000], length 1000, source_start 0
+    let c_left = &track.clips[0];
+    assert_eq!(c_left.track_offset_frames, 1000);
+    assert_eq!(c_left.length_frames, 1000);
+    assert_eq!(c_left.source_start_frame, 0);
+
+    // Punch take: [2000..3500], length 1500, source_start 0
+    let c_punch = &track.clips[1];
+    assert_eq!(c_punch.track_offset_frames, 2000);
+    assert_eq!(c_punch.length_frames, 1500);
+    assert_eq!(c_punch.source_id, punch_src_id);
+
+    // Right piece: [3500..5000], length 1500, source_start 2500
+    let c_right = &track.clips[2];
+    assert_eq!(c_right.track_offset_frames, 3500);
+    assert_eq!(c_right.length_frames, 1500);
+    assert_eq!(c_right.source_start_frame, 2500);
+}
+
+#[test]
+fn test_track_input_routing_channel_extraction() {
+    use stem_core::project::TrackInputRouting;
+
+    let ch1 = vec![0.1f32, 0.2, 0.3];
+    let ch2 = vec![0.8f32, 0.9, 1.0];
+    let stereo_planar = vec![ch1.clone(), ch2.clone()];
+
+    // Mono 1 extracts channel 0
+    let m1 = TrackInputRouting::Mono1.extract_channels(&stereo_planar);
+    assert_eq!(m1.len(), 1);
+    assert_eq!(m1[0], ch1);
+
+    // Mono 2 extracts channel 1
+    let m2 = TrackInputRouting::Mono2.extract_channels(&stereo_planar);
+    assert_eq!(m2.len(), 1);
+    assert_eq!(m2[0], ch2);
+
+    // Stereo extracts both channels
+    let stereo = TrackInputRouting::Stereo.extract_channels(&stereo_planar);
+    assert_eq!(stereo.len(), 2);
+    assert_eq!(stereo[0], ch1);
+    assert_eq!(stereo[1], ch2);
+
+    // None extracts empty
+    let none = TrackInputRouting::None.extract_channels(&stereo_planar);
+    assert!(none.is_empty());
+
+    // Single-channel input fallback
+    let mono_planar = vec![ch1.clone()];
+    let m2_fallback = TrackInputRouting::Mono2.extract_channels(&mono_planar);
+    assert_eq!(m2_fallback.len(), 1);
+    assert_eq!(m2_fallback[0], ch1);
+
+    let stereo_fallback = TrackInputRouting::Stereo.extract_channels(&mono_planar);
+    assert_eq!(stereo_fallback.len(), 2);
+    assert_eq!(stereo_fallback[0], ch1);
+    assert_eq!(stereo_fallback[1], ch1);
+}
+
+#[test]
+fn test_count_in_duration_calculation() {
+    use stem_core::project::CountInMode;
+
+    let bpm = 120.0;
+    let beats_per_bar = 4;
+
+    // At 120 BPM, 1 beat = 0.5s, 1 bar (4 beats) = 2.0s
+    assert_eq!(CountInMode::Off.duration_seconds(bpm, beats_per_bar), 0.0);
+    assert_eq!(
+        CountInMode::OneBar.duration_seconds(bpm, beats_per_bar),
+        2.0
+    );
+    assert_eq!(
+        CountInMode::TwoBars.duration_seconds(bpm, beats_per_bar),
+        4.0
+    );
+    assert_eq!(
+        CountInMode::TwoSeconds.duration_seconds(bpm, beats_per_bar),
+        2.0
+    );
+    assert_eq!(
+        CountInMode::FourSeconds.duration_seconds(bpm, beats_per_bar),
+        4.0
+    );
+}

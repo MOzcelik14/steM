@@ -316,3 +316,36 @@ spectrogram-mode-waterfall = Spektrogram (2B)
 spectrogram-mode-curve = Spektrum (1B)
 meter-peak = Tepe
 meter-rms = RMS
+
+# Phase D: Recording Completeness
+recording-input-level = Giriş Seviyesi
+recording-monitoring = Giriş İzleme (Monitoring)
+recording-monitoring-enabled = Yazılımsal giriş dinleme etkinleştirildi
+recording-monitoring-disabled = Yazılımsal giriş dinleme kapatıldı
+recording-count-in = Geri Sayım (Count-in)
+recording-count-in-off = Kapalı
+recording-count-in-1bar = 1 Ölçü
+recording-count-in-2bars = 2 Ölçü
+recording-count-in-2s = 2 Saniye
+recording-count-in-4s = 4 Saniye
+recording-count-in-active = Kayıt geri sayımı devam ediyor...
+recording-punch-in = Punch-In Kayıt
+recording-punch-enabled = Punch-In Etkin
+recording-punch-region = Punch Bölgesi
+recording-punch-set-selection = Seçimden Punch Bölgesi Belirle
+recording-punch-clear = Punch Bölgesini Temizle
+recording-punch-preroll = Ön yürütme (Punch-in bekleniyor)...
+recording-latency-compensation = Gecikme Telafisi (Latency)
+recording-latency-ms = Gecikme Kayması (ms)
+recording-latency-samples = { $samples } örnek
+recording-device-lost = Ses giriş aygıtı bağlantısı kesildi! Kayıt güvenle saklandı.
+recording-device-connected = Ses giriş aygıtı bağlandı
+recording-no-device = Kayıt yapacak ses giriş aygıtı bulunamadı
+recording-device-warning-title = Ses Aygıtı Bağlantısı Kesildi
+recording-device-warning-msg = Ses kayıt aygıtının bağlantısı kesildi. Mevcut kayıt parçası güvenle korundu. Lütfen aygıtı yeniden bağlayın veya Tercihler'den farklı bir giriş seçin.
+recording-input-routing = Giriş Yönlendirme
+recording-input-mono1 = Mono (Giriş 1)
+recording-input-mono2 = Mono (Giriş 2)
+recording-input-stereo = Stereo (1+2)
+recording-input-none = Giriş Yok
+

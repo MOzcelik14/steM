@@ -122,6 +122,15 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 - **Dual Peak & RMS Telemetry**: The real-time audio callback calculates both peak magnitude and RMS sum of squares with zero heap allocations, powering live transport VU meters, channel strips, and numerical readouts.
 - **EBU R128 / ITU-R BS.1770 Loudness Report**: Comprehensive dialog measuring Integrated LUFS, Momentary max, Short-term max, Loudness Range (LRA), and True Peak with compliance indicators for broadcast and streaming platforms.
 
+### Multi-Channel Recording, Monitoring & Latency Alignment
+- **Live Input Metering & Telemetry**: Instantaneous Peak and RMS levels are continuously calculated in the input callback without heap allocations, feeding real-time transport level meters even when idling.
+- **Software Input Monitoring**: An internal lock-free ringbuffer routes incoming microphone audio into the master playback callback, allowing performers to monitor themselves with zero perceivable latency.
+- **Count-In Countdown**: Tempo-synchronized count-in (Off, 1 Bar, 2 Bars, 2s, 4s) with an interactive visual HUD overlay and progress bar.
+- **Non-Destructive Punch-In Recording**: Set punch-in and punch-out markers $[T_{in}, T_{out}]$; recording begins and finishes at the exact boundaries while existing clips are non-destructively split and trimmed around the new take.
+- **Hardware Latency Compensation**: Configurable offset (in milliseconds and sample frames) automatically aligns recorded takes with backing tracks, neutralizing audio buffer latency.
+- **Multi-Track Channel Routing**: Tracks independently select input routing (`Mono1`, `Mono2`, `Stereo`, `None`), enabling simultaneous recording on multiple armed tracks from a multi-channel interface.
+- **Graceful Device Loss Handling**: Stream disconnections or unplugged devices trigger an atomic flag, safely finalizing in-flight takes without audio thread panics or memory leaks.
+
 ---
 
 ## Roadmap
@@ -130,7 +139,7 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 - [x] **Phase A (Milestone 2)**: Single-file waveform editor mode, non-destructive edit list, zero-crossing snapping, selection playback, clipboard.
 - [x] **Phase B (Milestone 3)**: Real-time per-track and master insert effect chains (EQ, Compressor, Limiter, Delay, Reverb) in audio callback, live preview, lock-free parameter smoothing (`SmoothedParam`), reordering, per-effect bypass/reset, fade curve operations (Linear, Logarithmic, Exponential, S-Curve), peak normalization, and selection rendering.
 - [x] **Phase C (Milestone 4)**: Cleanup tools (spectral gating noise reduction, click/pop removal), 2D waterfall spectrogram & 1D spectrum analyzer with adjustable FFT size and color palettes, dual Peak/RMS metering, and EBU R128 loudness report.
-- [ ] **Phase D (Milestone 5)**: Multi-channel recording completeness, punch-in/out, latency compensation.
+- [x] **Phase D (Milestone 5)**: Multi-channel recording completeness (input metering, software monitoring, count-in, punch-in, latency compensation, per-track routing, device loss recovery).
 - [ ] **Phase E (Milestone 7)**: Advanced multitrack session (busses, sends/returns, grouping).
 - [ ] **Phase F (Milestone 8)**: Workflow polish, custom keybindings, theme support, session recovery.
 

@@ -193,6 +193,73 @@ pub enum EffectConfig {
     },
 }
 
+/// Count-in countdown duration before recording begins.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum CountInMode {
+    #[default]
+    Off,
+    OneBar,
+    TwoBars,
+    TwoSeconds,
+    FourSeconds,
+}
+
+impl CountInMode {
+    pub fn duration_seconds(&self, bpm: f64, beats_per_bar: u8) -> f32 {
+        match self {
+            Self::Off => 0.0,
+            Self::OneBar => (beats_per_bar as f32 * 60.0) / bpm.max(1.0) as f32,
+            Self::TwoBars => (2.0 * beats_per_bar as f32 * 60.0) / bpm.max(1.0) as f32,
+            Self::TwoSeconds => 2.0,
+            Self::FourSeconds => 4.0,
+        }
+    }
+}
+
+/// Hardware input routing configuration for a track.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum TrackInputRouting {
+    #[default]
+    Mono1, // Input Channel 1 (Left)
+    Mono2,  // Input Channel 2 (Right)
+    Stereo, // Input Channels 1 + 2 (Stereo Pair)
+    None,
+}
+
+impl TrackInputRouting {
+    /// Extracts routed planar audio channels from raw multi-channel input planar buffer.
+    pub fn extract_channels(&self, input_planar: &[Vec<f32>]) -> Vec<Vec<f32>> {
+        match self {
+            Self::Mono1 => {
+                if !input_planar.is_empty() {
+                    vec![input_planar[0].clone()]
+                } else {
+                    vec![Vec::new()]
+                }
+            }
+            Self::Mono2 => {
+                if input_planar.len() > 1 {
+                    vec![input_planar[1].clone()]
+                } else if !input_planar.is_empty() {
+                    vec![input_planar[0].clone()]
+                } else {
+                    vec![Vec::new()]
+                }
+            }
+            Self::Stereo => {
+                if input_planar.len() >= 2 {
+                    vec![input_planar[0].clone(), input_planar[1].clone()]
+                } else if input_planar.len() == 1 {
+                    vec![input_planar[0].clone(), input_planar[0].clone()]
+                } else {
+                    vec![Vec::new(), Vec::new()]
+                }
+            }
+            Self::None => Vec::new(),
+        }
+    }
+}
+
 /// A single audio track containing clips and effects.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Track {
@@ -202,7 +269,10 @@ pub struct Track {
     pub pan: f32, // -1.0 (Left) to +1.0 (Right), 0.0 Center
     pub muted: bool,
     pub soloed: bool,
+    #[serde(default)]
     pub armed: bool,
+    #[serde(default)]
+    pub input_routing: TrackInputRouting,
     pub clips: Vec<Clip>,
     pub effects: Vec<EffectConfig>,
 }
@@ -217,6 +287,7 @@ impl Track {
             muted: false,
             soloed: false,
             armed: false,
+            input_routing: TrackInputRouting::default(),
             clips: Vec::new(),
             effects: Vec::new(),
         }
@@ -245,6 +316,18 @@ pub struct Project {
     pub loop_enabled: bool,
     pub loop_region: Option<(u64, u64)>,
     pub playhead_frame: u64,
+    #[serde(default)]
+    pub punch_in_enabled: bool,
+    #[serde(default)]
+    pub punch_region: Option<(u64, u64)>,
+    #[serde(default)]
+    pub count_in_mode: CountInMode,
+    #[serde(default)]
+    pub count_in_bars: u8,
+    #[serde(default)]
+    pub input_monitoring: bool,
+    #[serde(default)]
+    pub latency_compensation_ms: f32,
 }
 
 impl Default for Project {
@@ -267,11 +350,23 @@ impl Project {
             loop_enabled: false,
             loop_region: None,
             playhead_frame: 0,
+            punch_in_enabled: false,
+            punch_region: None,
+            count_in_mode: CountInMode::default(),
+            count_in_bars: 0,
+            input_monitoring: false,
+            latency_compensation_ms: 20.0, // standard 20ms audio buffer latency compensation
         };
         // Provide 2 default audio tracks
         proj.add_track("Track 1");
         proj.add_track("Track 2");
         proj
+    }
+
+    /// Latency compensation offset in samples/frames.
+    #[inline]
+    pub fn latency_compensation_frames(&self) -> u64 {
+        ((self.latency_compensation_ms * self.sample_rate as f32) / 1000.0).round() as u64
     }
 
     pub fn add_track(&mut self, name: impl Into<String>) -> Uuid {
@@ -306,6 +401,85 @@ impl Project {
             .get_track_mut(track_id)
             .ok_or(ProjectError::TrackNotFound(track_id))?;
         track.clips.push(clip);
+        Ok(())
+    }
+
+    /// Non-destructively inserts a punch-in take into a track.
+    /// Existing clips overlapping the punch region are cleanly trimmed or split around the punch take.
+    pub fn punch_clip_into_track(
+        &mut self,
+        track_id: Uuid,
+        punch_take: Clip,
+    ) -> Result<(), ProjectError> {
+        let track = self
+            .get_track_mut(track_id)
+            .ok_or(ProjectError::TrackNotFound(track_id))?;
+
+        let punch_start = punch_take.track_offset_frames;
+        let punch_end = punch_take.timeline_end_frame();
+
+        if punch_end <= punch_start {
+            return Ok(());
+        }
+
+        let mut new_clips = Vec::with_capacity(track.clips.len() + 2);
+
+        for clip in track.clips.drain(..) {
+            let clip_start = clip.track_offset_frames;
+            let clip_end = clip.timeline_end_frame();
+
+            // Case A: No overlap
+            if clip_end <= punch_start || clip_start >= punch_end {
+                new_clips.push(clip);
+            }
+            // Case B: Completely covered by punch take
+            else if clip_start >= punch_start && clip_end <= punch_end {
+                // Superseded by punch take
+                continue;
+            }
+            // Case C: Punch take splits clip in the middle
+            else if clip_start < punch_start && clip_end > punch_end {
+                let left_len = punch_start - clip_start;
+                let right_len = clip_end - punch_end;
+
+                let mut left = clip.clone();
+                left.length_frames = left_len;
+                left.fade_out_frames = left.fade_out_frames.min(left_len);
+                new_clips.push(left);
+
+                let mut right = clip.clone();
+                right.id = Uuid::new_v4();
+                right.track_offset_frames = punch_end;
+                right.source_start_frame = clip.source_start_frame + (punch_end - clip_start);
+                right.length_frames = right_len;
+                right.fade_in_frames = right.fade_in_frames.min(right_len);
+                new_clips.push(right);
+            }
+            // Case D: Overlaps left edge of punch region
+            else if clip_start < punch_start && clip_end > punch_start {
+                let left_len = punch_start - clip_start;
+                let mut left = clip;
+                left.length_frames = left_len;
+                left.fade_out_frames = left.fade_out_frames.min(left_len);
+                new_clips.push(left);
+            }
+            // Case E: Overlaps right edge of punch region
+            else if clip_start < punch_end && clip_end > punch_end {
+                let cut_delta = punch_end - clip_start;
+                let right_len = clip_end - punch_end;
+                let mut right = clip;
+                right.track_offset_frames = punch_end;
+                right.source_start_frame += cut_delta;
+                right.length_frames = right_len;
+                right.fade_in_frames = right.fade_in_frames.min(right_len);
+                new_clips.push(right);
+            }
+        }
+
+        new_clips.push(punch_take);
+        new_clips.sort_by_key(|c| c.track_offset_frames);
+        track.clips = new_clips;
+
         Ok(())
     }
 

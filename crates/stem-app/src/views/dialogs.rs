@@ -37,7 +37,7 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
 
                         ui.separator();
 
-                        // Audio Device
+                        // Audio Output Device
                         ui.horizontal(|ui| {
                             ui.label(app.i18n.t("dialog-preferences-audio-device"));
                             let device_name = app
@@ -48,11 +48,64 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                             ui.label(egui::RichText::new(device_name).strong());
                         });
 
+                        // Audio Input Device
+                        ui.horizontal(|ui| {
+                            ui.label(app.i18n.t("recording-input-device"));
+                            let current_input = app
+                                .recording_state
+                                .selected_input_device
+                                .as_deref()
+                                .unwrap_or("Default");
+                            let mut selected = current_input.to_string();
+                            let available = app.recording_state.available_input_devices.clone();
+
+                            egui::ComboBox::from_id_salt("pref_input_device_combo")
+                                .selected_text(&selected)
+                                .width(180.0)
+                                .show_ui(ui, |ui| {
+                                    for dev in &available {
+                                        if ui
+                                            .selectable_value(&mut selected, dev.clone(), dev)
+                                            .clicked()
+                                        {
+                                            app.action_set_input_device(Some(dev.clone()));
+                                        }
+                                    }
+                                });
+                        });
+
+                        // Latency Compensation
+                        ui.horizontal(|ui| {
+                            ui.label(app.i18n.t("recording-latency-compensation"));
+                            let mut lat = app.project.latency_compensation_ms;
+                            if ui
+                                .add(egui::Slider::new(&mut lat, 0.0..=100.0).suffix(" ms"))
+                                .changed()
+                            {
+                                app.project.latency_compensation_ms = lat;
+                            }
+                            ui.label(format!(
+                                "({} samples)",
+                                app.project.latency_compensation_frames()
+                            ));
+                        });
+
                         // Sample Rate
                         ui.horizontal(|ui| {
                             ui.label(app.i18n.t("dialog-preferences-sample-rate"));
                             let sr = app.project.sample_rate;
                             ui.label(format!("{sr} Hz"));
+                        });
+
+                        // Software Input Monitoring Toggle
+                        ui.horizontal(|ui| {
+                            let mut mon = app.project.input_monitoring;
+                            if ui
+                                .checkbox(&mut mon, app.i18n.t("recording-monitoring"))
+                                .changed()
+                            {
+                                app.action_toggle_input_monitoring();
+                            }
                         });
                     });
 
@@ -66,6 +119,40 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
             });
         if !open {
             app.show_preferences_dialog = false;
+        }
+    }
+
+    // ----------------- Hardware Disconnection Alert -----------------
+    if app.recording_state.device_lost_warning {
+        let mut open = true;
+        egui::Window::new(
+            egui::RichText::new(format!(
+                "⚠ {}",
+                app.i18n.t("recording-device-warning-title")
+            ))
+            .color(egui::Color32::from_rgb(255, 100, 100)),
+        )
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .default_width(360.0)
+        .show(ctx, |ui| {
+            ui.vertical(|ui| {
+                ui.label(app.i18n.t("recording-device-warning-msg"));
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button(app.i18n.t("dialog-close")).clicked() {
+                        app.recording_state.device_lost_warning = false;
+                    }
+                    if ui.button(app.i18n.t("menu-edit-preferences")).clicked() {
+                        app.recording_state.device_lost_warning = false;
+                        app.show_preferences_dialog = true;
+                    }
+                });
+            });
+        });
+        if !open {
+            app.recording_state.device_lost_warning = false;
         }
     }
 

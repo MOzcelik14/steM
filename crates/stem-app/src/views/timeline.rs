@@ -131,6 +131,49 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 armed = !armed;
                                 app.project.tracks[t_idx].armed = armed;
                             }
+
+                            // Input Routing Selector
+                            let mut routing = app.project.tracks[t_idx].input_routing;
+                            let routing_label = match routing {
+                                stem_core::project::TrackInputRouting::Mono1 => {
+                                    app.i18n.t("recording-input-mono1")
+                                }
+                                stem_core::project::TrackInputRouting::Mono2 => {
+                                    app.i18n.t("recording-input-mono2")
+                                }
+                                stem_core::project::TrackInputRouting::Stereo => {
+                                    app.i18n.t("recording-input-stereo")
+                                }
+                                stem_core::project::TrackInputRouting::None => {
+                                    app.i18n.t("recording-input-none")
+                                }
+                            };
+                            egui::ComboBox::from_id_salt(format!("track_in_{}", track_id))
+                                .selected_text(egui::RichText::new(routing_label).size(10.0))
+                                .width(70.0)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut routing,
+                                        stem_core::project::TrackInputRouting::Mono1,
+                                        app.i18n.t("recording-input-mono1"),
+                                    );
+                                    ui.selectable_value(
+                                        &mut routing,
+                                        stem_core::project::TrackInputRouting::Mono2,
+                                        app.i18n.t("recording-input-mono2"),
+                                    );
+                                    ui.selectable_value(
+                                        &mut routing,
+                                        stem_core::project::TrackInputRouting::Stereo,
+                                        app.i18n.t("recording-input-stereo"),
+                                    );
+                                    ui.selectable_value(
+                                        &mut routing,
+                                        stem_core::project::TrackInputRouting::None,
+                                        app.i18n.t("recording-input-none"),
+                                    );
+                                });
+                            app.project.tracks[t_idx].input_routing = routing;
                         });
 
                         // Gain Slider
@@ -450,6 +493,62 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             }
         }
 
+        // ---------------- Punch-In Region Rendering ----------------
+        if app.project.punch_in_enabled {
+            if let Some((punch_in, punch_out)) = app.project.punch_region {
+                let in_x =
+                    canvas_rect.min.x + (punch_in as f32 / sample_rate as f32 * pps) - scroll_x;
+                let out_x =
+                    canvas_rect.min.x + (punch_out as f32 / sample_rate as f32 * pps) - scroll_x;
+
+                let punch_rect = Rect::from_min_max(
+                    pos2(in_x.max(canvas_rect.min.x), canvas_rect.min.y),
+                    pos2(out_x.min(canvas_rect.max.x), canvas_rect.max.y),
+                );
+
+                if punch_rect.width() > 0.0 {
+                    painter.rect_filled(
+                        punch_rect,
+                        Rounding::ZERO,
+                        Color32::from_rgba_premultiplied(255, 90, 40, 35),
+                    );
+                }
+
+                // Punch In line and flag
+                if in_x >= canvas_rect.min.x && in_x <= canvas_rect.max.x {
+                    painter.line_segment(
+                        [pos2(in_x, canvas_rect.min.y), pos2(in_x, canvas_rect.max.y)],
+                        Stroke::new(1.5_f32, Color32::from_rgb(255, 120, 50)),
+                    );
+                    painter.text(
+                        pos2(in_x + 3.0, ruler_rect.min.y + 1.0),
+                        egui::Align2::LEFT_TOP,
+                        "▼ PUNCH IN",
+                        egui::FontId::monospace(9.0),
+                        Color32::from_rgb(255, 140, 60),
+                    );
+                }
+
+                // Punch Out line and flag
+                if out_x >= canvas_rect.min.x && out_x <= canvas_rect.max.x {
+                    painter.line_segment(
+                        [
+                            pos2(out_x, canvas_rect.min.y),
+                            pos2(out_x, canvas_rect.max.y),
+                        ],
+                        Stroke::new(1.5_f32, Color32::from_rgb(255, 120, 50)),
+                    );
+                    painter.text(
+                        pos2(out_x - 3.0, ruler_rect.min.y + 1.0),
+                        egui::Align2::RIGHT_TOP,
+                        "▲ PUNCH OUT",
+                        egui::FontId::monospace(9.0),
+                        Color32::from_rgb(255, 140, 60),
+                    );
+                }
+            }
+        }
+
         // ---------------- Playhead Rendering ----------------
         let playhead_frame = app.telemetry.playhead_frame;
         let playhead_x =
@@ -478,6 +577,44 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 Color32::from_rgb(255, 80, 80),
                 Stroke::NONE,
             ));
+        }
+
+        // ---------------- Count-in HUD Countdown Overlay ----------------
+        if app.recording_state.count_in_active {
+            let center = canvas_rect.center();
+            let hud_rect = Rect::from_center_size(center, vec2(240.0, 70.0));
+            painter.rect_filled(
+                hud_rect,
+                Rounding::same(8.0),
+                Color32::from_rgba_premultiplied(18, 20, 26, 230),
+            );
+            painter.rect_stroke(
+                hud_rect,
+                Rounding::same(8.0),
+                Stroke::new(2.0_f32, Color32::from_rgb(255, 170, 40)),
+            );
+
+            let count_num = (app.recording_state.count_in_seconds_remaining.ceil() as u32).max(1);
+            painter.text(
+                pos2(center.x, center.y - 12.0),
+                egui::Align2::CENTER_CENTER,
+                format!("COUNT-IN: {count_num}"),
+                egui::FontId::proportional(22.0),
+                Color32::from_rgb(255, 200, 70),
+            );
+
+            let progress = (app.recording_state.count_in_seconds_remaining
+                / app.recording_state.count_in_total_seconds.max(0.1))
+            .clamp(0.0, 1.0);
+            let bar_rect = Rect::from_center_size(
+                pos2(center.x, center.y + 16.0),
+                vec2(200.0 * progress, 6.0),
+            );
+            painter.rect_filled(
+                bar_rect,
+                Rounding::same(3.0),
+                Color32::from_rgb(255, 140, 30),
+            );
         }
 
         // ---------------- Interactive Playhead Scrubbing / Seeking ----------------
