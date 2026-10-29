@@ -1,14 +1,20 @@
-# steM.
+<p align="center">
+  <img src="assets/logo.png" alt="steM. logo" width="240" />
+</p>
 
-**steM.** is an open-source, non-destructive multi-track audio editor and mixing workstation for Linux and Windows—designed as a high-performance, quality-first modern alternative to Adobe Audition.
+<h1 align="center">steM.</h1>
 
-```
-          _         __  __ 
- ___ | |_ ___ |  \/  |.
-/ __|| __/ _ \| |\/| |.
-\__ \| ||  __/| |  | |.
-|___/ \__\___||_|  |_|.
-```
+<p align="center">
+  <strong>High-performance, non-destructive multi-track audio workstation & editor in Rust.</strong>
+</p>
+
+<p align="center">
+  <a href="#core-principles">Core Principles</a> •
+  <a href="#features">Features</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#building-and-running">Building</a> •
+  <a href="#license">License</a>
+</p>
 
 ---
 

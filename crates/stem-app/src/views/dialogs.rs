@@ -371,6 +371,13 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
             .default_width(360.0)
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
+                    let icon_rgba = include_bytes!("../../../../assets/icon.rgba");
+                    let color_image =
+                        egui::ColorImage::from_rgba_unmultiplied([256, 256], icon_rgba);
+                    let texture =
+                        ctx.load_texture("stem_logo", color_image, egui::TextureOptions::LINEAR);
+                    ui.image((texture.id(), egui::vec2(96.0, 96.0)));
+
                     ui.label(
                         egui::RichText::new(stem_i18n::APP_DISPLAY_NAME)
                             .strong()

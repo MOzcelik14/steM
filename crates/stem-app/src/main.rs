@@ -13,9 +13,16 @@ use app::StemApp;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    let icon_data = egui::IconData {
+        rgba: include_bytes!("../../../assets/icon.rgba").to_vec(),
+        width: 256,
+        height: 256,
+    };
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(stem_i18n::APP_DISPLAY_NAME)
+            .with_icon(icon_data)
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 550.0]),
         ..Default::default()
