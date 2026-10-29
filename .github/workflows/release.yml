@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: Linux x86_64 · tar.gz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo apt-get install -y --no-install-recommends pkg-config build-essential libasound2-dev libx11-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build release binary
+        run: cargo build --locked --release -p stem-app
+      - name: Package tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then VER="0.0.0-dev"; fi
+          NAME="stem-${VER}-linux-x86_64"
+          mkdir -p "dist/$NAME"
+          install -m 755 target/release/stem "dist/$NAME/stem"
+          cp README.md "dist/$NAME/"
+          cp -r assets "dist/$NAME/assets" || true
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          rm -rf "dist/$NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stem-linux-package
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64 · zip (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --locked --release -p stem-app
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $ver = "0.0.0-dev"
+          if ("${{ github.ref_type }}" -eq "tag") { $ver = "${{ github.ref_name }}".TrimStart('v') }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $stage = Join-Path $env:RUNNER_TEMP "stem-stage"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item "target\release\stem.exe" $stage
+          Copy-Item "README.md" $stage
+          Compress-Archive -Path "$stage\*" -DestinationPath "dist\stem-$ver-windows-x86_64.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stem-windows-package
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [linux, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: stem-*-package
+          merge-multiple: true
+          path: dist
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum -- *.tar.gz *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
