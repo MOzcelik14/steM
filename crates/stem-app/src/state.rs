@@ -134,6 +134,12 @@ pub struct TimelineViewState {
     pub selected_track_id: Option<Uuid>,
     /// Selected clip ID.
     pub selected_clip_id: Option<Uuid>,
+    /// Track whose automation lane is expanded.
+    pub expanded_automation_track_id: Option<Uuid>,
+    /// Active target parameter for expanded automation lane.
+    pub active_automation_target: stem_core::project::AutomationTarget,
+    /// Currently dragged automation point (track_id, point_idx).
+    pub drag_automation_point: Option<(Uuid, usize)>,
 }
 
 impl Default for TimelineViewState {
@@ -146,6 +152,9 @@ impl Default for TimelineViewState {
             drag_op: None,
             selected_track_id: None,
             selected_clip_id: None,
+            expanded_automation_track_id: None,
+            active_automation_target: stem_core::project::AutomationTarget::Volume,
+            drag_automation_point: None,
         }
     }
 }

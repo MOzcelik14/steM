@@ -349,3 +349,40 @@ recording-input-mono2 = Mono (Giriş 2)
 recording-input-stereo = Stereo (1+2)
 recording-input-none = Giriş Yok
 
+# Phase E: Multitrack Completeness (Busses, Groups, Automation, Crossfades)
+mixer-busses = Alt Karışım Yolları (Submix Busses)
+bus-title = Alt Karışım Yolu (Bus)
+bus-add = Bus Ekle
+bus-remove = Bus Kaldır
+bus-output = Bus Çıkışı
+bus-send = Yan Gönderim (Aux Send)
+bus-send-add = Gönderim Ekle...
+bus-send-pre = Fader Öncesi (Pre-Fader)
+bus-send-post = Fader Sonrası (Post-Fader)
+routing-master = Ana Çıkış (Master)
+routing-bus = Bus: { $name }
+group-title = İz Grubu
+group-none = Grup Yok
+group-add = Yeni Grup...
+group-link-gain = Ses Seviyesini Bağla
+group-link-pan = Pan'ı Bağla
+group-link-mute = Sessize Almayı Bağla
+group-link-solo = Soloyu Bağla
+group-link-arm = Kayıt Hazırlığını Bağla
+automation-lane = Otomasyon Şeridi
+automation-toggle = Otomasyonu Göster/Gizle
+automation-param = Parametre
+automation-volume = Ses Seviyesi (dB)
+automation-pan = Pan
+automation-curve = Eğri
+automation-curve-linear = Doğrusal (Linear)
+automation-curve-bezier = Bezier (Yumuşak)
+automation-curve-step = Basamaklı (Step)
+automation-point-add = Kırılma noktası eklemek için tıklayın
+automation-point-delete = Noktayı sil
+crossfade-title = Çapraz Geçiş (Crossfade)
+crossfade-equal-power = Eşit Güç (Equal-Power 3dB)
+crossfade-linear = Doğrusal (Linear)
+crossfade-exponential = Üstel (Exponential)
+
+

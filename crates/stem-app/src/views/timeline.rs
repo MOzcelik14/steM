@@ -48,8 +48,16 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     let track = &app.project.tracks[t_idx];
                     let track_id = track.id;
 
+                    let is_auto_expanded =
+                        app.timeline_state.expanded_automation_track_id == Some(track_id);
+                    let header_h = if is_auto_expanded {
+                        track_height + 50.0
+                    } else {
+                        track_height
+                    };
+
                     let (rect, _response) = ui.allocate_exact_size(
-                        vec2(header_width - 8.0, track_height),
+                        vec2(header_width - 8.0, header_h),
                         egui::Sense::click(),
                     );
 
@@ -72,6 +80,34 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             let track_name = app.project.tracks[t_idx].name.clone();
                             ui.label(egui::RichText::new(&track_name).strong());
+
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let auto_active = is_auto_expanded;
+                                    let auto_color = if auto_active {
+                                        Color32::from_rgb(100, 220, 150)
+                                    } else {
+                                        Color32::GRAY
+                                    };
+                                    if ui
+                                        .selectable_label(
+                                            auto_active,
+                                            egui::RichText::new("Auto")
+                                                .size(10.0)
+                                                .color(auto_color),
+                                        )
+                                        .clicked()
+                                    {
+                                        if auto_active {
+                                            app.timeline_state.expanded_automation_track_id = None;
+                                        } else {
+                                            app.timeline_state.expanded_automation_track_id =
+                                                Some(track_id);
+                                        }
+                                    }
+                                },
+                            );
                         });
 
                         ui.horizontal(|ui| {
@@ -129,7 +165,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 .clicked()
                             {
                                 armed = !armed;
-                                app.project.tracks[t_idx].armed = armed;
+                                app.action_set_track_arm(t_idx, armed);
                             }
 
                             // Input Routing Selector
@@ -205,6 +241,49 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 app.action_set_track_pan(t_idx, pan);
                             }
                         });
+
+                        // Expanded Automation Controls
+                        if is_auto_expanded {
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                let mut target = app.timeline_state.active_automation_target;
+                                let target_str = match target {
+                                    stem_core::project::AutomationTarget::Volume => {
+                                        app.i18n.t("automation-volume")
+                                    }
+                                    stem_core::project::AutomationTarget::Pan => {
+                                        app.i18n.t("automation-pan")
+                                    }
+                                };
+                                egui::ComboBox::from_id_salt(format!("auto_tgt_{}", track_id))
+                                    .selected_text(egui::RichText::new(target_str).size(9.0))
+                                    .width(65.0)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(
+                                            &mut target,
+                                            stem_core::project::AutomationTarget::Volume,
+                                            app.i18n.t("automation-volume"),
+                                        );
+                                        ui.selectable_value(
+                                            &mut target,
+                                            stem_core::project::AutomationTarget::Pan,
+                                            app.i18n.t("automation-pan"),
+                                        );
+                                    });
+                                app.timeline_state.active_automation_target = target;
+
+                                if let Some(lane) = app.project.tracks[t_idx]
+                                    .automation_lanes
+                                    .iter_mut()
+                                    .find(|l| l.target == target)
+                                {
+                                    ui.checkbox(
+                                        &mut lane.enabled,
+                                        egui::RichText::new("On").size(9.0),
+                                    );
+                                }
+                            });
+                        }
                     });
 
                     ui.add_space(4.0);
@@ -278,10 +357,17 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
         let mouse_pos = response.hover_pos();
         let is_mouse_down = ui.input(|i| i.pointer.primary_down());
+        let is_primary_clicked = ui.input(|i| i.pointer.primary_clicked());
+        let is_secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
         let mut open_clip_in_waveform: Option<uuid::Uuid> = None;
+        let mut curr_track_top = tracks_top;
+        let mut timeline_needs_sync = false;
 
-        for (t_idx, track) in app.project.tracks.iter().enumerate() {
-            let track_top = tracks_top + t_idx as f32 * (track_height + 4.0);
+        for t_idx in 0..app.project.tracks.len() {
+            let track_id = app.project.tracks[t_idx].id;
+            let is_auto_expanded =
+                app.timeline_state.expanded_automation_track_id == Some(track_id);
+            let track_top = curr_track_top;
             let track_rect = Rect::from_min_size(
                 pos2(canvas_rect.min.x, track_top),
                 vec2(canvas_rect.width(), track_height),
@@ -303,7 +389,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             );
 
             // Render Clips in this track
-            for clip in &track.clips {
+            let num_clips = app.project.tracks[t_idx].clips.len();
+            for clip_idx in 0..num_clips {
+                let clip = &app.project.tracks[t_idx].clips[clip_idx];
                 let clip_x_start = canvas_rect.min.x
                     + (clip.track_offset_frames as f32 / sample_rate as f32 * pps)
                     - scroll_x;
@@ -312,6 +400,59 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     pos2(clip_x_start, track_top + 4.0),
                     vec2(clip_width, track_height - 8.0),
                 );
+
+                // Check crossfade with next clip on the track
+                if clip_idx + 1 < num_clips {
+                    let next_clip = &app.project.tracks[t_idx].clips[clip_idx + 1];
+                    let clip_end = clip.timeline_end_frame();
+                    if next_clip.track_offset_frames < clip_end {
+                        let xf_start = next_clip.track_offset_frames;
+                        let xf_end = clip_end;
+                        let x1 = canvas_rect.min.x + (xf_start as f32 / sample_rate as f32 * pps)
+                            - scroll_x;
+                        let x2 = canvas_rect.min.x + (xf_end as f32 / sample_rate as f32 * pps)
+                            - scroll_x;
+                        let xf_rect = Rect::from_min_max(
+                            pos2(x1.max(canvas_rect.min.x), track_top + 4.0),
+                            pos2(x2.min(canvas_rect.max.x), track_top + track_height - 4.0),
+                        );
+                        if xf_rect.width() > 2.0 {
+                            // Crossfade region overlay
+                            painter.rect_filled(
+                                xf_rect,
+                                Rounding::ZERO,
+                                Color32::from_rgba_premultiplied(40, 150, 220, 50),
+                            );
+                            painter.line_segment(
+                                [
+                                    pos2(xf_rect.min.x, xf_rect.min.y),
+                                    pos2(xf_rect.max.x, xf_rect.max.y),
+                                ],
+                                Stroke::new(1.5_f32, Color32::from_rgb(100, 220, 255)),
+                            );
+                            painter.line_segment(
+                                [
+                                    pos2(xf_rect.min.x, xf_rect.max.y),
+                                    pos2(xf_rect.max.x, xf_rect.min.y),
+                                ],
+                                Stroke::new(1.5_f32, Color32::from_rgb(255, 200, 80)),
+                            );
+
+                            let xf_label = match next_clip.crossfade_type {
+                                stem_core::project::CrossfadeType::EqualPower => "✕ EqPower",
+                                stem_core::project::CrossfadeType::Linear => "✕ Linear",
+                                stem_core::project::CrossfadeType::Exponential => "✕ Exp",
+                            };
+                            painter.text(
+                                pos2(xf_rect.center().x, xf_rect.min.y + 4.0),
+                                egui::Align2::CENTER_TOP,
+                                xf_label,
+                                egui::FontId::monospace(9.0),
+                                Color32::from_rgb(220, 240, 255),
+                            );
+                        }
+                    }
+                }
 
                 // Only render if visible within canvas bounds
                 if clip_rect.max.x < canvas_rect.min.x || clip_rect.min.x > canvas_rect.max.x {
@@ -410,7 +551,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             if ui.input(|i| i.pointer.primary_clicked()) {
                                 app.timeline_state.drag_op = Some(DragOp::FadeIn {
                                     clip_id: clip.id,
-                                    track_id: track.id,
+                                    track_id,
                                     orig_fade_in: clip.fade_in_frames,
                                     drag_start_x: mp.x,
                                 });
@@ -420,7 +561,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             if ui.input(|i| i.pointer.primary_clicked()) {
                                 app.timeline_state.drag_op = Some(DragOp::FadeOut {
                                     clip_id: clip.id,
-                                    track_id: track.id,
+                                    track_id,
                                     orig_fade_out: clip.fade_out_frames,
                                     drag_start_x: mp.x,
                                 });
@@ -430,7 +571,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             if ui.input(|i| i.pointer.primary_clicked()) {
                                 app.timeline_state.drag_op = Some(DragOp::TrimLeft {
                                     clip_id: clip.id,
-                                    track_id: track.id,
+                                    track_id,
                                     orig_source_start: clip.source_start_frame,
                                     orig_track_offset: clip.track_offset_frames,
                                     orig_length: clip.length_frames,
@@ -442,7 +583,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             if ui.input(|i| i.pointer.primary_clicked()) {
                                 app.timeline_state.drag_op = Some(DragOp::TrimRight {
                                     clip_id: clip.id,
-                                    track_id: track.id,
+                                    track_id,
                                     orig_length: clip.length_frames,
                                     drag_start_x: mp.x,
                                 });
@@ -454,12 +595,12 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             open_clip_in_waveform = Some(clip.id);
                         } else if ui.input(|i| i.pointer.primary_clicked()) {
                             app.timeline_state.selected_clip_id = Some(clip.id);
-                            app.timeline_state.selected_track_id = Some(track.id);
+                            app.timeline_state.selected_track_id = Some(track_id);
 
                             // Start Move Clip drag operation
                             app.timeline_state.drag_op = Some(DragOp::MoveClip {
                                 clip_id: clip.id,
-                                track_id: track.id,
+                                track_id,
                                 original_track_offset: clip.track_offset_frames,
                                 drag_start_x: mp.x,
                             });
@@ -467,6 +608,47 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     }
                 }
             }
+
+            // Render Automation Lane if expanded
+            if is_auto_expanded {
+                let lane_rect = Rect::from_min_size(
+                    pos2(canvas_rect.min.x, curr_track_top + track_height),
+                    vec2(canvas_rect.width(), 50.0),
+                );
+                let active_target = app.timeline_state.active_automation_target;
+                if let Some(lane) = app.project.tracks[t_idx]
+                    .automation_lanes
+                    .iter_mut()
+                    .find(|l| l.target == active_target)
+                {
+                    let ctx = AutomationLaneRenderCtx {
+                        lane_rect,
+                        target: active_target,
+                        sample_rate,
+                        pps,
+                        scroll_x,
+                        mouse_pos,
+                        is_mouse_down,
+                        is_primary_clicked,
+                        is_secondary_clicked,
+                        drag_point: &mut app.timeline_state.drag_automation_point,
+                        track_id,
+                    };
+                    if render_automation_lane(&painter, lane, ctx) {
+                        timeline_needs_sync = true;
+                    }
+                }
+                curr_track_top += track_height + 50.0 + 4.0;
+            } else {
+                curr_track_top += track_height + 4.0;
+            }
+        }
+
+        if !is_mouse_down {
+            app.timeline_state.drag_automation_point = None;
+        }
+        if timeline_needs_sync {
+            app.sync_timeline_to_audio_engine();
         }
 
         if let Some(clip_id) = open_clip_in_waveform {
@@ -779,4 +961,194 @@ fn render_clip_waveform(
             Stroke::new(1.0_f32, waveform_color),
         );
     }
+}
+
+/// Context parameters for rendering an automation lane.
+struct AutomationLaneRenderCtx<'a> {
+    pub lane_rect: Rect,
+    pub target: stem_core::project::AutomationTarget,
+    pub sample_rate: u32,
+    pub pps: f32,
+    pub scroll_x: f32,
+    pub mouse_pos: Option<egui::Pos2>,
+    pub is_mouse_down: bool,
+    pub is_primary_clicked: bool,
+    pub is_secondary_clicked: bool,
+    pub drag_point: &'a mut Option<(uuid::Uuid, usize)>,
+    pub track_id: uuid::Uuid,
+}
+
+/// Renders interactive breakpoint automation lane on the timeline canvas.
+fn render_automation_lane(
+    painter: &egui::Painter,
+    lane: &mut stem_core::project::AutomationLane,
+    ctx: AutomationLaneRenderCtx<'_>,
+) -> bool {
+    let mut modified = false;
+    let lane_rect = ctx.lane_rect;
+    let sample_rate = ctx.sample_rate;
+    let pps = ctx.pps;
+    let scroll_x = ctx.scroll_x;
+    let mouse_pos = ctx.mouse_pos;
+    let is_mouse_down = ctx.is_mouse_down;
+    let is_primary_clicked = ctx.is_primary_clicked;
+    let is_secondary_clicked = ctx.is_secondary_clicked;
+    let drag_point = ctx.drag_point;
+    let track_id = ctx.track_id;
+
+    // Background
+    painter.rect_filled(lane_rect, Rounding::ZERO, Color32::from_rgb(18, 20, 24));
+    painter.line_segment(
+        [
+            pos2(lane_rect.min.x, lane_rect.max.y),
+            pos2(lane_rect.max.x, lane_rect.max.y),
+        ],
+        Stroke::new(1.0_f32, Color32::from_rgb(35, 38, 45)),
+    );
+
+    let (val_min, val_max, val_zero) = match ctx.target {
+        stem_core::project::AutomationTarget::Volume => (-60.0f32, 12.0f32, 0.0f32),
+        stem_core::project::AutomationTarget::Pan => (-1.0f32, 1.0f32, 0.0f32),
+    };
+
+    let val_to_y = |val: f32| -> f32 {
+        let norm = (val.clamp(val_min, val_max) - val_min) / (val_max - val_min);
+        lane_rect.max.y - 4.0 - norm * (lane_rect.height() - 8.0)
+    };
+
+    let y_to_val = |y: f32| -> f32 {
+        let norm = (lane_rect.max.y - 4.0 - y) / (lane_rect.height() - 8.0).max(1.0);
+        val_min + norm.clamp(0.0, 1.0) * (val_max - val_min)
+    };
+
+    let frame_to_x = |frame: u64| -> f32 {
+        lane_rect.min.x + (frame as f32 / sample_rate as f32 * pps) - scroll_x
+    };
+
+    let x_to_frame = |x: f32| -> u64 {
+        let rel_x = (x - lane_rect.min.x + scroll_x).max(0.0);
+        (rel_x / pps * sample_rate as f32).round() as u64
+    };
+
+    // Draw reference line at zero
+    let zero_y = val_to_y(val_zero);
+    painter.line_segment(
+        [pos2(lane_rect.min.x, zero_y), pos2(lane_rect.max.x, zero_y)],
+        Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(100, 100, 120, 80)),
+    );
+
+    let stroke_color = match ctx.target {
+        stem_core::project::AutomationTarget::Volume => Color32::from_rgb(80, 220, 120),
+        stem_core::project::AutomationTarget::Pan => Color32::from_rgb(100, 190, 255),
+    };
+
+    // Draw segments between points
+    if !lane.points.is_empty() {
+        for i in 0..(lane.points.len() - 1) {
+            let p1 = &lane.points[i];
+            let p2 = &lane.points[i + 1];
+            let x1 = frame_to_x(p1.frame);
+            let y1 = val_to_y(p1.value);
+            let x2 = frame_to_x(p2.frame);
+            let y2 = val_to_y(p2.value);
+
+            match p1.curve {
+                stem_core::project::AutomationCurve::Step => {
+                    painter.line_segment(
+                        [pos2(x1, y1), pos2(x2, y1)],
+                        Stroke::new(1.5_f32, stroke_color),
+                    );
+                    painter.line_segment(
+                        [pos2(x2, y1), pos2(x2, y2)],
+                        Stroke::new(1.5_f32, stroke_color),
+                    );
+                }
+                stem_core::project::AutomationCurve::Linear => {
+                    painter.line_segment(
+                        [pos2(x1, y1), pos2(x2, y2)],
+                        Stroke::new(1.5_f32, stroke_color),
+                    );
+                }
+                stem_core::project::AutomationCurve::Bezier => {
+                    let steps = 16;
+                    let mut prev = pos2(x1, y1);
+                    for s in 1..=steps {
+                        let t = s as f32 / steps as f32;
+                        let frame = p1.frame + ((p2.frame - p1.frame) as f32 * t) as u64;
+                        let val = p1.curve.interpolate(t, p1.value, p2.value);
+                        let next = pos2(frame_to_x(frame), val_to_y(val));
+                        painter.line_segment([prev, next], Stroke::new(1.5_f32, stroke_color));
+                        prev = next;
+                    }
+                }
+            }
+        }
+    }
+
+    // Dragging logic
+    if is_mouse_down {
+        if let Some((d_track, d_idx)) = *drag_point {
+            if d_track == track_id && d_idx < lane.points.len() {
+                if let Some(mp) = mouse_pos {
+                    let new_frame = x_to_frame(mp.x);
+                    let new_val = y_to_val(mp.y);
+                    lane.points[d_idx].frame = new_frame;
+                    lane.points[d_idx].value = new_val;
+                    lane.points.sort_by_key(|p| p.frame);
+                    modified = true;
+                }
+            }
+        }
+    }
+
+    // Points interaction and drawing
+    let mut point_to_remove: Option<usize> = None;
+    let mut clicked_on_existing_point = false;
+
+    for (idx, pt) in lane.points.iter().enumerate() {
+        let x = frame_to_x(pt.frame);
+        let y = val_to_y(pt.value);
+        let pt_pos = pos2(x, y);
+
+        let is_hovered = mouse_pos
+            .map(|mp| mp.distance(pt_pos) <= 6.0)
+            .unwrap_or(false);
+        if is_hovered {
+            clicked_on_existing_point = true;
+            if is_secondary_clicked {
+                point_to_remove = Some(idx);
+            } else if is_mouse_down && drag_point.is_none() {
+                *drag_point = Some((track_id, idx));
+            }
+        }
+
+        let radius = if is_hovered { 5.0 } else { 3.5 };
+        let fill = if is_hovered {
+            Color32::WHITE
+        } else {
+            stroke_color
+        };
+        painter.circle_filled(pt_pos, radius, fill);
+        painter.circle_stroke(pt_pos, radius, Stroke::new(1.0_f32, Color32::BLACK));
+    }
+
+    if let Some(idx) = point_to_remove {
+        lane.points.remove(idx);
+        modified = true;
+    }
+
+    // Click on empty lane space to add point
+    if is_primary_clicked && !clicked_on_existing_point && drag_point.is_none() {
+        if let Some(mp) = mouse_pos {
+            if lane_rect.contains(mp) {
+                let frame = x_to_frame(mp.x);
+                let val = y_to_val(mp.y);
+                lane.add_point(frame, val, stem_core::project::AutomationCurve::Linear);
+                lane.enabled = true;
+                modified = true;
+            }
+        }
+    }
+
+    modified
 }

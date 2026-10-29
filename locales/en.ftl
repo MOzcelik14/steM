@@ -349,3 +349,40 @@ recording-input-mono2 = Mono (In 2)
 recording-input-stereo = Stereo (1+2)
 recording-input-none = No Input
 
+# Phase E: Multitrack Completeness (Busses, Groups, Automation, Crossfades)
+mixer-busses = Submix Busses
+bus-title = Submix Bus
+bus-add = Add Bus
+bus-remove = Remove Bus
+bus-output = Bus Output
+bus-send = Aux Send
+bus-send-add = Add Send...
+bus-send-pre = Pre-Fader
+bus-send-post = Post-Fader
+routing-master = Master Output
+routing-bus = Bus: { $name }
+group-title = Track Group
+group-none = No Group
+group-add = New Group...
+group-link-gain = Link Volume
+group-link-pan = Link Pan
+group-link-mute = Link Mute
+group-link-solo = Link Solo
+group-link-arm = Link Record Arm
+automation-lane = Automation Lane
+automation-toggle = Toggle Automation
+automation-param = Parameter
+automation-volume = Volume (dB)
+automation-pan = Pan
+automation-curve = Curve
+automation-curve-linear = Linear
+automation-curve-bezier = Bezier (Smooth)
+automation-curve-step = Step
+automation-point-add = Click to add breakpoint
+automation-point-delete = Delete point
+crossfade-title = Crossfade
+crossfade-equal-power = Equal-Power (3dB Sum)
+crossfade-linear = Linear
+crossfade-exponential = Exponential
+
+

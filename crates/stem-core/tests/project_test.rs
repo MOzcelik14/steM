@@ -482,3 +482,166 @@ fn test_count_in_duration_calculation() {
         4.0
     );
 }
+
+#[test]
+fn test_crossfade_equal_power_summation() {
+    use stem_core::project::CrossfadeType;
+
+    // Test Equal-Power crossfade curve preserves acoustic power across the entire transition
+    let eq = CrossfadeType::EqualPower;
+    for step in 0..=100 {
+        let t = step as f32 / 100.0;
+        let (gain_a, gain_b) = eq.evaluate(t);
+
+        // Power summation: gain_a^2 + gain_b^2 == 1.0 (constant acoustic power, 0 dB dip)
+        let power = gain_a * gain_a + gain_b * gain_b;
+        assert!(
+            (power - 1.0).abs() < 1e-5,
+            "Equal power violated at t={t}: power={power}"
+        );
+    }
+
+    // Midpoint check: at t = 0.5, equal-power gain is ~0.7071 (-3 dB per channel, summing to 1.0)
+    let (mid_a, mid_b) = eq.evaluate(0.5);
+    assert!((mid_a - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+    assert!((mid_b - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+
+    // Linear crossfade check: at t = 0.5, linear gain is 0.5 each (power = 0.25 + 0.25 = 0.5, i.e. -3dB dip)
+    let lin = CrossfadeType::Linear;
+    let (l_a, l_b) = lin.evaluate(0.5);
+    assert_eq!(l_a, 0.5);
+    assert_eq!(l_b, 0.5);
+    assert_eq!(l_a * l_a + l_b * l_b, 0.5);
+
+    // Test track overlapping clips evaluate crossfades properly
+    let mut track = Track::new("Crossfade Track");
+    let c1 = Clip::new("Clip 1", Uuid::new_v4(), 0, 1000, 0); // [0..1000]
+    let mut c2 = Clip::new("Clip 2", Uuid::new_v4(), 0, 1000, 800); // [800..1800], overlaps by 200 frames
+    c2.crossfade_type = CrossfadeType::EqualPower;
+
+    track.clips.push(c1);
+    track.clips.push(c2);
+
+    // Before overlap: c1 has full gain
+    assert_eq!(track.clip_gain_at_timeline_frame(0, 400), 1.0);
+    // Inside overlap at midpoint (frame 900):
+    let g1 = track.clip_gain_at_timeline_frame(0, 900);
+    let g2 = track.clip_gain_at_timeline_frame(1, 900);
+    assert!((g1 * g1 + g2 * g2 - 1.0).abs() < 1e-4);
+    // After overlap: c2 has full gain
+    assert_eq!(track.clip_gain_at_timeline_frame(1, 1200), 1.0);
+}
+
+#[test]
+fn test_automation_lane_piecewise_evaluation() {
+    use stem_core::project::{AutomationCurve, AutomationLane, AutomationTarget};
+
+    let mut lane = AutomationLane::new(AutomationTarget::Volume);
+
+    // Un-enabled lane returns default value
+    assert_eq!(lane.evaluate(500, -6.0), -6.0);
+
+    lane.enabled = true;
+    // Empty lane returns default value
+    assert_eq!(lane.evaluate(500, -6.0), -6.0);
+
+    // Add breakpoints:
+    // frame 1000: 0 dB (Linear curve to next point)
+    // frame 2000: -10 dB (Step curve to next point)
+    // frame 3000: +6 dB (Bezier curve to next point)
+    // frame 4000: -20 dB
+    lane.add_point(1000, 0.0, AutomationCurve::Linear);
+    lane.add_point(2000, -10.0, AutomationCurve::Step);
+    lane.add_point(3000, 6.0, AutomationCurve::Bezier);
+    lane.add_point(4000, -20.0, AutomationCurve::Linear);
+
+    // Boundary clamping
+    assert_eq!(lane.evaluate(0, -6.0), 0.0);
+    assert_eq!(lane.evaluate(1000, -6.0), 0.0);
+    assert_eq!(lane.evaluate(5000, -6.0), -20.0);
+
+    // Linear interpolation between 1000 (0 dB) and 2000 (-10 dB)
+    // At frame 1500 (t = 0.5): expected -5.0 dB
+    let val_1500 = lane.evaluate(1500, 0.0);
+    assert!((val_1500 - (-5.0)).abs() < 1e-4);
+
+    // Step curve between 2000 (-10 dB) and 3000 (+6 dB)
+    // At frame 2500: should hold -10.0 dB until frame 3000
+    assert_eq!(lane.evaluate(2500, 0.0), -10.0);
+    assert_eq!(lane.evaluate(2999, 0.0), -10.0);
+    assert_eq!(lane.evaluate(3000, 0.0), 6.0);
+
+    // Bezier curve between 3000 (+6 dB) and 4000 (-20 dB)
+    // At frame 3500 (t = 0.5): smooth S-curve gives midpoint value (6 + (-20)) / 2 = -7.0 dB
+    let val_3500 = lane.evaluate(3500, 0.0);
+    assert!((val_3500 - (-7.0)).abs() < 1e-4);
+}
+
+#[test]
+fn test_track_grouping_linked_controls() {
+    let mut proj = Project::new("Grouping Test", 48000);
+    let gid = proj.add_group("Drum Group");
+
+    {
+        let group = proj.get_group_mut(gid).unwrap();
+        assert!(group.link_gain);
+        assert!(group.link_mute);
+        assert!(group.link_solo);
+        assert!(group.link_arm);
+    }
+
+    // Assign tracks 0 and 1 to this group
+    proj.tracks[0].group_id = Some(gid);
+    proj.tracks[0].gain_db = -6.0;
+    proj.tracks[1].group_id = Some(gid);
+    proj.tracks[1].gain_db = -12.0;
+
+    // Moving track 0 by +4.0 dB should adjust track 1 by relative delta +4.0 dB
+    let delta = 4.0f32;
+    let old_t0 = proj.tracks[0].gain_db;
+    let new_t0 = old_t0 + delta;
+    proj.tracks[0].gain_db = new_t0;
+    proj.tracks[1].gain_db = (proj.tracks[1].gain_db + delta).clamp(-60.0, 12.0);
+
+    assert_eq!(proj.tracks[0].gain_db, -2.0);
+    assert_eq!(proj.tracks[1].gain_db, -8.0);
+
+    // Test group deletion unbinds member tracks
+    proj.remove_group(gid);
+    assert_eq!(proj.groups.len(), 0);
+    assert_eq!(proj.tracks[0].group_id, None);
+    assert_eq!(proj.tracks[1].group_id, None);
+}
+
+#[test]
+fn test_submix_bus_and_send_routing() {
+    use stem_core::project::{TrackOutputRouting, TrackSend};
+
+    let mut proj = Project::new("Bus Test", 48000);
+    let bus_id = proj.add_bus("Reverb Bus");
+
+    assert_eq!(proj.busses.len(), 1);
+    assert_eq!(proj.get_bus(bus_id).unwrap().name, "Reverb Bus");
+
+    // Route track 0 output to Bus
+    proj.tracks[0].output_routing = TrackOutputRouting::Bus(bus_id);
+
+    // Add aux send from track 1 to Bus
+    let mut send = TrackSend::new(bus_id);
+    send.gain_db = -6.0;
+    send.pre_fader = true;
+    proj.tracks[1].sends.push(send);
+
+    assert_eq!(
+        proj.tracks[0].output_routing,
+        TrackOutputRouting::Bus(bus_id)
+    );
+    assert_eq!(proj.tracks[1].sends.len(), 1);
+    assert_eq!(proj.tracks[1].sends[0].target_bus_id, bus_id);
+
+    // Removing bus safely reverts track output to Master and clears sends
+    proj.remove_bus(bus_id);
+    assert_eq!(proj.busses.len(), 0);
+    assert_eq!(proj.tracks[0].output_routing, TrackOutputRouting::Master);
+    assert_eq!(proj.tracks[1].sends.len(), 0);
+}

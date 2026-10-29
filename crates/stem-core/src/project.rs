@@ -61,6 +61,34 @@ impl FadeCurve {
     }
 }
 
+/// Crossfade curve law applied across overlapping clip regions.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum CrossfadeType {
+    Linear,
+    #[default]
+    EqualPower,
+    Exponential,
+}
+
+impl CrossfadeType {
+    /// Evaluates gain factors `(gain_a, gain_b)` for normalized transition progress `t` in `[0.0, 1.0]`.
+    /// Equal-power maintains acoustic energy: `gain_a^2 + gain_b^2 == 1.0` (0 dB dip).
+    pub fn evaluate(&self, t: f32) -> (f32, f32) {
+        let t_cl = t.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => (1.0 - t_cl, t_cl),
+            Self::EqualPower => {
+                let angle = t_cl * (std::f32::consts::PI / 2.0);
+                (angle.cos(), angle.sin())
+            }
+            Self::Exponential => {
+                let a = 1.0 - t_cl;
+                (a * a, t_cl * t_cl)
+            }
+        }
+    }
+}
+
 /// A slice of audio referencing an immutable `AudioSource`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Clip {
@@ -81,6 +109,8 @@ pub struct Clip {
     /// Fade-out length in frames.
     pub fade_out_frames: u64,
     pub fade_out_curve: FadeCurve,
+    #[serde(default)]
+    pub crossfade_type: CrossfadeType,
 }
 
 impl Clip {
@@ -103,6 +133,7 @@ impl Clip {
             fade_in_curve: FadeCurve::Linear,
             fade_out_frames: 0,
             fade_out_curve: FadeCurve::Linear,
+            crossfade_type: CrossfadeType::default(),
         }
     }
 
@@ -260,6 +291,209 @@ impl TrackInputRouting {
     }
 }
 
+/// Output destination routing for a track.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum TrackOutputRouting {
+    #[default]
+    Master,
+    Bus(Uuid),
+}
+
+/// An auxiliary send routing a tap of a track's audio to a submix bus.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackSend {
+    pub id: Uuid,
+    pub target_bus_id: Uuid,
+    pub gain_db: f32,
+    pub pan: f32,
+    pub pre_fader: bool,
+    pub muted: bool,
+}
+
+impl TrackSend {
+    pub fn new(target_bus_id: Uuid) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            target_bus_id,
+            gain_db: 0.0,
+            pan: 0.0,
+            pre_fader: false,
+            muted: false,
+        }
+    }
+}
+
+/// Submix auxiliary bus for grouping tracks, summing signals, and hosting insert effect chains.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubmixBus {
+    pub id: Uuid,
+    pub name: String,
+    pub gain_db: f32,
+    pub pan: f32,
+    pub muted: bool,
+    pub soloed: bool,
+    pub effects: Vec<EffectConfig>,
+}
+
+impl SubmixBus {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            gain_db: 0.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            effects: Vec::new(),
+        }
+    }
+}
+
+/// Track group for linking faders, mutes, solos, and record arms across multiple tracks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TrackGroup {
+    pub id: Uuid,
+    pub name: String,
+    pub color_rgb: (u8, u8, u8),
+    pub link_gain: bool,
+    pub link_pan: bool,
+    pub link_mute: bool,
+    pub link_solo: bool,
+    pub link_arm: bool,
+}
+
+impl TrackGroup {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            color_rgb: (100, 180, 240),
+            link_gain: true,
+            link_pan: false,
+            link_mute: true,
+            link_solo: true,
+            link_arm: true,
+        }
+    }
+}
+
+/// Interpolation curve between automation breakpoints.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum AutomationCurve {
+    #[default]
+    Linear,
+    Bezier,
+    Step,
+}
+
+impl AutomationCurve {
+    pub fn interpolate(&self, t: f32, val_a: f32, val_b: f32) -> f32 {
+        let t_cl = t.clamp(0.0, 1.0);
+        match self {
+            Self::Linear => val_a + (val_b - val_a) * t_cl,
+            Self::Step => {
+                if t_cl < 1.0 {
+                    val_a
+                } else {
+                    val_b
+                }
+            }
+            Self::Bezier => {
+                let smooth = t_cl * t_cl * (3.0 - 2.0 * t_cl);
+                val_a + (val_b - val_a) * smooth
+            }
+        }
+    }
+}
+
+/// Target parameter controlled by an automation lane.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AutomationTarget {
+    Volume, // decibels (-60.0 to +12.0)
+    Pan,    // -1.0 to +1.0
+}
+
+/// A single keyframe breakpoint in an automation lane.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct AutomationPoint {
+    pub id: Uuid,
+    pub frame: u64,
+    pub value: f32,
+    pub curve: AutomationCurve,
+}
+
+impl AutomationPoint {
+    pub fn new(frame: u64, value: f32, curve: AutomationCurve) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            frame,
+            value,
+            curve,
+        }
+    }
+}
+
+/// An automation lane storing a sequence of breakpoints for a parameter.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AutomationLane {
+    pub target: AutomationTarget,
+    pub enabled: bool,
+    pub points: Vec<AutomationPoint>,
+}
+
+impl AutomationLane {
+    pub fn new(target: AutomationTarget) -> Self {
+        Self {
+            target,
+            enabled: false,
+            points: Vec::new(),
+        }
+    }
+
+    pub fn add_point(&mut self, frame: u64, value: f32, curve: AutomationCurve) -> Uuid {
+        let pt = AutomationPoint::new(frame, value, curve);
+        let id = pt.id;
+        self.points.push(pt);
+        self.points.sort_by_key(|p| p.frame);
+        id
+    }
+
+    pub fn remove_point(&mut self, id: Uuid) -> bool {
+        if let Some(pos) = self.points.iter().position(|p| p.id == id) {
+            self.points.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Piecewise evaluation at timeline frame.
+    pub fn evaluate(&self, frame: u64, default_val: f32) -> f32 {
+        if !self.enabled || self.points.is_empty() {
+            return default_val;
+        }
+
+        if frame <= self.points.first().unwrap().frame {
+            return self.points.first().unwrap().value;
+        }
+        if frame >= self.points.last().unwrap().frame {
+            return self.points.last().unwrap().value;
+        }
+
+        for i in 0..(self.points.len() - 1) {
+            let p1 = &self.points[i];
+            let p2 = &self.points[i + 1];
+            if frame >= p1.frame && frame <= p2.frame {
+                let range = (p2.frame - p1.frame).max(1) as f32;
+                let t = (frame - p1.frame) as f32 / range;
+                return p1.curve.interpolate(t, p1.value, p2.value);
+            }
+        }
+
+        default_val
+    }
+}
+
 /// A single audio track containing clips and effects.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Track {
@@ -273,6 +507,14 @@ pub struct Track {
     pub armed: bool,
     #[serde(default)]
     pub input_routing: TrackInputRouting,
+    #[serde(default)]
+    pub group_id: Option<Uuid>,
+    #[serde(default)]
+    pub output_routing: TrackOutputRouting,
+    #[serde(default)]
+    pub sends: Vec<TrackSend>,
+    #[serde(default)]
+    pub automation_lanes: Vec<AutomationLane>,
     pub clips: Vec<Clip>,
     pub effects: Vec<EffectConfig>,
 }
@@ -288,6 +530,13 @@ impl Track {
             soloed: false,
             armed: false,
             input_routing: TrackInputRouting::default(),
+            group_id: None,
+            output_routing: TrackOutputRouting::default(),
+            sends: Vec::new(),
+            automation_lanes: vec![
+                AutomationLane::new(AutomationTarget::Volume),
+                AutomationLane::new(AutomationTarget::Pan),
+            ],
             clips: Vec::new(),
             effects: Vec::new(),
         }
@@ -299,6 +548,72 @@ impl Track {
             .map(|c| c.timeline_end_frame())
             .max()
             .unwrap_or(0)
+    }
+
+    pub fn sort_clips(&mut self) {
+        self.clips.sort_by_key(|c| c.track_offset_frames);
+    }
+
+    /// Evaluates gain factor for a clip at timeline frame `frame`, taking into account
+    /// clip fades and automatic crossfades with overlapping adjacent clips on the same track.
+    pub fn clip_gain_at_timeline_frame(&self, clip_idx: usize, frame: u64) -> f32 {
+        let clip = match self.clips.get(clip_idx) {
+            Some(c) => c,
+            None => return 0.0,
+        };
+
+        if frame < clip.track_offset_frames || frame >= clip.timeline_end_frame() {
+            return 0.0;
+        }
+
+        let rel_frame = frame - clip.track_offset_frames;
+        let mut gain = clip.gain_at_relative_frame(rel_frame);
+
+        // Check crossfade with next clip on the track (overlap at the end of this clip)
+        if let Some(next_clip) = self.clips.get(clip_idx + 1) {
+            let this_end = clip.timeline_end_frame();
+            if next_clip.track_offset_frames < this_end && frame >= next_clip.track_offset_frames {
+                let overlap_len = this_end
+                    .saturating_sub(next_clip.track_offset_frames)
+                    .max(1);
+                let t = (frame - next_clip.track_offset_frames) as f32 / overlap_len as f32;
+                let (gain_a, _) = next_clip.crossfade_type.evaluate(t);
+                gain = gain.min(gain_a);
+            }
+        }
+
+        // Check crossfade with previous clip on the track (overlap at the start of this clip)
+        if clip_idx > 0 {
+            if let Some(prev_clip) = self.clips.get(clip_idx - 1) {
+                let prev_end = prev_clip.timeline_end_frame();
+                if prev_end > clip.track_offset_frames && frame < prev_end {
+                    let overlap_len = prev_end.saturating_sub(clip.track_offset_frames).max(1);
+                    let t = (frame - clip.track_offset_frames) as f32 / overlap_len as f32;
+                    let (_, gain_b) = clip.crossfade_type.evaluate(t);
+                    gain = gain.min(gain_b);
+                }
+            }
+        }
+
+        gain
+    }
+
+    /// Evaluated volume gain in dB at given timeline frame, taking automation into account.
+    pub fn evaluated_gain_db(&self, frame: u64) -> f32 {
+        self.automation_lanes
+            .iter()
+            .find(|l| l.target == AutomationTarget::Volume && l.enabled)
+            .map(|l| l.evaluate(frame, self.gain_db))
+            .unwrap_or(self.gain_db)
+    }
+
+    /// Evaluated pan (-1.0 to +1.0) at given timeline frame, taking automation into account.
+    pub fn evaluated_pan(&self, frame: u64) -> f32 {
+        self.automation_lanes
+            .iter()
+            .find(|l| l.target == AutomationTarget::Pan && l.enabled)
+            .map(|l| l.evaluate(frame, self.pan))
+            .unwrap_or(self.pan)
     }
 }
 
@@ -312,6 +627,10 @@ pub struct Project {
     pub time_signature: (u8, u8),
     pub sources: HashMap<Uuid, AudioSource>,
     pub tracks: Vec<Track>,
+    #[serde(default)]
+    pub busses: Vec<SubmixBus>,
+    #[serde(default)]
+    pub groups: Vec<TrackGroup>,
     pub master_gain_db: f32,
     pub loop_enabled: bool,
     pub loop_region: Option<(u64, u64)>,
@@ -346,6 +665,8 @@ impl Project {
             time_signature: (4, 4),
             sources: HashMap::new(),
             tracks: Vec::new(),
+            busses: Vec::new(),
+            groups: Vec::new(),
             master_gain_db: 0.0,
             loop_enabled: false,
             loop_region: None,
@@ -390,6 +711,66 @@ impl Project {
 
     pub fn get_track_mut(&mut self, track_id: Uuid) -> Option<&mut Track> {
         self.tracks.iter_mut().find(|t| t.id == track_id)
+    }
+
+    pub fn add_bus(&mut self, name: impl Into<String>) -> Uuid {
+        let bus = SubmixBus::new(name);
+        let id = bus.id;
+        self.busses.push(bus);
+        id
+    }
+
+    pub fn remove_bus(&mut self, bus_id: Uuid) -> Option<SubmixBus> {
+        if let Some(pos) = self.busses.iter().position(|b| b.id == bus_id) {
+            let removed = self.busses.remove(pos);
+            // Re-route any tracks pointing to this bus back to Master
+            for track in &mut self.tracks {
+                if track.output_routing == TrackOutputRouting::Bus(bus_id) {
+                    track.output_routing = TrackOutputRouting::Master;
+                }
+                track.sends.retain(|s| s.target_bus_id != bus_id);
+            }
+            Some(removed)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_bus(&self, bus_id: Uuid) -> Option<&SubmixBus> {
+        self.busses.iter().find(|b| b.id == bus_id)
+    }
+
+    pub fn get_bus_mut(&mut self, bus_id: Uuid) -> Option<&mut SubmixBus> {
+        self.busses.iter_mut().find(|b| b.id == bus_id)
+    }
+
+    pub fn add_group(&mut self, name: impl Into<String>) -> Uuid {
+        let group = TrackGroup::new(name);
+        let id = group.id;
+        self.groups.push(group);
+        id
+    }
+
+    pub fn remove_group(&mut self, group_id: Uuid) -> Option<TrackGroup> {
+        if let Some(pos) = self.groups.iter().position(|g| g.id == group_id) {
+            let removed = self.groups.remove(pos);
+            for track in &mut self.tracks {
+                if track.group_id == Some(group_id) {
+                    track.group_id = None;
+                }
+            }
+            Some(removed)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_group(&self, group_id: Uuid) -> Option<&TrackGroup> {
+        self.groups.iter().find(|g| g.id == group_id)
+    }
+
+    pub fn get_group_mut(&mut self, group_id: Uuid) -> Option<&mut TrackGroup> {
+        self.groups.iter_mut().find(|g| g.id == group_id)
     }
 
     pub fn add_source(&mut self, source: AudioSource) {

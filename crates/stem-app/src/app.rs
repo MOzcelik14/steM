@@ -1201,39 +1201,237 @@ impl StemApp {
     }
 
     pub fn action_set_track_gain(&mut self, track_idx: usize, gain_db: f32) {
-        if let Some(track) = self.project.tracks.get_mut(track_idx) {
-            track.gain_db = gain_db;
-        }
-        if let Some(ref mut engine) = self.audio_engine {
-            engine.set_track_gain_db(track_idx, gain_db);
+        let (group_id, old_gain_db) = if let Some(track) = self.project.tracks.get(track_idx) {
+            (track.group_id, track.gain_db)
+        } else {
+            return;
+        };
+
+        let link_gain = group_id
+            .and_then(|gid| self.project.get_group(gid))
+            .map(|g| g.link_gain)
+            .unwrap_or(false);
+
+        if link_gain {
+            let delta_db = gain_db - old_gain_db;
+            let peer_indices: Vec<usize> = self
+                .project
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(idx, t)| t.group_id == group_id && *idx != track_idx)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            if let Some(t) = self.project.tracks.get_mut(track_idx) {
+                t.gain_db = gain_db.clamp(-60.0, 12.0);
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_gain_db(track_idx, gain_db);
+            }
+
+            for p_idx in peer_indices {
+                if let Some(peer) = self.project.tracks.get_mut(p_idx) {
+                    peer.gain_db = (peer.gain_db + delta_db).clamp(-60.0, 12.0);
+                    let new_p_gain = peer.gain_db;
+                    if let Some(ref mut engine) = self.audio_engine {
+                        engine.set_track_gain_db(p_idx, new_p_gain);
+                    }
+                }
+            }
+        } else {
+            if let Some(track) = self.project.tracks.get_mut(track_idx) {
+                track.gain_db = gain_db.clamp(-60.0, 12.0);
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_gain_db(track_idx, gain_db);
+            }
         }
     }
 
     pub fn action_set_track_pan(&mut self, track_idx: usize, pan: f32) {
-        if let Some(track) = self.project.tracks.get_mut(track_idx) {
-            track.pan = pan;
-        }
-        if let Some(ref mut engine) = self.audio_engine {
-            engine.set_track_pan(track_idx, pan);
+        let (group_id, old_pan) = if let Some(track) = self.project.tracks.get(track_idx) {
+            (track.group_id, track.pan)
+        } else {
+            return;
+        };
+
+        let link_pan = group_id
+            .and_then(|gid| self.project.get_group(gid))
+            .map(|g| g.link_pan)
+            .unwrap_or(false);
+
+        if link_pan {
+            let delta_pan = pan - old_pan;
+            let peer_indices: Vec<usize> = self
+                .project
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(idx, t)| t.group_id == group_id && *idx != track_idx)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            if let Some(t) = self.project.tracks.get_mut(track_idx) {
+                t.pan = pan.clamp(-1.0, 1.0);
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_pan(track_idx, pan);
+            }
+
+            for p_idx in peer_indices {
+                if let Some(peer) = self.project.tracks.get_mut(p_idx) {
+                    peer.pan = (peer.pan + delta_pan).clamp(-1.0, 1.0);
+                    let new_p_pan = peer.pan;
+                    if let Some(ref mut engine) = self.audio_engine {
+                        engine.set_track_pan(p_idx, new_p_pan);
+                    }
+                }
+            }
+        } else {
+            if let Some(track) = self.project.tracks.get_mut(track_idx) {
+                track.pan = pan.clamp(-1.0, 1.0);
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_pan(track_idx, pan);
+            }
         }
     }
 
     pub fn action_set_track_mute(&mut self, track_idx: usize, muted: bool) {
-        if let Some(track) = self.project.tracks.get_mut(track_idx) {
-            track.muted = muted;
-        }
-        if let Some(ref mut engine) = self.audio_engine {
-            engine.set_track_mute(track_idx, muted);
+        let group_id = self.project.tracks.get(track_idx).and_then(|t| t.group_id);
+        let link_mute = group_id
+            .and_then(|gid| self.project.get_group(gid))
+            .map(|g| g.link_mute)
+            .unwrap_or(false);
+
+        if link_mute {
+            let group_indices: Vec<usize> = self
+                .project
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.group_id == group_id)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            for idx in group_indices {
+                if let Some(t) = self.project.tracks.get_mut(idx) {
+                    t.muted = muted;
+                }
+                if let Some(ref mut engine) = self.audio_engine {
+                    engine.set_track_mute(idx, muted);
+                }
+            }
+        } else {
+            if let Some(track) = self.project.tracks.get_mut(track_idx) {
+                track.muted = muted;
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_mute(track_idx, muted);
+            }
         }
     }
 
     pub fn action_set_track_solo(&mut self, track_idx: usize, soloed: bool) {
-        if let Some(track) = self.project.tracks.get_mut(track_idx) {
-            track.soloed = soloed;
+        let group_id = self.project.tracks.get(track_idx).and_then(|t| t.group_id);
+        let link_solo = group_id
+            .and_then(|gid| self.project.get_group(gid))
+            .map(|g| g.link_solo)
+            .unwrap_or(false);
+
+        if link_solo {
+            let group_indices: Vec<usize> = self
+                .project
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.group_id == group_id)
+                .map(|(idx, _)| idx)
+                .collect();
+
+            for idx in group_indices {
+                if let Some(t) = self.project.tracks.get_mut(idx) {
+                    t.soloed = soloed;
+                }
+                if let Some(ref mut engine) = self.audio_engine {
+                    engine.set_track_solo(idx, soloed);
+                }
+            }
+        } else {
+            if let Some(track) = self.project.tracks.get_mut(track_idx) {
+                track.soloed = soloed;
+            }
+            if let Some(ref mut engine) = self.audio_engine {
+                engine.set_track_solo(track_idx, soloed);
+            }
         }
-        if let Some(ref mut engine) = self.audio_engine {
-            engine.set_track_solo(track_idx, soloed);
+    }
+
+    pub fn action_set_track_arm(&mut self, track_idx: usize, armed: bool) {
+        let group_id = self.project.tracks.get(track_idx).and_then(|t| t.group_id);
+        let link_arm = group_id
+            .and_then(|gid| self.project.get_group(gid))
+            .map(|g| g.link_arm)
+            .unwrap_or(false);
+
+        if link_arm {
+            for t in &mut self.project.tracks {
+                if t.group_id == group_id {
+                    t.armed = armed;
+                }
+            }
+        } else if let Some(track) = self.project.tracks.get_mut(track_idx) {
+            track.armed = armed;
         }
+    }
+
+    pub fn action_add_bus(&mut self, name: impl Into<String>) -> Uuid {
+        let id = self.project.add_bus(name);
+        self.sync_timeline_to_audio_engine();
+        id
+    }
+
+    pub fn action_delete_bus(&mut self, bus_id: Uuid) {
+        self.project.remove_bus(bus_id);
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_set_bus_gain(&mut self, bus_id: Uuid, gain_db: f32) {
+        if let Some(bus) = self.project.get_bus_mut(bus_id) {
+            bus.gain_db = gain_db.clamp(-60.0, 12.0);
+        }
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_set_bus_pan(&mut self, bus_id: Uuid, pan: f32) {
+        if let Some(bus) = self.project.get_bus_mut(bus_id) {
+            bus.pan = pan.clamp(-1.0, 1.0);
+        }
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_set_bus_mute(&mut self, bus_id: Uuid, muted: bool) {
+        if let Some(bus) = self.project.get_bus_mut(bus_id) {
+            bus.muted = muted;
+        }
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_set_bus_solo(&mut self, bus_id: Uuid, soloed: bool) {
+        if let Some(bus) = self.project.get_bus_mut(bus_id) {
+            bus.soloed = soloed;
+        }
+        self.sync_timeline_to_audio_engine();
+    }
+
+    pub fn action_add_group(&mut self, name: impl Into<String>) -> Uuid {
+        self.project.add_group(name)
+    }
+
+    #[allow(dead_code)]
+    pub fn action_delete_group(&mut self, group_id: Uuid) {
+        self.project.remove_group(group_id);
     }
 
     // -------------------------------------------------------------------------

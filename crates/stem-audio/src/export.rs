@@ -122,6 +122,18 @@ pub fn render_project_mixdown_range(
     let mut master_left = vec![0.0f32; total_frames as usize];
     let mut master_right = vec![0.0f32; total_frames as usize];
 
+    // Allocate submix bus buffers
+    let mut bus_buffers: HashMap<Uuid, (Vec<f32>, Vec<f32>)> = HashMap::new();
+    for bus in &project.busses {
+        bus_buffers.insert(
+            bus.id,
+            (
+                vec![0.0f32; total_frames as usize],
+                vec![0.0f32; total_frames as usize],
+            ),
+        );
+    }
+
     let has_solos = project.tracks.iter().any(|t| t.soloed);
 
     let num_tracks = project.tracks.len();
@@ -140,14 +152,11 @@ pub fn render_project_mixdown_range(
             continue;
         }
 
-        let track_gain = 10.0f32.powf(track.gain_db / 20.0);
-        let pan = track.pan.clamp(-1.0, 1.0);
-        // Constant power panning law
-        let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
-        let gain_left = track_gain * pan_rad.cos();
-        let gain_right = track_gain * pan_rad.sin();
+        // Render this track's clips into a track buffer
+        let mut track_left = vec![0.0f32; total_frames as usize];
+        let mut track_right = vec![0.0f32; total_frames as usize];
 
-        for clip in &track.clips {
+        for (clip_idx, clip) in track.clips.iter().enumerate() {
             let src_data = match source_buffers.get(&clip.source_id) {
                 Some(buf) if !buf.is_empty() => buf,
                 _ => continue,
@@ -186,11 +195,90 @@ pub fn render_project_mixdown_range(
                 let in_l = src_left.get(s_idx).copied().unwrap_or(0.0);
                 let in_r = src_right.get(s_idx).copied().unwrap_or(0.0);
 
-                let fade_gain = clip.gain_at_relative_frame(i as u64);
+                let fade_gain = track.clip_gain_at_timeline_frame(clip_idx, t_frame);
                 let net_gain = clip_gain * fade_gain;
 
-                master_left[out_idx] += in_l * net_gain * gain_left;
-                master_right[out_idx] += in_r * net_gain * gain_right;
+                track_left[out_idx] += in_l * net_gain;
+                track_right[out_idx] += in_r * net_gain;
+            }
+        }
+
+        // Now process track routing, sends, and automation
+        for out_idx in 0..(total_frames as usize) {
+            let in_l = track_left[out_idx];
+            let in_r = track_right[out_idx];
+            if in_l == 0.0 && in_r == 0.0 {
+                continue;
+            }
+
+            let t_frame = export_start + out_idx as u64;
+            let evaluated_gain_db = track.evaluated_gain_db(t_frame);
+            let track_gain = 10.0f32.powf(evaluated_gain_db / 20.0);
+            let pan = track.evaluated_pan(t_frame).clamp(-1.0, 1.0);
+            let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+            let gain_left = track_gain * pan_rad.cos();
+            let gain_right = track_gain * pan_rad.sin();
+
+            let post_l = in_l * gain_left;
+            let post_r = in_r * gain_right;
+
+            // Sends
+            for send in &track.sends {
+                if send.muted {
+                    continue;
+                }
+                if let Some((b_left, b_right)) = bus_buffers.get_mut(&send.target_bus_id) {
+                    let send_gain = 10.0f32.powf(send.gain_db / 20.0);
+                    let s_pan = send.pan.clamp(-1.0, 1.0);
+                    let s_pan_rad = (s_pan + 1.0) * (std::f32::consts::PI / 4.0);
+                    let sg_l = send_gain * s_pan_rad.cos();
+                    let sg_r = send_gain * s_pan_rad.sin();
+
+                    if send.pre_fader {
+                        b_left[out_idx] += in_l * sg_l;
+                        b_right[out_idx] += in_r * sg_r;
+                    } else {
+                        b_left[out_idx] += post_l * sg_l;
+                        b_right[out_idx] += post_r * sg_r;
+                    }
+                }
+            }
+
+            // Output Routing
+            match track.output_routing {
+                stem_core::project::TrackOutputRouting::Master => {
+                    master_left[out_idx] += post_l;
+                    master_right[out_idx] += post_r;
+                }
+                stem_core::project::TrackOutputRouting::Bus(bus_id) => {
+                    if let Some((b_left, b_right)) = bus_buffers.get_mut(&bus_id) {
+                        b_left[out_idx] += post_l;
+                        b_right[out_idx] += post_r;
+                    } else {
+                        master_left[out_idx] += post_l;
+                        master_right[out_idx] += post_r;
+                    }
+                }
+            }
+        }
+    }
+
+    // Now sum Submix Busses into Master
+    let has_bus_solos = project.busses.iter().any(|b| b.soloed);
+    for bus in &project.busses {
+        if bus.muted || (has_bus_solos && !bus.soloed) {
+            continue;
+        }
+        if let Some((b_left, b_right)) = bus_buffers.get(&bus.id) {
+            let bus_gain = 10.0f32.powf(bus.gain_db / 20.0);
+            let pan = bus.pan.clamp(-1.0, 1.0);
+            let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+            let gain_left = bus_gain * pan_rad.cos();
+            let gain_right = bus_gain * pan_rad.sin();
+
+            for out_idx in 0..(total_frames as usize) {
+                master_left[out_idx] += b_left[out_idx] * gain_left;
+                master_right[out_idx] += b_right[out_idx] * gain_right;
             }
         }
     }
@@ -224,7 +312,7 @@ pub fn render_project_tracks(
         let mut track_left = vec![0.0f32; total_frames];
         let mut track_right = vec![0.0f32; total_frames];
 
-        for clip in &track.clips {
+        for (clip_idx, clip) in track.clips.iter().enumerate() {
             let src_data = match source_buffers.get(&clip.source_id) {
                 Some(buf) if !buf.is_empty() => buf,
                 _ => continue,
@@ -251,7 +339,7 @@ pub fn render_project_tracks(
                 let in_l = src_left.get(s_idx).copied().unwrap_or(0.0);
                 let in_r = src_right.get(s_idx).copied().unwrap_or(0.0);
 
-                let fade_gain = clip.gain_at_relative_frame(i as u64);
+                let fade_gain = track.clip_gain_at_timeline_frame(clip_idx, out_idx as u64);
                 let net_gain = clip_gain * fade_gain;
 
                 track_left[out_idx] += in_l * net_gain;
