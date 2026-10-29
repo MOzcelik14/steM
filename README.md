@@ -115,6 +115,13 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 - Dynamic parameter updates are smoothly interpolated on every sample using single-pole exponential smoothing (`SmoothedParam`), eliminating zipper noise and audio clicks.
 - Fade operations (Linear, Logarithmic, Exponential, S-Curve) and peak normalization operate on audio selections non-destructively, rendering virtual slices into the edit list without modifying files on disk.
 
+### Audio Cleanup, Restoration & Spectral Analysis
+- **Spectral Gating Noise Reduction**: Background noise floor profiles are statistically captured across frequency bins using an upper envelope ($\mu + 1.8\sigma$) to account for Rayleigh distribution variance. Noise reduction applies Short-Time Fourier Transform (STFT) overlap-add with Hann windows (50% overlap Constant Overlap-Add) and Wiener spectral subtraction to ensure smooth, artifact-free attenuation without musical chirps.
+- **Impulse Click & Pop Removal**: High-frequency transients and clicks are isolated via adaptive moving median difference filtering. Corrupted samples are seamlessly reconstructed using cubic Hermite spline interpolation anchored on surrounding clean signal derivatives.
+- **2D Waterfall Spectrogram & Frequency Analyzer**: Configurable FFT window sizes (256 to 4096 samples) paired with scientific colormaps (Viridis, Magma, Inferno, Classic Heat, Cyberpunk) for simultaneous 2D time-frequency waterfall rendering and 1D magnitude curve analysis with frequency and dB gridlines.
+- **Dual Peak & RMS Telemetry**: The real-time audio callback calculates both peak magnitude and RMS sum of squares with zero heap allocations, powering live transport VU meters, channel strips, and numerical readouts.
+- **EBU R128 / ITU-R BS.1770 Loudness Report**: Comprehensive dialog measuring Integrated LUFS, Momentary max, Short-term max, Loudness Range (LRA), and True Peak with compliance indicators for broadcast and streaming platforms.
+
 ---
 
 ## Roadmap
@@ -122,7 +129,7 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 - [x] **Milestone 1**: Project skeleton, localization engine (EN/TR), playback engine, lock-free telemetry.
 - [x] **Phase A (Milestone 2)**: Single-file waveform editor mode, non-destructive edit list, zero-crossing snapping, selection playback, clipboard.
 - [x] **Phase B (Milestone 3)**: Real-time per-track and master insert effect chains (EQ, Compressor, Limiter, Delay, Reverb) in audio callback, live preview, lock-free parameter smoothing (`SmoothedParam`), reordering, per-effect bypass/reset, fade curve operations (Linear, Logarithmic, Exponential, S-Curve), peak normalization, and selection rendering.
-- [ ] **Phase C (Milestone 4)**: Cleanup tools (spectral edit, hum removal, click/pop removal) and loudness analysis gaps.
+- [x] **Phase C (Milestone 4)**: Cleanup tools (spectral gating noise reduction, click/pop removal), 2D waterfall spectrogram & 1D spectrum analyzer with adjustable FFT size and color palettes, dual Peak/RMS metering, and EBU R128 loudness report.
 - [ ] **Phase D (Milestone 5)**: Multi-channel recording completeness, punch-in/out, latency compensation.
 - [ ] **Phase E (Milestone 7)**: Advanced multitrack session (busses, sends/returns, grouping).
 - [ ] **Phase F (Milestone 8)**: Workflow polish, custom keybindings, theme support, session recovery.

@@ -67,6 +67,8 @@ pub struct AudioTelemetry {
     pub playhead_frame: u64,
     pub peak_left: f32,
     pub peak_right: f32,
+    pub rms_left: f32,
+    pub rms_right: f32,
 }
 
 pub const MAX_TRACKS: usize = 32;
@@ -261,6 +263,9 @@ impl AudioProcessor {
 
         let mut peak_l = 0.0f32;
         let mut peak_r = 0.0f32;
+        let mut sum_sq_l = 0.0f32;
+        let mut sum_sq_r = 0.0f32;
+        let mut frames_counted = 0usize;
 
         if !self.is_playing {
             output.fill(0.0);
@@ -351,6 +356,10 @@ impl AudioProcessor {
                     peak_r = abs_r;
                 }
 
+                sum_sq_l += l_sample * l_sample;
+                sum_sq_r += r_sample * r_sample;
+                frames_counted += 1;
+
                 self.playhead_frame = self.playhead_frame.saturating_add(1);
 
                 // Auto-stop at end if not looping
@@ -368,11 +377,17 @@ impl AudioProcessor {
             output.fill(0.0);
         }
 
+        let count = frames_counted.max(1) as f32;
+        let rms_l = (sum_sq_l / count).sqrt();
+        let rms_r = (sum_sq_r / count).sqrt();
+
         // Push telemetry to UI ring buffer (ignore error if ringbuffer is full)
         let _ = self.telemetry_producer.push(AudioTelemetry {
             playhead_frame: self.playhead_frame,
             peak_left: peak_l,
             peak_right: peak_r,
+            rms_left: rms_l,
+            rms_right: rms_r,
         });
     }
 }

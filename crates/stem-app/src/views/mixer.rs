@@ -131,13 +131,20 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                         .size(11.0),
                 );
 
-                // Peak Readout
+                // Peak & RMS Readout
                 let peak = app.telemetry.peak_left.max(app.telemetry.peak_right);
+                let rms = app.telemetry.rms_left.max(app.telemetry.rms_right);
                 let peak_db = if peak > 1e-5 {
                     20.0 * peak.log10()
                 } else {
                     -90.0
                 };
+                let rms_db = if rms > 1e-5 {
+                    20.0 * rms.log10()
+                } else {
+                    -90.0
+                };
+
                 let peak_color = if peak_db > 0.0 {
                     Color32::from_rgb(255, 50, 50)
                 } else {
@@ -146,11 +153,20 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                 ui.label(
                     egui::RichText::new(format!(
                         "{}: {}",
-                        app.i18n.t("mixer-peak"),
+                        app.i18n.t("meter-peak"),
                         format_db(peak_db)
                     ))
                     .size(10.0)
                     .color(peak_color),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{}: {}",
+                        app.i18n.t("meter-rms"),
+                        format_db(rms_db)
+                    ))
+                    .size(9.0)
+                    .color(Color32::from_rgb(180, 200, 220)),
                 );
             });
         });

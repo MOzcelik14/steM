@@ -3,6 +3,7 @@
 use stem_audio::DecodedAudio;
 use stem_core::peaks::PeakPyramid;
 use stem_core::waveform::{WaveformDocument, WaveformHistory};
+use stem_dsp::{LoudnessResult, NoiseProfile};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,4 +175,96 @@ pub enum WorkerMessage {
     ImportFailed(String),
     ExportProgress(f32),
     ExportFinished(Result<String, String>),
+}
+
+#[derive(Debug, Clone)]
+pub struct NoiseReductionDialogState {
+    pub show: bool,
+    pub reduction_db: f32,
+    pub sensitivity: f32,
+    pub noise_profile: Option<NoiseProfile>,
+    pub status_message: Option<String>,
+}
+
+impl Default for NoiseReductionDialogState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            reduction_db: 18.0,
+            sensitivity: 1.2,
+            noise_profile: None,
+            status_message: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ClickRemoverDialogState {
+    pub show: bool,
+    pub sensitivity: f32,
+    pub max_width: usize,
+    pub status_message: Option<String>,
+}
+
+impl Default for ClickRemoverDialogState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            sensitivity: 3.5,
+            max_width: 32,
+            status_message: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoudnessStandard {
+    #[default]
+    EbuR128, // Target: -23.0 LUFS
+    Streaming,  // Target: -14.0 LUFS (Spotify / YouTube)
+    AppleMusic, // Target: -16.0 LUFS
+    AesTd1004,  // Target: -24.0 LUFS
+}
+
+impl LoudnessStandard {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::EbuR128 => "EBU R128 (-23 LUFS)",
+            Self::Streaming => "Streaming / Spotify (-14 LUFS)",
+            Self::AppleMusic => "Apple Music (-16 LUFS)",
+            Self::AesTd1004 => "AES TD1004 (-24 LUFS)",
+        }
+    }
+
+    pub fn target_lufs(&self) -> f32 {
+        match self {
+            Self::EbuR128 => -23.0,
+            Self::Streaming => -14.0,
+            Self::AppleMusic => -16.0,
+            Self::AesTd1004 => -24.0,
+        }
+    }
+
+    pub fn max_true_peak_dbfs(&self) -> f32 {
+        -1.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoudnessReportDialogState {
+    pub show: bool,
+    pub standard: LoudnessStandard,
+    pub result: Option<LoudnessResult>,
+    pub true_peak_dbfs: f32,
+}
+
+impl Default for LoudnessReportDialogState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            standard: LoudnessStandard::default(),
+            result: None,
+            true_peak_dbfs: -90.0,
+        }
+    }
 }

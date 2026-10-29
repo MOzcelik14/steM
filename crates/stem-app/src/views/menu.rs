@@ -292,6 +292,63 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             }
         });
 
+        // ------------------ Cleanup Menu ------------------
+        ui.menu_button(app.i18n.t("menu-cleanup"), |ui| {
+            let has_doc = app.waveform_state.document.is_some();
+            let has_sel = app.waveform_state.selection.is_some();
+
+            if ui
+                .add_enabled(
+                    has_doc && has_sel,
+                    egui::Button::new(app.i18n.t("menu-cleanup-capture-noise")),
+                )
+                .clicked()
+            {
+                app.action_capture_noise_profile();
+                ui.close_menu();
+            }
+
+            if ui
+                .add_enabled(
+                    has_doc,
+                    egui::Button::new(app.i18n.t("menu-cleanup-noise-reduction")),
+                )
+                .clicked()
+            {
+                app.noise_reduction_state.show = true;
+                ui.close_menu();
+            }
+
+            ui.separator();
+
+            if ui
+                .add_enabled(
+                    has_doc,
+                    egui::Button::new(app.i18n.t("menu-cleanup-click-remover")),
+                )
+                .clicked()
+            {
+                app.click_remover_state.show = true;
+                ui.close_menu();
+            }
+        });
+
+        // ------------------ Analysis Menu ------------------
+        ui.menu_button(app.i18n.t("menu-analysis"), |ui| {
+            if ui.button(app.i18n.t("menu-analysis-loudness")).clicked() {
+                app.action_open_loudness_report();
+                ui.close_menu();
+            }
+
+            let mut spec_open = app.show_spectrogram_panel;
+            if ui
+                .checkbox(&mut spec_open, app.i18n.t("menu-analysis-spectrogram"))
+                .clicked()
+            {
+                app.show_spectrogram_panel = spec_open;
+            }
+        });
+
         // ------------------ Language Quick Selector ------------------
         let current_locale = app.i18n.current_locale();
         ui.menu_button(format!("🌐 {}", current_locale.native_name()), |ui| {

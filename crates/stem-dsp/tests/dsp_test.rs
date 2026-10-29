@@ -613,3 +613,139 @@ fn test_effect_chain_order_strictly_respected() {
         "Effect chain order was not respected: peak1={peak_chain1}, peak2={peak_chain2}"
     );
 }
+
+#[test]
+fn test_spectral_noise_reduction_measurably_attenuates_noise() {
+    let sample_rate = 44100;
+    let fft_size = 1024;
+    let num_samples = 44100; // 1 second
+
+    // Synthesize signal:
+    // First 0.5s: pure Gaussian/white noise floor (std dev 0.05, ~ -26 dBFS)
+    // Second 0.5s: 1 kHz sine wave (amp 0.5) + noise floor
+    let mut signal = vec![0.0f32; num_samples];
+    let mut rng_state: u64 = 123456789;
+
+    for (i, s) in signal.iter_mut().enumerate() {
+        // Simple LCG PRNG for reproducible white noise
+        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let n1 = (rng_state >> 32) as f32 / u32::MAX as f32 - 0.5;
+        let noise = n1 * 0.1; // peak approx 0.05
+
+        let t = i as f32 / sample_rate as f32;
+        let tone = if i >= num_samples / 2 {
+            (2.0 * std::f32::consts::PI * 1000.0 * t).sin() * 0.5
+        } else {
+            0.0
+        };
+
+        *s = tone + noise;
+    }
+
+    // 1. Capture noise profile from the first 0.4s (noise only)
+    let noise_selection = &signal[0..17640];
+    let profile = stem_dsp::NoiseProfile::capture(noise_selection, sample_rate, fft_size);
+
+    // 2. Build spectral gate with 24 dB reduction
+    let gate = stem_dsp::SpectralGate::new(profile, 24.0, 1.2);
+
+    let processed = gate.process_channel(&signal);
+    assert_eq!(processed.len(), signal.len(), "Processed length mismatch");
+
+    // Measure RMS power of noise-only segment before and after
+    let noise_eval_range = 2000..16000;
+    let mut orig_noise_energy = 0.0f64;
+    let mut proc_noise_energy = 0.0f64;
+
+    for i in noise_eval_range.clone() {
+        orig_noise_energy += (signal[i] as f64) * (signal[i] as f64);
+        proc_noise_energy += (processed[i] as f64) * (processed[i] as f64);
+    }
+
+    let orig_rms = (orig_noise_energy / noise_eval_range.len() as f64).sqrt();
+    let proc_rms = (proc_noise_energy / noise_eval_range.len() as f64).sqrt();
+
+    let reduction_achieved_db = 20.0 * (orig_rms / proc_rms.max(1e-9)).log10();
+
+    assert!(
+        reduction_achieved_db >= 14.0,
+        "Noise reduction should achieve at least 14 dB attenuation, got {reduction_achieved_db:.2} dB"
+    );
+
+    // Verify tone section (second half) remains strong
+    let tone_eval_range = 25000..40000;
+    let mut proc_tone_peak = 0.0f32;
+    for i in tone_eval_range {
+        proc_tone_peak = proc_tone_peak.max(processed[i].abs());
+    }
+    assert!(
+        proc_tone_peak > 0.4,
+        "Desired audio tone was excessively degraded: peak={proc_tone_peak}"
+    );
+}
+
+#[test]
+fn test_click_and_pop_remover_restores_transient_impulses() {
+    let sample_rate = 44100;
+    let num_samples = 44100;
+    let mut audio = vec![0.0f32; num_samples];
+
+    // Clean 220 Hz sine tone
+    for (i, sample) in audio.iter_mut().enumerate() {
+        let t = i as f32 / sample_rate as f32;
+        *sample = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.4;
+    }
+
+    // Inject 5 artificial clicks (sharp high-derivative spikes)
+    let click_positions = [3000, 8500, 15000, 24000, 36000];
+    for &pos in &click_positions {
+        for offset in 0..3 {
+            audio[pos + offset] = 0.95; // spike
+        }
+    }
+
+    let declicker = stem_dsp::ClickRemover::new(4.0, 16);
+    let mut restored = audio.clone();
+    let clicks_repaired = declicker.process_channel(&mut restored);
+
+    assert!(
+        clicks_repaired >= click_positions.len(),
+        "Expected at least {} clicks repaired, got {clicks_repaired}",
+        click_positions.len()
+    );
+
+    // Verify that the sharp spikes at click positions have been interpolated smoothly
+    for &pos in &click_positions {
+        let max_spike = restored[pos..pos + 3]
+            .iter()
+            .fold(0.0f32, |m, &s| m.max(s.abs()));
+        assert!(
+            max_spike < 0.65,
+            "Click at sample {pos} was not suppressed: spike amplitude = {max_spike}"
+        );
+
+        // Verify continuity with neighbor
+        let step = (restored[pos] - restored[pos - 1]).abs();
+        assert!(
+            step < 0.15,
+            "Discontinuity at repaired click boundary {pos}: step={step}"
+        );
+    }
+}
+
+#[test]
+fn test_spectrogram_color_palette_and_true_peak() {
+    let palette = stem_dsp::SpectrogramPalette::Viridis;
+    let (r0, g0, b0) = palette.color_rgb(0.0);
+    let (r1, g1, b1) = palette.color_rgb(1.0);
+    // Low vs High should be distinct colors
+    assert_ne!((r0, g0, b0), (r1, g1, b1));
+
+    // True peak test: high inter-sample peaks detected
+    let samples = vec![0.0, 0.707, -0.707, 0.0];
+    let tp = stem_dsp::compute_true_peak_dbfs(&samples);
+    assert!(
+        tp > -5.0 && tp <= 0.0,
+        "True peak calculation returned invalid value: {tp}"
+    );
+}

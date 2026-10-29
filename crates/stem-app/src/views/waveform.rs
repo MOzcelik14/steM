@@ -242,6 +242,54 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
             app.show_effects_dialog = true;
         }
 
+        // Cleanup: Noise Reduction Menu Button
+        ui.add_enabled_ui(has_doc, |ui| {
+            ui.menu_button(
+                format!("🧹 {}", app.i18n.t("cleanup-noise-reduction")),
+                |ui| {
+                    let has_sel = app.waveform_state.selection.is_some();
+                    if ui
+                        .add_enabled(
+                            has_sel,
+                            egui::Button::new(app.i18n.t("cleanup-capture-noise-profile")),
+                        )
+                        .clicked()
+                    {
+                        app.action_capture_noise_profile();
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("cleanup-open-noise-dialog")).clicked() {
+                        app.noise_reduction_state.show = true;
+                        ui.close_menu();
+                    }
+                },
+            );
+        });
+
+        // Click Remover Button
+        if ui
+            .add_enabled(
+                has_doc,
+                egui::Button::new(format!("⚡ {}", app.i18n.t("cleanup-click-remover"))),
+            )
+            .on_hover_text("Open Click & Pop Remover")
+            .clicked()
+        {
+            app.click_remover_state.show = true;
+        }
+
+        // Loudness Report Button
+        if ui
+            .add_enabled(
+                has_doc,
+                egui::Button::new(format!("📊 {}", app.i18n.t("analysis-loudness-report"))),
+            )
+            .on_hover_text("Open EBU R128 Loudness Report")
+            .clicked()
+        {
+            app.action_open_loudness_report();
+        }
+
         ui.separator();
 
         // Snap to Zero-Crossing Toggle

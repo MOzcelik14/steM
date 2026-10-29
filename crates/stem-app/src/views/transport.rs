@@ -182,11 +182,45 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
 }
 
 fn render_master_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
-    let meter_size = Vec2::new(120.0, 18.0);
-    let (rect, _response) = ui.allocate_exact_size(meter_size, egui::Sense::hover());
+    let meter_size = Vec2::new(130.0, 20.0);
+    let (rect, response) = ui.allocate_exact_size(meter_size, egui::Sense::hover());
+
+    let peak_l = app.telemetry.peak_left;
+    let peak_r = app.telemetry.peak_right;
+    let rms_l = app.telemetry.rms_left;
+    let rms_r = app.telemetry.rms_right;
+
+    let peak_db_l = if peak_l > 1e-5 {
+        20.0 * peak_l.log10()
+    } else {
+        -90.0
+    };
+    let peak_db_r = if peak_r > 1e-5 {
+        20.0 * peak_r.log10()
+    } else {
+        -90.0
+    };
+    let rms_db_l = if rms_l > 1e-5 {
+        20.0 * rms_l.log10()
+    } else {
+        -90.0
+    };
+    let rms_db_r = if rms_r > 1e-5 {
+        20.0 * rms_r.log10()
+    } else {
+        -90.0
+    };
+
+    response.on_hover_text(format!(
+        "L: Peak {} / RMS {}\nR: Peak {} / RMS {}",
+        format_db(peak_db_l),
+        format_db(rms_db_l),
+        format_db(peak_db_r),
+        format_db(rms_db_r)
+    ));
 
     let painter = ui.painter();
-    painter.rect_filled(rect, Rounding::same(2.0), Color32::from_rgb(25, 25, 25));
+    painter.rect_filled(rect, Rounding::same(2.0), Color32::from_rgb(20, 22, 26));
 
     let half_h = rect.height() * 0.45;
     let gap = rect.height() * 0.1;
@@ -197,49 +231,73 @@ fn render_master_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
         Vec2::new(rect.width(), half_h),
     );
 
-    // Render bar for Left Channel
-    render_single_meter_bar(painter, left_rect, app.telemetry.peak_left);
-    // Render bar for Right Channel
-    render_single_meter_bar(painter, right_rect, app.telemetry.peak_right);
+    // Render dual Peak + RMS bars
+    render_single_meter_bar(painter, left_rect, peak_l, rms_l);
+    render_single_meter_bar(painter, right_rect, peak_r, rms_r);
 }
 
-fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32) {
+fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: f32) {
     let clamped_peak = peak.clamp(0.0, 1.2);
-    let fill_w = rect.width() * (clamped_peak / 1.0).min(1.0);
+    let clamped_rms = rms.clamp(0.0, 1.2);
 
-    let green_w = fill_w.min(rect.width() * 0.75);
-    let yellow_w = (fill_w - green_w).min(rect.width() * 0.20);
-    let red_w = fill_w - green_w - yellow_w;
+    let fill_w_rms = rect.width() * (clamped_rms / 1.0).min(1.0);
+    let fill_w_peak = rect.width() * (clamped_peak / 1.0).min(1.0);
 
-    let mut current_x = rect.min.x;
-    if green_w > 0.0 {
-        let r = Rect::from_min_size(
-            egui::pos2(current_x, rect.min.y),
-            Vec2::new(green_w, rect.height()),
-        );
-        painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(60, 200, 60));
-        current_x += green_w;
+    // 1. Draw RMS bar (solid medium intensity)
+    if fill_w_rms > 0.0 {
+        let green_w = fill_w_rms.min(rect.width() * 0.75);
+        let yellow_w = (fill_w_rms - green_w).min(rect.width() * 0.20);
+        let red_w = fill_w_rms - green_w - yellow_w;
+
+        let mut current_x = rect.min.x;
+        if green_w > 0.0 {
+            let r = Rect::from_min_size(
+                egui::pos2(current_x, rect.min.y),
+                Vec2::new(green_w, rect.height()),
+            );
+            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(45, 150, 45));
+            current_x += green_w;
+        }
+        if yellow_w > 0.0 {
+            let r = Rect::from_min_size(
+                egui::pos2(current_x, rect.min.y),
+                Vec2::new(yellow_w, rect.height()),
+            );
+            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(180, 150, 30));
+            current_x += yellow_w;
+        }
+        if red_w > 0.0 {
+            let r = Rect::from_min_size(
+                egui::pos2(current_x, rect.min.y),
+                Vec2::new(red_w, rect.height()),
+            );
+            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(190, 40, 40));
+        }
     }
-    if yellow_w > 0.0 {
-        let r = Rect::from_min_size(
-            egui::pos2(current_x, rect.min.y),
-            Vec2::new(yellow_w, rect.height()),
+
+    // 2. Draw Peak Indicator Line / Tick (bright highlight)
+    if fill_w_peak > 1.0 {
+        let peak_x = (rect.min.x + fill_w_peak).min(rect.max.x - 1.5);
+        let peak_color = if clamped_peak > 1.0 {
+            Color32::from_rgb(255, 60, 60)
+        } else if clamped_peak > 0.75 {
+            Color32::from_rgb(255, 230, 80)
+        } else {
+            Color32::from_rgb(100, 255, 100)
+        };
+        painter.line_segment(
+            [
+                egui::pos2(peak_x, rect.min.y),
+                egui::pos2(peak_x, rect.max.y),
+            ],
+            Stroke::new(2.0_f32, peak_color),
         );
-        painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(230, 200, 40));
-        current_x += yellow_w;
-    }
-    if red_w > 0.0 {
-        let r = Rect::from_min_size(
-            egui::pos2(current_x, rect.min.y),
-            Vec2::new(red_w, rect.height()),
-        );
-        painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(240, 50, 50));
     }
 
     // Border
     painter.rect_stroke(
         rect,
         Rounding::same(1.0),
-        Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 50)),
+        Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
     );
 }

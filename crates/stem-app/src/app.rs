@@ -17,7 +17,10 @@ use stem_core::project::{Clip, Project, Track};
 use stem_core::waveform::{AudioClipboard, WaveformDocument};
 use stem_i18n::{I18n, Locale, TimecodeMode};
 
-use crate::state::{AppViewMode, TimelineViewState, WaveformViewState, WorkerMessage};
+use crate::state::{
+    AppViewMode, ClickRemoverDialogState, LoudnessReportDialogState, NoiseReductionDialogState,
+    TimelineViewState, WaveformViewState, WorkerMessage,
+};
 use crate::views::{
     render_dialogs, render_effects_dialog, render_menu_bar, render_mixer_panel,
     render_spectrogram_panel, render_timeline_view, render_transport_bar, render_waveform_editor,
@@ -71,6 +74,9 @@ pub struct StemApp {
     // Effects & Analysis
     pub effects_state: EffectsRackState,
     pub spectrogram_state: SpectrogramState,
+    pub noise_reduction_state: NoiseReductionDialogState,
+    pub click_remover_state: ClickRemoverDialogState,
+    pub loudness_report_state: LoudnessReportDialogState,
 
     // Status
     pub status_text: String,
@@ -140,6 +146,9 @@ impl StemApp {
 
             effects_state: EffectsRackState::default(),
             spectrogram_state: SpectrogramState::default(),
+            noise_reduction_state: NoiseReductionDialogState::default(),
+            click_remover_state: ClickRemoverDialogState::default(),
+            loudness_report_state: LoudnessReportDialogState::default(),
             status_text,
         }
     }
@@ -485,6 +494,150 @@ impl StemApp {
                 self.status_text = self.i18n.t("status-effect-applied");
                 self.recompute_waveform_cache();
             }
+        }
+    }
+
+    pub fn action_capture_noise_profile(&mut self) {
+        if let Some(ref doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+            if s < e {
+                let rendered = doc.render_range(s, e, &self.source_buffers);
+                if let Some(channels) = rendered {
+                    if let Some(mono) = channels.first() {
+                        let fft_size = 1024;
+                        let profile = stem_dsp::NoiseProfile::capture(
+                            mono,
+                            self.project.sample_rate,
+                            fft_size,
+                        );
+                        self.noise_reduction_state.noise_profile = Some(profile);
+                        let dur_sec = (e - s) as f32 / self.project.sample_rate as f32;
+                        let msg =
+                            format!("Captured noise profile ({dur_sec:.2}s, {fft_size} bins)");
+                        self.noise_reduction_state.status_message = Some(msg);
+                        self.status_text = self.i18n.t_arg(
+                            "cleanup-profile-captured",
+                            "bins",
+                            (fft_size / 2 + 1).to_string(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn action_apply_noise_reduction(&mut self, whole_file: bool) {
+        if let Some(profile) = self.noise_reduction_state.noise_profile.clone() {
+            let red_db = self.noise_reduction_state.reduction_db;
+            let sens = self.noise_reduction_state.sensitivity;
+            let gate = stem_dsp::SpectralGate::new(profile, red_db, sens);
+
+            if let Some(ref mut doc) = self.waveform_state.document {
+                let total = doc.total_frames();
+                let (s, e) = if whole_file {
+                    (0, total)
+                } else {
+                    self.waveform_state.selection.unwrap_or((0, total))
+                };
+
+                if s < e {
+                    self.waveform_state.history.push_state(doc.clone());
+                    doc.apply_processor_to_range(s, e, &mut self.source_buffers, |channels| {
+                        gate.process_planar(channels);
+                    });
+                    self.status_text = self.i18n.t("cleanup-status-applied");
+                    self.recompute_waveform_cache();
+                }
+            }
+        }
+    }
+
+    pub fn action_apply_click_remover(&mut self) {
+        let sens = self.click_remover_state.sensitivity;
+        let max_w = self.click_remover_state.max_width;
+        let declicker = stem_dsp::ClickRemover::new(sens, max_w);
+
+        if let Some(ref mut doc) = self.waveform_state.document {
+            let total = doc.total_frames();
+            let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+
+            if s < e {
+                self.waveform_state.history.push_state(doc.clone());
+                let mut repaired_count = 0usize;
+                doc.apply_processor_to_range(s, e, &mut self.source_buffers, |channels| {
+                    repaired_count = declicker.process_planar(channels);
+                });
+
+                let msg = if repaired_count > 0 {
+                    self.i18n
+                        .t_arg("cleanup-click-result", "count", repaired_count.to_string())
+                } else {
+                    self.i18n.t("cleanup-click-none")
+                };
+                self.click_remover_state.status_message = Some(msg.clone());
+                self.status_text = msg;
+                self.recompute_waveform_cache();
+            }
+        }
+    }
+
+    pub fn action_open_loudness_report(&mut self) {
+        let mut interleaved = Vec::new();
+        let sample_rate = self.project.sample_rate;
+        let mut channels = 2u32;
+
+        if self.view_mode == AppViewMode::Waveform {
+            if let Some(ref doc) = self.waveform_state.document {
+                channels = (doc.channels.max(1)) as u32;
+                let total = doc.total_frames();
+                let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
+                if let Some(rendered) = doc.render_range(s, e, &self.source_buffers) {
+                    let num_frames = rendered[0].len();
+                    interleaved.reserve(num_frames * channels as usize);
+                    for f in 0..num_frames {
+                        for ch in 0..channels as usize {
+                            let val = rendered
+                                .get(ch)
+                                .and_then(|c| c.get(f))
+                                .copied()
+                                .unwrap_or(0.0);
+                            interleaved.push(val);
+                        }
+                    }
+                }
+            }
+        } else if let Some(ref timeline) = self.active_timeline {
+            let num_frames = timeline.channels[0].len();
+            channels = 2;
+            interleaved.reserve(num_frames * 2);
+            for f in 0..num_frames {
+                let l = timeline.channels[0].get(f).copied().unwrap_or(0.0);
+                let r = timeline
+                    .channels
+                    .get(1)
+                    .and_then(|c| c.get(f))
+                    .copied()
+                    .unwrap_or(l);
+                interleaved.push(l);
+                interleaved.push(r);
+            }
+        }
+
+        if !interleaved.is_empty() {
+            match stem_dsp::analyze_loudness(&interleaved, channels, sample_rate) {
+                Ok(res) => {
+                    let tp = stem_dsp::compute_true_peak_dbfs(&interleaved);
+                    self.loudness_report_state.result = Some(res);
+                    self.loudness_report_state.true_peak_dbfs = tp;
+                    self.loudness_report_state.show = true;
+                }
+                Err(e) => {
+                    self.status_text = format!("Loudness analysis error: {e:?}");
+                }
+            }
+        } else {
+            self.status_text = "No audio data to analyze".to_string();
         }
     }
 
