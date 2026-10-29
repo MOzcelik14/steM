@@ -385,4 +385,50 @@ crossfade-equal-power = Equal-Power (3dB Sum)
 crossfade-linear = Linear
 crossfade-exponential = Exponential
 
+# Phase F: Workflow Polish (Markers, Recovery, Keybindings, Batch Export)
+marker-title = Marker
+marker-add = Add Marker
+marker-add-named = Add Named Marker...
+marker-edit = Edit Marker
+marker-list = Markers...
+marker-name = Marker Name
+marker-frame = Frame
+marker-time = Time
+marker-cd-track = CD Track Cue Point
+marker-prev = Previous Marker
+marker-next = Next Marker
+marker-delete = Delete Marker
+marker-jump = Jump to Marker
+
+dialog-marker-title = Marker
+dialog-marker-list-title = Markers
+dialog-batch-export-title = Batch Export
+batch-export-stems = Export Track Stems
+batch-export-regions = Export Marker Regions
+batch-export-pattern = Filename Pattern:
+batch-export-pattern-help = Tokens: {"{"}project{"}"}, {"{"}track{"}"}, {"{"}index{"}"}, {"{"}marker{"}"}
+batch-export-output-dir = Output Directory:
+batch-export-browse = Browse...
+batch-export-format = Format:
+batch-export-bit-depth = Bit Depth:
+batch-export-btn = Start Batch Export
+batch-export-completed = Batch export completed successfully
+
+dialog-keybindings-title = Keyboard Shortcuts
+keybindings-filter = Search shortcuts:
+keybindings-action = Action
+keybindings-shortcut = Shortcut
+keybindings-conflicts-warning = Conflict detected: multiple actions share the same shortcut!
+keybindings-reset = Reset to Defaults
+keybindings-export = Export JSON...
+keybindings-import = Import JSON...
+
+dialog-recovery-title = Session Crash Recovery
+recovery-prompt = An unsaved project session was recovered ({ $time }). Would you like to restore it?
+recovery-restore = Restore Session
+recovery-discard = Discard
+recovery-restored = Project session restored from crash recovery
+recovery-discarded = Crash recovery journal discarded
+
+
 

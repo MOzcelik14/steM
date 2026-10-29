@@ -142,3 +142,16 @@ fn test_export_and_decode_wav_and_flac_roundtrip() {
     // Clean up temporary files
     let _ = fs::remove_dir_all(&temp_dir);
 }
+
+#[test]
+fn test_batch_export_filename_token_formatting() {
+    use stem_audio::format_export_filename;
+
+    let template = "{project}_{track}_{index}_{marker}";
+    let result = format_export_filename(template, "MySong", "Vocals", 0, "Chorus");
+    assert_eq!(result, "MySong_Vocals_01_Chorus");
+
+    let template2 = "Stem_{index}_{track}";
+    let result2 = format_export_filename(template2, "Album", "Drums", 4, "");
+    assert_eq!(result2, "Stem_05_Drums");
+}

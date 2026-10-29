@@ -731,6 +731,78 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             }
         }
 
+        // ---------------- Timeline Markers Rendering ----------------
+        let mut clicked_marker = None;
+        let mut double_clicked_marker = None;
+
+        for marker in &app.project.markers {
+            let m_x =
+                canvas_rect.min.x + (marker.frame as f32 / sample_rate as f32 * pps) - scroll_x;
+            if m_x >= canvas_rect.min.x && m_x <= canvas_rect.max.x {
+                let marker_color = if marker.is_cd_track {
+                    Color32::from_rgb(255, 200, 60)
+                } else {
+                    Color32::from_rgb(marker.color_rgb.0, marker.color_rgb.1, marker.color_rgb.2)
+                };
+
+                // Vertical marker line across all track lanes
+                painter.line_segment(
+                    [pos2(m_x, ruler_rect.max.y), pos2(m_x, canvas_rect.max.y)],
+                    Stroke::new(1.0_f32, marker_color.linear_multiply(0.6)),
+                );
+
+                // Marker flag shape on ruler
+                let flag_pts = [
+                    pos2(m_x, ruler_rect.min.y + 1.0),
+                    pos2(m_x + 12.0, ruler_rect.min.y + 1.0),
+                    pos2(m_x + 12.0, ruler_rect.min.y + 13.0),
+                    pos2(m_x + 4.0, ruler_rect.min.y + 13.0),
+                    pos2(m_x, ruler_rect.max.y),
+                ];
+                painter.add(egui::Shape::convex_polygon(
+                    flag_pts.to_vec(),
+                    marker_color,
+                    Stroke::new(1.0_f32, Color32::from_rgb(20, 20, 25)),
+                ));
+
+                // Marker name label on ruler
+                let label_text = if marker.is_cd_track {
+                    format!("[CD] {}", marker.name)
+                } else {
+                    marker.name.clone()
+                };
+                painter.text(
+                    pos2(m_x + 14.0, ruler_rect.min.y + 2.0),
+                    egui::Align2::LEFT_TOP,
+                    label_text,
+                    egui::FontId::proportional(11.0),
+                    marker_color,
+                );
+
+                // Interactive click/double-click on marker flag
+                let hit_rect = Rect::from_min_size(
+                    pos2(m_x - 3.0, ruler_rect.min.y),
+                    vec2(40.0, ruler_height),
+                );
+                if let Some(mp) = mouse_pos {
+                    if hit_rect.contains(mp) {
+                        if response.double_clicked() {
+                            double_clicked_marker = Some(marker.clone());
+                        } else if is_primary_clicked {
+                            clicked_marker = Some(marker.frame);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(frame) = clicked_marker {
+            app.action_seek(frame);
+        }
+        if let Some(m) = double_clicked_marker {
+            app.named_marker_state.open_for_edit(&m);
+        }
+
         // ---------------- Playhead Rendering ----------------
         let playhead_frame = app.telemetry.playhead_frame;
         let playhead_x =

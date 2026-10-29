@@ -18,8 +18,10 @@ use stem_core::waveform::{AudioClipboard, WaveformDocument};
 use stem_i18n::{I18n, Locale, TimecodeMode};
 
 use crate::state::{
-    AppViewMode, ClickRemoverDialogState, LoudnessReportDialogState, NoiseReductionDialogState,
-    RecordingState, TimelineViewState, WaveformViewState, WorkerMessage,
+    AppAction, AppViewMode, BatchExportDialogState, ClickRemoverDialogState, KeyBindingMap,
+    KeybindingsDialogState, LoudnessReportDialogState, MarkerListDialogState,
+    NamedMarkerDialogState, NoiseReductionDialogState, RecordingState, RecoveryDialogState,
+    TimelineViewState, WaveformViewState, WorkerMessage,
 };
 use crate::views::{
     render_dialogs, render_effects_dialog, render_menu_bar, render_mixer_panel,
@@ -79,6 +81,17 @@ pub struct StemApp {
     pub click_remover_state: ClickRemoverDialogState,
     pub loudness_report_state: LoudnessReportDialogState,
 
+    // Phase F - Markers, Recovery & Keybindings
+    pub named_marker_state: NamedMarkerDialogState,
+    pub marker_list_state: MarkerListDialogState,
+    pub batch_export_state: BatchExportDialogState,
+    pub keybindings_state: KeybindingsDialogState,
+    pub recovery_state: RecoveryDialogState,
+    pub keybindings: KeyBindingMap,
+    pub auto_save_last_time: std::time::Instant,
+    pub auto_save_interval_sec: u64,
+    pub recovery_file_path: PathBuf,
+
     // Status
     pub status_text: String,
 }
@@ -125,6 +138,26 @@ impl StemApp {
         let project = Project::new("Untitled Project", 48000);
         let status_text = i18n.t("status-ready");
 
+        let recovery_file_path = std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".stem-recovery");
+
+        let mut recovery_state = RecoveryDialogState::default();
+        if recovery_file_path.exists() {
+            if let Ok(metadata) = std::fs::metadata(&recovery_file_path) {
+                if metadata.len() > 0 {
+                    recovery_state.show = true;
+                    recovery_state.recovery_path = Some(recovery_file_path.clone());
+                    if let Ok(modified) = metadata.modified() {
+                        let duration = std::time::SystemTime::now()
+                            .duration_since(modified)
+                            .unwrap_or_default();
+                        recovery_state.recovery_time_str = format!("{}s ago", duration.as_secs());
+                    }
+                }
+            }
+        }
+
         Self {
             project,
             project_file_path: None,
@@ -169,6 +202,17 @@ impl StemApp {
             noise_reduction_state: NoiseReductionDialogState::default(),
             click_remover_state: ClickRemoverDialogState::default(),
             loudness_report_state: LoudnessReportDialogState::default(),
+
+            named_marker_state: NamedMarkerDialogState::default(),
+            marker_list_state: MarkerListDialogState::default(),
+            batch_export_state: BatchExportDialogState::default(),
+            keybindings_state: KeybindingsDialogState::default(),
+            recovery_state,
+            keybindings: KeyBindingMap::default(),
+            auto_save_last_time: std::time::Instant::now(),
+            auto_save_interval_sec: 60,
+            recovery_file_path,
+
             status_text,
         }
     }
@@ -1503,6 +1547,145 @@ impl StemApp {
         }
     }
 
+    pub fn action_drop_marker(&mut self, name: Option<String>) {
+        let frame = self.telemetry.playhead_frame;
+        let count = self.project.markers.len() + 1;
+        let marker_name = name.unwrap_or_else(|| format!("Marker {}", count));
+        self.project.add_marker(frame, marker_name.clone());
+        self.status_text = format!("Marker dropped: {}", marker_name);
+    }
+
+    pub fn action_jump_prev_marker(&mut self) {
+        if let Some(frame) = self
+            .project
+            .find_prev_marker_frame(self.telemetry.playhead_frame)
+        {
+            self.action_seek(frame);
+        }
+    }
+
+    pub fn action_jump_next_marker(&mut self) {
+        if let Some(frame) = self
+            .project
+            .find_next_marker_frame(self.telemetry.playhead_frame)
+        {
+            self.action_seek(frame);
+        }
+    }
+
+    pub fn save_recovery_journal(&self) {
+        if let Ok(ron_data) = self.project.to_ron() {
+            let _ = std::fs::write(&self.recovery_file_path, ron_data);
+        }
+    }
+
+    pub fn restore_recovery_journal(&mut self) -> bool {
+        if let Ok(ron_data) = std::fs::read_to_string(&self.recovery_file_path) {
+            if let Ok(restored_project) = Project::from_ron(&ron_data) {
+                self.project = restored_project;
+                self.sync_timeline_to_audio_engine();
+                self.recovery_state.show = false;
+                self.status_text = self.i18n.t("recovery-restored");
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn discard_recovery_journal(&mut self) {
+        if self.recovery_file_path.exists() {
+            let _ = std::fs::remove_file(&self.recovery_file_path);
+        }
+        self.recovery_state.show = false;
+        self.status_text = self.i18n.t("recovery-discarded");
+    }
+
+    pub fn run_batch_export(&mut self) {
+        let output_dir = self.batch_export_state.output_dir.clone();
+        if !output_dir.exists() {
+            let _ = std::fs::create_dir_all(&output_dir);
+        }
+        let project_name = self.project.name.clone();
+        let pattern = self.batch_export_state.filename_pattern.clone();
+        let format = self.batch_export_state.format;
+        let bit_depth = self.batch_export_state.bit_depth;
+        let ext = match format {
+            stem_audio::ExportFormat::Wav => "wav",
+            stem_audio::ExportFormat::Flac => "flac",
+        };
+
+        let mut count = 0;
+
+        if self.batch_export_state.export_stems {
+            for (idx, track) in self.project.tracks.iter().enumerate() {
+                let fname = stem_audio::format_export_filename(
+                    &pattern,
+                    &project_name,
+                    &track.name,
+                    idx,
+                    "",
+                );
+                let out_file = output_dir.join(format!("{fname}.{ext}"));
+                if let Ok(stem_buf) = stem_audio::render_track_stem(
+                    &self.project,
+                    &self.source_buffers,
+                    idx,
+                    stem_audio::ExportRange::EntireProject,
+                ) {
+                    let settings = ExportSettings {
+                        format,
+                        bit_depth,
+                        sample_rate: self.project.sample_rate,
+                        range: stem_audio::ExportRange::EntireProject,
+                        apply_dither: bit_depth != stem_audio::BitDepth::Float32,
+                        normalize_target_lufs: None,
+                    };
+                    let _ = stem_audio::export_buffer_to_file(&stem_buf, &out_file, &settings);
+                    count += 1;
+                }
+            }
+        }
+
+        if self.batch_export_state.export_marker_regions && self.project.markers.len() >= 2 {
+            for i in 0..(self.project.markers.len() - 1) {
+                let m_start = &self.project.markers[i];
+                let m_end = &self.project.markers[i + 1];
+                let fname = stem_audio::format_export_filename(
+                    &pattern,
+                    &project_name,
+                    "Master",
+                    i,
+                    &m_start.name,
+                );
+                let out_file = output_dir.join(format!("{fname}.{ext}"));
+                let range = stem_audio::ExportRange::TimeRange {
+                    start_frame: m_start.frame,
+                    end_frame: m_end.frame,
+                };
+                let settings = ExportSettings {
+                    format,
+                    bit_depth,
+                    sample_rate: self.project.sample_rate,
+                    range,
+                    apply_dither: bit_depth != stem_audio::BitDepth::Float32,
+                    normalize_target_lufs: None,
+                };
+                let _ = stem_audio::export_project_to_file(
+                    &self.project,
+                    &self.source_buffers,
+                    &out_file,
+                    &settings,
+                    None,
+                    None,
+                );
+                count += 1;
+            }
+        }
+
+        self.batch_export_state.in_progress = false;
+        self.batch_export_state.status_msg = Some(format!("Exported {} file(s)", count));
+    }
+
     pub fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.wants_keyboard_input() {
             return;
@@ -1510,9 +1693,80 @@ impl StemApp {
 
         let input = ctx.input(|i| i.clone());
 
-        // Space: Toggle Play / Pause
-        if input.key_pressed(egui::Key::Space) {
+        // Play / Pause
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::PlayPause, &input)
+        {
             self.action_toggle_play();
+        }
+        // Stop
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::Stop, &input)
+        {
+            self.action_stop();
+        }
+        // Record
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::Record, &input)
+        {
+            self.action_toggle_record();
+        }
+        // Drop Marker
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::DropMarker, &input)
+        {
+            self.action_drop_marker(None);
+        }
+        // Named Marker Dialog
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::NamedMarkerDialog, &input)
+        {
+            let frame = self.telemetry.playhead_frame;
+            let count = self.project.markers.len() + 1;
+            let default_name = format!("Marker {}", count);
+            self.named_marker_state.open_for_new(frame, default_name);
+        }
+        // Prev Marker
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::PrevMarker, &input)
+        {
+            self.action_jump_prev_marker();
+        }
+        // Next Marker
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::NextMarker, &input)
+        {
+            self.action_jump_next_marker();
+        }
+        // Zoom In
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::ZoomIn, &input)
+        {
+            self.timeline_state.pixels_per_second =
+                (self.timeline_state.pixels_per_second * 1.25).clamp(10.0, 5000.0);
+        }
+        // Zoom Out
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::ZoomOut, &input)
+        {
+            self.timeline_state.pixels_per_second =
+                (self.timeline_state.pixels_per_second / 1.25).clamp(10.0, 5000.0);
+        }
+        // Toggle Spectrogram
+        if self
+            .keybindings
+            .is_action_triggered(AppAction::ToggleSpectrogram, &input)
+        {
+            self.show_spectrogram_panel = !self.show_spectrogram_panel;
         }
 
         // View switching: 1 for Multitrack, 2 for Waveform
@@ -1524,13 +1778,19 @@ impl StemApp {
         }
 
         if self.view_mode == AppViewMode::Waveform {
-            if input.modifiers.command && input.key_pressed(egui::Key::X) {
+            if self.keybindings.is_action_triggered(AppAction::Cut, &input) {
                 self.action_waveform_cut();
             }
-            if input.modifiers.command && input.key_pressed(egui::Key::C) {
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Copy, &input)
+            {
                 self.action_waveform_copy();
             }
-            if input.modifiers.command && input.key_pressed(egui::Key::V) {
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Paste, &input)
+            {
                 self.action_waveform_paste();
             }
             if input.modifiers.command && input.key_pressed(egui::Key::T) {
@@ -1539,14 +1799,22 @@ impl StemApp {
             if input.modifiers.command && input.key_pressed(egui::Key::I) {
                 self.action_waveform_insert_silence();
             }
-            if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Delete, &input)
+                || input.key_pressed(egui::Key::Backspace)
+            {
                 self.action_waveform_delete();
             }
-            if input.modifiers.command && !input.modifiers.shift && input.key_pressed(egui::Key::Z)
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Undo, &input)
             {
                 self.action_waveform_undo();
             }
-            if (input.modifiers.command && input.key_pressed(egui::Key::Y))
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Redo, &input)
                 || (input.modifiers.command
                     && input.modifiers.shift
                     && input.key_pressed(egui::Key::Z))
@@ -1554,13 +1822,20 @@ impl StemApp {
                 self.action_waveform_redo();
             }
         } else {
-            // S: Split selected clip at playhead
-            if input.key_pressed(egui::Key::S) {
+            // Split Clip
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::SplitClip, &input)
+            {
                 self.action_split_selected_clip();
             }
 
-            // Delete / Backspace: Delete selected clip
-            if input.key_pressed(egui::Key::Delete) || input.key_pressed(egui::Key::Backspace) {
+            // Delete selected clip
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Delete, &input)
+                || input.key_pressed(egui::Key::Backspace)
+            {
                 self.action_delete_selected_clip();
             }
 
@@ -1569,14 +1844,18 @@ impl StemApp {
                 self.action_seek(0);
             }
 
-            // Ctrl+Z: Undo
-            if input.modifiers.command && !input.modifiers.shift && input.key_pressed(egui::Key::Z)
+            // Undo
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Undo, &input)
             {
                 self.action_undo();
             }
 
-            // Ctrl+Y or Ctrl+Shift+Z: Redo
-            if (input.modifiers.command && input.key_pressed(egui::Key::Y))
+            // Redo
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::Redo, &input)
                 || (input.modifiers.command
                     && input.modifiers.shift
                     && input.key_pressed(egui::Key::Z))
@@ -1600,6 +1879,12 @@ impl eframe::App for StemApp {
 
         // Handle global keyboard shortcuts
         self.handle_keyboard_shortcuts(ctx);
+
+        // Periodic auto-save crash recovery journal
+        if self.auto_save_last_time.elapsed().as_secs() >= self.auto_save_interval_sec {
+            self.save_recovery_journal();
+            self.auto_save_last_time = std::time::Instant::now();
+        }
 
         // Check for audio hardware disconnection
         let mut lost_device = false;

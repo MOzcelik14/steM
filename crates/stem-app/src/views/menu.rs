@@ -60,6 +60,10 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 app.show_export_dialog = true;
                 ui.close_menu();
             }
+            if ui.button(app.i18n.t("dialog-batch-export-title")).clicked() {
+                app.batch_export_state.show = true;
+                ui.close_menu();
+            }
             ui.separator();
             if ui.button(app.i18n.t("menu-file-preferences")).clicked() {
                 app.show_preferences_dialog = true;
@@ -203,6 +207,11 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     ui.close_menu();
                 }
             }
+            ui.separator();
+            if ui.button(app.i18n.t("dialog-keybindings-title")).clicked() {
+                app.keybindings_state.show = true;
+                ui.close_menu();
+            }
         });
 
         // ------------------ View Menu ------------------
@@ -289,6 +298,47 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     app.action_delete_track(track_id);
                     ui.close_menu();
                 }
+            }
+        });
+
+        // ------------------ Markers Menu ------------------
+        ui.menu_button(app.i18n.t("marker-title"), |ui| {
+            if ui
+                .button(format!("{} (M)", app.i18n.t("marker-add")))
+                .clicked()
+            {
+                app.action_drop_marker(None);
+                ui.close_menu();
+            }
+            if ui
+                .button(format!("{} (Shift+M)", app.i18n.t("marker-add-named")))
+                .clicked()
+            {
+                let frame = app.telemetry.playhead_frame;
+                let count = app.project.markers.len() + 1;
+                app.named_marker_state
+                    .open_for_new(frame, format!("Marker {}", count));
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui
+                .button(format!("{} ([)", app.i18n.t("marker-prev")))
+                .clicked()
+            {
+                app.action_jump_prev_marker();
+                ui.close_menu();
+            }
+            if ui
+                .button(format!("{} (])", app.i18n.t("marker-next")))
+                .clicked()
+            {
+                app.action_jump_next_marker();
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button(app.i18n.t("marker-list")).clicked() {
+                app.marker_list_state.show = true;
+                ui.close_menu();
             }
         });
 

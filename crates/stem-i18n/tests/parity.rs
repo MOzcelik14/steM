@@ -54,8 +54,10 @@ fn test_turkish_characters_preserved() {
 
     let i18n = stem_i18n::I18n::new(stem_i18n::Locale::Tr);
     let s = i18n.t("menu-track-add-audio");
-    // Verify Turkish characters ç, ı, etc. are properly returned
-    assert_eq!(s, "Ses Parçası Ekle");
+    // Verify Turkish characters İ, z, etc. are properly returned
+    assert_eq!(s, "Ses İzi Ekle");
+    let s_zoom = i18n.t("menu-view-reset-zoom");
+    assert_eq!(s_zoom, "Yakınlaştırmayı Sıfırla");
 }
 
 #[test]

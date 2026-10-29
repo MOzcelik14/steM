@@ -12,7 +12,7 @@ pub use error::ProjectError;
 pub use history::{Action, UndoRedoStack};
 pub use peaks::{PeakBucket, PeakLevel, PeakPyramid};
 pub use project::{
-    AudioSource, Clip, EffectConfig, EqBandConfig, FadeCurve, FilterType, Project, Track,
+    AudioSource, Clip, EffectConfig, EqBandConfig, FadeCurve, FilterType, Marker, Project, Track,
 };
 pub use waveform::{
     find_nearest_zero_crossing, AudioClipboard, AudioSegment, WaveformDocument, WaveformHistory,

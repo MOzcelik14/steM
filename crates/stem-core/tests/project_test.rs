@@ -645,3 +645,89 @@ fn test_submix_bus_and_send_routing() {
     assert_eq!(proj.tracks[0].output_routing, TrackOutputRouting::Master);
     assert_eq!(proj.tracks[1].sends.len(), 0);
 }
+
+#[test]
+fn test_marker_navigation_and_sorting() {
+    let mut proj = Project::new("Marker Test", 48000);
+
+    // Add markers out of chronological order
+    let m3 = proj.add_marker(3000, "Verse 2");
+    let m1 = proj.add_marker(1000, "Intro");
+    let m2 = proj.add_marker(2000, "Verse 1");
+    let m4 = proj.add_marker(4000, "Chorus");
+
+    // Verify sorted order
+    assert_eq!(proj.markers.len(), 4);
+    assert_eq!(proj.markers[0].frame, 1000);
+    assert_eq!(proj.markers[0].name, "Intro");
+    assert_eq!(proj.markers[1].frame, 2000);
+    assert_eq!(proj.markers[2].frame, 3000);
+    assert_eq!(proj.markers[3].frame, 4000);
+
+    // Test navigation next/prev
+    assert_eq!(proj.find_prev_marker_frame(0), None);
+    assert_eq!(proj.find_prev_marker_frame(1005), None); // within 10-frame threshold
+    assert_eq!(proj.find_prev_marker_frame(1500), Some(1000));
+    assert_eq!(proj.find_prev_marker_frame(2050), Some(2000));
+    assert_eq!(proj.find_prev_marker_frame(3000), Some(2000)); // prev from exact marker frame
+    assert_eq!(proj.find_prev_marker_frame(5000), Some(4000));
+
+    assert_eq!(proj.find_next_marker_frame(0), Some(1000));
+    assert_eq!(proj.find_next_marker_frame(1000), Some(2000));
+    assert_eq!(proj.find_next_marker_frame(2500), Some(3000));
+    assert_eq!(proj.find_next_marker_frame(4000), None);
+
+    // Test removing a marker
+    let removed = proj.remove_marker(m2);
+    assert!(removed.is_some());
+    assert_eq!(removed.unwrap().name, "Verse 1");
+    assert_eq!(proj.markers.len(), 3);
+    assert_eq!(proj.find_next_marker_frame(1000), Some(3000));
+
+    // Cleanup
+    proj.remove_marker(m1);
+    proj.remove_marker(m3);
+    proj.remove_marker(m4);
+    assert_eq!(proj.markers.len(), 0);
+}
+
+#[test]
+fn test_recovery_journal_roundtrip() {
+    let mut proj = Project::new("Recovery Test", 48000);
+    proj.add_marker(1000, "Cue 1");
+    proj.add_marker(5000, "Cue 2");
+    let bus_id = proj.add_bus("Drum Bus");
+    let gid = proj.add_group("Vocal Group");
+    proj.tracks[0].group_id = Some(gid);
+    proj.tracks[0].output_routing = stem_core::project::TrackOutputRouting::Bus(bus_id);
+
+    // Add points to Volume automation lane
+    if let Some(vol_lane) = proj.tracks[0]
+        .automation_lanes
+        .iter_mut()
+        .find(|l| l.target == stem_core::project::AutomationTarget::Volume)
+    {
+        vol_lane.enabled = true;
+        vol_lane.add_point(0, -6.0, stem_core::project::AutomationCurve::Linear);
+        vol_lane.add_point(24000, 0.0, stem_core::project::AutomationCurve::Linear);
+    }
+
+    // Round-trip through RON serialization
+    let ron_data = proj.to_ron().expect("RON serialization");
+    let restored = Project::from_ron(&ron_data).expect("RON deserialization");
+
+    assert_eq!(restored.name, "Recovery Test");
+    assert_eq!(restored.markers.len(), 2);
+    assert_eq!(restored.markers[0].name, "Cue 1");
+    assert_eq!(restored.busses.len(), 1);
+    assert_eq!(restored.busses[0].name, "Drum Bus");
+    assert_eq!(restored.groups.len(), 1);
+    assert_eq!(restored.groups[0].name, "Vocal Group");
+    assert_eq!(restored.tracks[0].group_id, Some(gid));
+    assert_eq!(
+        restored.tracks[0].output_routing,
+        stem_core::project::TrackOutputRouting::Bus(bus_id)
+    );
+    assert_eq!(restored.tracks[0].automation_lanes.len(), 2);
+    assert_eq!(restored.tracks[0].evaluated_gain_db(12000), -3.0);
+}

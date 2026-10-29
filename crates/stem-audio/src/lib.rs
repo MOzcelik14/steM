@@ -10,7 +10,8 @@ pub use callback::{AudioCommand, AudioProcessor, AudioTelemetry, SharedAudioTime
 pub use decode::{decode_file, DecodeError, DecodedAudio};
 pub use engine::{AudioEngine, AudioEngineError};
 pub use export::{
-    export_project_to_file, render_project_mixdown, render_project_mixdown_range,
-    render_project_tracks, BitDepth, ExportError, ExportFormat, ExportRange, ExportSettings,
+    export_buffer_to_file, export_project_to_file, format_export_filename, render_project_mixdown,
+    render_project_mixdown_range, render_project_tracks, render_track_stem, BitDepth, ExportError,
+    ExportFormat, ExportRange, ExportSettings,
 };
 pub use record::{AudioRecorder, InputTelemetry, RecordError};

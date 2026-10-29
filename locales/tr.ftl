@@ -23,7 +23,7 @@ menu-edit-cut = Kes
 menu-edit-copy = Kopyala
 menu-edit-paste = Yapıştır
 menu-edit-delete = Sil
-menu-edit-split = Oynatma Başlığından Böl
+menu-edit-split = Oynatma Başından Böl
 menu-edit-select-all = Tümünü Seç
 menu-edit-deselect = Seçimi Kaldır
 
@@ -38,13 +38,13 @@ menu-view-toggle-spectrogram = Spektrogram
 menu-view-toggle-meters = Seviye Göstergeleri
 menu-view-toggle-history = Geçmiş
 
-# Menü Çubuğu - Parça
-menu-track = Parça
-menu-track-add-audio = Ses Parçası Ekle
-menu-track-duplicate = Parçayı Çoğalt
-menu-track-delete = Parçayı Sil
-menu-track-mute-all = Tüm Parçaları Sustur
-menu-track-unmute-all = Tüm Parçaların Sesini Aç
+# Menü Çubuğu - İz
+menu-track = İz
+menu-track-add-audio = Ses İzi Ekle
+menu-track-duplicate = İzi Çoğalt
+menu-track-delete = İzi Sil
+menu-track-mute-all = Tüm İzleri Sustur
+menu-track-unmute-all = Tüm İzlerin Sesini Aç
 
 # Menü Çubuğu - Yardım
 menu-help = Yardım
@@ -63,15 +63,15 @@ transport-tempo = Tempo (BPM)
 transport-time-signature = Ölçü
 transport-master-volume = Ana Ses Düzeyi
 
-# Parça Başlıkları ve Denetimleri
+# İz Başlıkları ve Denetimleri
 track-header-mute = M
 track-header-solo = S
 track-header-arm = R
-track-header-volume = Kazanç
-track-header-pan = Pan
+track-header-volume = Ses Düzeyi
+track-header-pan = Denge
 track-header-effects = Efektler
-track-header-add-clip = Parça Klibi Ekle
-track-default-name = Parça { $number }
+track-header-add-clip = İz Klibi Ekle
+track-default-name = İz { $number }
 track-master-name = Ana Çıkış
 
 # Klip İşlemleri
@@ -83,7 +83,7 @@ clip-trim = Kırp
 
 # Karıştırıcı Paneli (Mixer)
 mixer-title = Karıştırıcı
-mixer-track-label = Parça
+mixer-track-label = İz
 mixer-master-label = Ana Çıkış
 mixer-fader = Potansiyometre
 mixer-pan-center = Merkez
@@ -102,7 +102,7 @@ effect-delay = Gecikme
 effect-noise-reduction = Gürültü Azaltma
 effect-normalize = Normalleştir
 effect-gain = Kazanç
-effect-threshold = Eşik Değeri
+effect-threshold = Eşik
 effect-ratio = Oran
 effect-attack = Saldırı (Attack)
 effect-release = Bırakma (Release)
@@ -364,16 +364,16 @@ routing-bus = Bus: { $name }
 group-title = İz Grubu
 group-none = Grup Yok
 group-add = Yeni Grup...
-group-link-gain = Ses Seviyesini Bağla
-group-link-pan = Pan'ı Bağla
+group-link-gain = Ses Düzeyini Bağla
+group-link-pan = Dengeyi Bağla
 group-link-mute = Sessize Almayı Bağla
 group-link-solo = Soloyu Bağla
 group-link-arm = Kayıt Hazırlığını Bağla
 automation-lane = Otomasyon Şeridi
 automation-toggle = Otomasyonu Göster/Gizle
 automation-param = Parametre
-automation-volume = Ses Seviyesi (dB)
-automation-pan = Pan
+automation-volume = Ses Düzeyi (dB)
+automation-pan = Denge
 automation-curve = Eğri
 automation-curve-linear = Doğrusal (Linear)
 automation-curve-bezier = Bezier (Yumuşak)
@@ -384,5 +384,50 @@ crossfade-title = Çapraz Geçiş (Crossfade)
 crossfade-equal-power = Eşit Güç (Equal-Power 3dB)
 crossfade-linear = Doğrusal (Linear)
 crossfade-exponential = Üstel (Exponential)
+
+# Aşama F: İş Akışı İyileştirmeleri (İşaretçiler, Kurtarma, Kısayollar, Toplu Dışa Aktarma)
+marker-title = İşaretçi
+marker-add = İşaretçi Ekle
+marker-add-named = Adlandırılmış İşaretçi Ekle...
+marker-edit = İşaretçiyi Düzenle
+marker-list = İşaretçiler...
+marker-name = İşaretçi Adı
+marker-frame = Çerçeve
+marker-time = Zaman
+marker-cd-track = CD Parça İpucu Noktası
+marker-prev = Önceki İşaretçi
+marker-next = Sonraki İşaretçi
+marker-delete = İşaretçiyi Sil
+marker-jump = İşaretçiye Atla
+
+dialog-marker-title = İşaretçi
+dialog-marker-list-title = İşaretçiler
+dialog-batch-export-title = Toplu Dışa Aktarma
+batch-export-stems = Kök (Stem) İzleri Dışa Aktar
+batch-export-regions = İşaretçi Bölgelerini Dışa Aktar
+batch-export-pattern = Dosya Adı Deseni:
+batch-export-pattern-help = Belirteçler: {"{"}project{"}"}, {"{"}track{"}"}, {"{"}index{"}"}, {"{"}marker{"}"}
+batch-export-output-dir = Çıkış Dizini:
+batch-export-browse = Gözat...
+batch-export-format = Biçim:
+batch-export-bit-depth = Bit Derinliği:
+batch-export-btn = Toplu Dışa Aktarmayı Başlat
+batch-export-completed = Toplu dışa aktarma başarıyla tamamlandı
+
+dialog-keybindings-title = Klavye Kısayolları
+keybindings-filter = Kısayolları ara:
+keybindings-action = Eylem
+keybindings-shortcut = Kısayol
+keybindings-conflicts-warning = Çakışma algılandı: birden çok eylem aynı kısayolu paylaşıyor!
+keybindings-reset = Varsayılanlara Sıfırla
+keybindings-export = JSON Olarak Dışa Aktar...
+keybindings-import = JSON İçe Aktar...
+
+dialog-recovery-title = Oturum Çökme Kurtarma
+recovery-prompt = Kaydedilmemiş bir proje oturumu bulundu ({ $time }). Kurtarmak ister misiniz?
+recovery-restore = Oturumu Kurtar
+recovery-discard = Yoksay ve Sil
+recovery-restored = Proje oturumu çökme kaydından kurtarıldı
+recovery-discarded = Çökme kurtarma kaydı silindi
 
 

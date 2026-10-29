@@ -617,6 +617,28 @@ impl Track {
     }
 }
 
+/// A timeline marker or CD track cue point.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Marker {
+    pub id: Uuid,
+    pub frame: u64,
+    pub name: String,
+    pub color_rgb: (u8, u8, u8),
+    pub is_cd_track: bool,
+}
+
+impl Marker {
+    pub fn new(frame: u64, name: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            frame,
+            name: name.into(),
+            color_rgb: (80, 200, 255),
+            is_cd_track: false,
+        }
+    }
+}
+
 /// The complete non-destructive project representation in steM.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
@@ -631,6 +653,8 @@ pub struct Project {
     pub busses: Vec<SubmixBus>,
     #[serde(default)]
     pub groups: Vec<TrackGroup>,
+    #[serde(default)]
+    pub markers: Vec<Marker>,
     pub master_gain_db: f32,
     pub loop_enabled: bool,
     pub loop_region: Option<(u64, u64)>,
@@ -667,6 +691,7 @@ impl Project {
             tracks: Vec::new(),
             busses: Vec::new(),
             groups: Vec::new(),
+            markers: Vec::new(),
             master_gain_db: 0.0,
             loop_enabled: false,
             loop_region: None,
@@ -771,6 +796,37 @@ impl Project {
 
     pub fn get_group_mut(&mut self, group_id: Uuid) -> Option<&mut TrackGroup> {
         self.groups.iter_mut().find(|g| g.id == group_id)
+    }
+
+    pub fn add_marker(&mut self, frame: u64, name: impl Into<String>) -> Uuid {
+        let marker = Marker::new(frame, name);
+        let id = marker.id;
+        self.markers.push(marker);
+        self.markers.sort_by_key(|m| m.frame);
+        id
+    }
+
+    pub fn remove_marker(&mut self, marker_id: Uuid) -> Option<Marker> {
+        if let Some(pos) = self.markers.iter().position(|m| m.id == marker_id) {
+            Some(self.markers.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    pub fn find_prev_marker_frame(&self, current_frame: u64) -> Option<u64> {
+        self.markers
+            .iter()
+            .rev()
+            .find(|m| m.frame + 10 < current_frame)
+            .map(|m| m.frame)
+    }
+
+    pub fn find_next_marker_frame(&self, current_frame: u64) -> Option<u64> {
+        self.markers
+            .iter()
+            .find(|m| m.frame > current_frame + 10)
+            .map(|m| m.frame)
     }
 
     pub fn add_source(&mut self, source: AudioSource) {

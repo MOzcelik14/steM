@@ -577,3 +577,119 @@ fn write_flac(
 
     Ok(())
 }
+
+/// Formats an export filename according to a template with tokens.
+/// Supported tokens:
+/// - `{project}`: Project title
+/// - `{track}`: Track name
+/// - `{index}`: 1-based index formatted as 2 digits (e.g. "01")
+/// - `{marker}`: Marker name
+pub fn format_export_filename(
+    template: &str,
+    project_name: &str,
+    track_name: &str,
+    index: usize,
+    marker_name: &str,
+) -> String {
+    template
+        .replace("{project}", project_name)
+        .replace("{track}", track_name)
+        .replace("{index}", &format!("{:02}", index + 1))
+        .replace("{marker}", marker_name)
+}
+
+/// Renders a single track's audio into a stereo mixdown buffer (stem export).
+pub fn render_track_stem(
+    project: &Project,
+    source_buffers: &HashMap<Uuid, Vec<Vec<f32>>>,
+    track_idx: usize,
+    range: ExportRange,
+) -> Result<Vec<Vec<f32>>, ExportError> {
+    let track = project
+        .tracks
+        .get(track_idx)
+        .ok_or(ExportError::EmptyTimeline)?;
+
+    let (export_start, export_end) = match range {
+        ExportRange::EntireProject => (0, project.total_frames()),
+        ExportRange::TimeRange {
+            start_frame,
+            end_frame,
+        } => (start_frame, end_frame.max(start_frame)),
+    };
+
+    let total_frames = export_end.saturating_sub(export_start);
+    if total_frames == 0 {
+        return Err(ExportError::EmptyTimeline);
+    }
+
+    let mut stem_left = vec![0.0f32; total_frames as usize];
+    let mut stem_right = vec![0.0f32; total_frames as usize];
+
+    for (clip_idx, clip) in track.clips.iter().enumerate() {
+        let src_data = match source_buffers.get(&clip.source_id) {
+            Some(buf) if !buf.is_empty() => buf,
+            _ => continue,
+        };
+
+        let src_left = &src_data[0];
+        let src_right = if src_data.len() > 1 {
+            &src_data[1]
+        } else {
+            &src_data[0]
+        };
+
+        let clip_gain = 10.0f32.powf(clip.gain_db / 20.0);
+        let clip_len = clip.length_frames as usize;
+        let src_start = clip.source_start_frame as usize;
+        let timeline_start = clip.track_offset_frames;
+        let timeline_end = timeline_start + clip.length_frames;
+
+        if timeline_end <= export_start || timeline_start >= export_end {
+            continue;
+        }
+
+        for i in 0..clip_len {
+            let t_frame = timeline_start + i as u64;
+            if t_frame < export_start {
+                continue;
+            }
+            if t_frame >= export_end {
+                break;
+            }
+
+            let s_idx = src_start + i;
+            let out_idx = (t_frame - export_start) as usize;
+
+            let in_l = src_left.get(s_idx).copied().unwrap_or(0.0);
+            let in_r = src_right.get(s_idx).copied().unwrap_or(0.0);
+
+            let fade_gain = track.clip_gain_at_timeline_frame(clip_idx, t_frame);
+            let net_gain = clip_gain * fade_gain;
+
+            let evaluated_gain_db = track.evaluated_gain_db(t_frame);
+            let track_gain = 10.0f32.powf(evaluated_gain_db / 20.0);
+            let pan = track.evaluated_pan(t_frame).clamp(-1.0, 1.0);
+            let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+            let gain_left = track_gain * pan_rad.cos();
+            let gain_right = track_gain * pan_rad.sin();
+
+            stem_left[out_idx] += in_l * net_gain * gain_left;
+            stem_right[out_idx] += in_r * net_gain * gain_right;
+        }
+    }
+
+    Ok(vec![stem_left, stem_right])
+}
+
+/// Encodes an in-memory stereo audio buffer directly to an export file format.
+pub fn export_buffer_to_file(
+    channels: &[Vec<f32>],
+    dest: &Path,
+    settings: &ExportSettings,
+) -> Result<(), ExportError> {
+    match settings.format {
+        ExportFormat::Wav => write_wav(dest, channels, settings),
+        ExportFormat::Flac => write_flac(dest, channels, settings),
+    }
+}
