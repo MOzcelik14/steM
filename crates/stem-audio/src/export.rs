@@ -37,6 +37,9 @@ pub enum ExportError {
     #[error("Empty timeline - nothing to export")]
     EmptyTimeline,
 
+    #[error("Export destination collides with loaded project audio source: {0}")]
+    DestinationCollidesWithSource(std::path::PathBuf),
+
     #[error("Export cancelled by user")]
     Cancelled,
 }
@@ -364,6 +367,17 @@ pub fn export_project_to_file<P: AsRef<Path>>(
 ) -> Result<(), ExportError> {
     let dest = destination_path.as_ref();
 
+    // Guard against overwriting an active audio source
+    for src in project.sources.values() {
+        if let (Ok(can_dest), Ok(can_src)) = (dest.canonicalize(), src.path.canonicalize()) {
+            if can_dest == can_src {
+                return Err(ExportError::DestinationCollidesWithSource(src.path.clone()));
+            }
+        } else if dest == src.path {
+            return Err(ExportError::DestinationCollidesWithSource(src.path.clone()));
+        }
+    }
+
     let check_cancelled = || -> Result<(), ExportError> {
         if let Some(ref token) = cancellation_token {
             if token.load(std::sync::atomic::Ordering::Relaxed) {
@@ -410,12 +424,18 @@ pub fn export_project_to_file<P: AsRef<Path>>(
         }
 
         let current_loudness = stem_dsp::analyze_loudness(&interleaved, 2, settings.sample_rate)?;
-        let gain_db = target_lufs - current_loudness.integrated_lufs;
-        let gain_linear = 10.0f32.powf(gain_db / 20.0);
+        // Guard against silence or invalid LUFS
+        if current_loudness.integrated_lufs.is_finite() && current_loudness.integrated_lufs > -70.0
+        {
+            let gain_db = (target_lufs - current_loudness.integrated_lufs).clamp(-30.0, 24.0);
+            let gain_linear = 10.0f32.powf(gain_db / 20.0);
 
-        for ch in channels.iter_mut() {
-            for sample in ch.iter_mut() {
-                *sample *= gain_linear;
+            if gain_linear.is_finite() {
+                for ch in channels.iter_mut() {
+                    for sample in ch.iter_mut() {
+                        *sample *= gain_linear;
+                    }
+                }
             }
         }
     }
@@ -426,15 +446,30 @@ pub fn export_project_to_file<P: AsRef<Path>>(
         let _ = tx.send(0.85);
     }
 
-    // 4. Encode to destination format
+    // 4. Encode to temporary file first for atomic export
+    let tmp_dest = {
+        let unique = Uuid::new_v4();
+        let stem = dest
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("export");
+        let parent = dest.parent().unwrap_or_else(|| Path::new("."));
+        parent.join(format!(".{}_{}.stem_tmp", stem, unique))
+    };
+
     let res = match settings.format {
-        ExportFormat::Wav => write_wav(dest, &channels, settings),
-        ExportFormat::Flac => write_flac(dest, &channels, settings),
+        ExportFormat::Wav => write_wav(&tmp_dest, &channels, settings),
+        ExportFormat::Flac => write_flac(&tmp_dest, &channels, settings),
     };
 
     if let Err(e) = res {
-        let _ = std::fs::remove_file(dest);
+        let _ = std::fs::remove_file(&tmp_dest);
         return Err(e);
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_dest, dest) {
+        let _ = std::fs::remove_file(&tmp_dest);
+        return Err(ExportError::Io(e));
     }
 
     if let Some(ref tx) = progress_tx {
