@@ -3518,7 +3518,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stem-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crossbeam-channel",
  "eframe",
@@ -3536,7 +3536,7 @@ dependencies = [
 
 [[package]]
 name = "stem-audio"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cpal",
  "crossbeam-channel",
@@ -3552,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "stem-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ron",
  "serde",
@@ -3563,7 +3563,7 @@ dependencies = [
 
 [[package]]
 name = "stem-dsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ebur128",
  "rand 0.8.8",
@@ -3576,7 +3576,7 @@ dependencies = [
 
 [[package]]
 name = "stem-i18n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fluent-bundle",
  "serde",
