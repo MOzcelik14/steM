@@ -332,7 +332,13 @@ impl StemApp {
 
     pub fn action_open_file_in_waveform_editor(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Audio Files", &["wav", "flac", "mp3", "ogg", "aac", "m4a"])
+            .add_filter(
+                "Audio Files",
+                &[
+                    "wav", "WAV", "flac", "FLAC", "mp3", "MP3", "ogg", "OGG", "aac", "AAC", "m4a",
+                    "M4A", "aiff", "AIFF",
+                ],
+            )
             .pick_file()
         {
             self.status_text = self.i18n.t("status-loading");
@@ -798,7 +804,7 @@ impl StemApp {
 
     pub fn action_open_project(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("steM Project", &["ron", "stem"])
+            .add_filter("steM Project", &["stem", "STEM", "ron", "RON"])
             .pick_file()
         {
             match std::fs::read_to_string(&path) {
@@ -858,7 +864,7 @@ impl StemApp {
 
     pub fn action_save_project_as(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("steM Project", &["stem", "ron"])
+            .add_filter("steM Project", &["stem", "STEM", "ron", "RON"])
             .save_file()
         {
             match self.project.to_ron() {
@@ -876,7 +882,13 @@ impl StemApp {
 
     pub fn action_import_audio(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Audio Files", &["wav", "flac", "mp3", "ogg", "aac", "m4a"])
+            .add_filter(
+                "Audio Files",
+                &[
+                    "wav", "WAV", "flac", "FLAC", "mp3", "MP3", "ogg", "OGG", "aac", "AAC", "m4a",
+                    "M4A", "aiff", "AIFF",
+                ],
+            )
             .pick_file()
         {
             self.status_text = self.i18n.t("status-loading");

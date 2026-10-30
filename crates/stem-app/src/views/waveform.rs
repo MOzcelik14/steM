@@ -19,7 +19,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
     // -------------------------------------------------------------------------
     ui.horizontal(|ui| {
         if ui
-            .button(format!("⮜ {}", app.i18n.t("view-mode-multitrack")))
+            .button(format!("← {}", app.i18n.t("view-mode-multitrack")))
             .on_hover_text("Return to Multitrack timeline (Key: 1)")
             .clicked()
         {
@@ -235,7 +235,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
 
         // Effects Rack button
         if ui
-            .button(format!("🎛 {}", app.i18n.t("track-effects-rack")))
+            .button(format!("[FX] {}", app.i18n.t("track-effects-rack")))
             .on_hover_text("Open Insert Effects Rack with live preview")
             .clicked()
         {
@@ -297,7 +297,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
         if ui
             .selectable_label(
                 snap_zc,
-                format!("∿ {}", app.i18n.t("waveform-snap-zero-crossing")),
+                format!("~ {}", app.i18n.t("waveform-snap-zero-crossing")),
             )
             .on_hover_text("Automatically snap selection boundaries to the nearest zero-crossing")
             .clicked()

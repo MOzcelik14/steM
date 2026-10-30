@@ -189,8 +189,8 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                             );
                             if ui.button(app.i18n.t("export-btn-browse")).clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("WAV Audio", &["wav"])
-                                    .add_filter("FLAC Audio", &["flac"])
+                                    .add_filter("WAV Audio", &["wav", "WAV"])
+                                    .add_filter("FLAC Audio", &["flac", "FLAC"])
                                     .save_file()
                                 {
                                     app.export_destination_path =

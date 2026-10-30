@@ -7,276 +7,296 @@ use stem_i18n::{
 };
 
 pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(8.0, 5.0);
 
-        // ----------------- Transport Buttons -----------------
-        let is_playing = app.is_playing;
+        // ================= ROW 1: Transport, Input Metering & Timecode =================
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
 
-        // Play / Pause
-        let play_text = if is_playing { "⏸" } else { "▶" };
-        let play_btn = egui::Button::new(egui::RichText::new(play_text).size(16.0));
-        if ui.add(play_btn).clicked() {
-            app.action_toggle_play();
-        }
+            // ----------------- Transport Buttons -----------------
+            let is_playing = app.is_playing;
 
-        // Stop
-        if ui.button(egui::RichText::new("⏹").size(16.0)).clicked() {
-            app.action_stop();
-        }
+            // Play / Pause
+            let play_text = if is_playing { "⏸" } else { "▶" };
+            let play_btn = egui::Button::new(egui::RichText::new(play_text).size(16.0));
+            if ui.add(play_btn).clicked() {
+                app.action_toggle_play();
+            }
 
-        // Record Button
-        let is_recording = app.is_recording;
-        let is_count_in = app.recording_state.count_in_active;
-        let rec_color = if is_recording {
-            Color32::from_rgb(255, 30, 30)
-        } else if is_count_in {
-            Color32::from_rgb(255, 180, 30)
-        } else {
-            Color32::from_rgb(180, 50, 50)
-        };
-        let rec_btn = egui::Button::new(egui::RichText::new("⏺").size(16.0).color(rec_color));
-        if ui
-            .add(rec_btn)
-            .on_hover_text(app.i18n.t("transport-record"))
-            .clicked()
-        {
-            app.action_toggle_record();
-        }
+            // Stop
+            if ui.button(egui::RichText::new("⏹").size(16.0)).clicked() {
+                app.action_stop();
+            }
 
-        // Live Hardware Input Level Meter
-        render_input_vu_meter(app, ui);
+            // Record Button
+            let is_recording = app.is_recording;
+            let is_count_in = app.recording_state.count_in_active;
+            let rec_color = if is_recording {
+                Color32::from_rgb(255, 30, 30)
+            } else if is_count_in {
+                Color32::from_rgb(255, 180, 30)
+            } else {
+                Color32::from_rgb(180, 50, 50)
+            };
+            let rec_btn = egui::Button::new(egui::RichText::new("⏺").size(16.0).color(rec_color));
+            if ui
+                .add(rec_btn)
+                .on_hover_text(app.i18n.t("transport-record"))
+                .clicked()
+            {
+                app.action_toggle_record();
+            }
 
-        // Software Input Monitoring
-        let monitoring = app.project.input_monitoring;
-        let mon_color = if monitoring {
-            Color32::from_rgb(80, 230, 100)
-        } else {
-            Color32::GRAY
-        };
-        if ui
-            .selectable_label(
-                monitoring,
-                egui::RichText::new("🎧 Mon").size(11.0).color(mon_color),
-            )
-            .on_hover_text(app.i18n.t("recording-monitoring"))
-            .clicked()
-        {
-            app.action_toggle_input_monitoring();
-        }
+            // Loop
+            let mut loop_enabled = app.project.loop_enabled;
+            if ui
+                .selectable_label(loop_enabled, egui::RichText::new("🔁").size(14.0))
+                .on_hover_text("Loop Playback (L)")
+                .clicked()
+            {
+                loop_enabled = !loop_enabled;
+                app.action_set_loop(loop_enabled);
+            }
 
-        // Count-In Selector
-        let mut count_in = app.project.count_in_mode;
-        let count_in_label = match count_in {
-            stem_core::project::CountInMode::Off => app.i18n.t("recording-count-in-off"),
-            stem_core::project::CountInMode::OneBar => app.i18n.t("recording-count-in-1bar"),
-            stem_core::project::CountInMode::TwoBars => app.i18n.t("recording-count-in-2bars"),
-            stem_core::project::CountInMode::TwoSeconds => app.i18n.t("recording-count-in-2s"),
-            stem_core::project::CountInMode::FourSeconds => app.i18n.t("recording-count-in-4s"),
-        };
-        egui::ComboBox::from_id_salt("transport_count_in")
-            .selected_text(format!("⏱ {}", count_in_label))
-            .width(75.0)
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut count_in,
-                    stem_core::project::CountInMode::Off,
-                    app.i18n.t("recording-count-in-off"),
-                );
-                ui.selectable_value(
-                    &mut count_in,
-                    stem_core::project::CountInMode::OneBar,
-                    app.i18n.t("recording-count-in-1bar"),
-                );
-                ui.selectable_value(
-                    &mut count_in,
-                    stem_core::project::CountInMode::TwoBars,
-                    app.i18n.t("recording-count-in-2bars"),
-                );
-                ui.selectable_value(
-                    &mut count_in,
-                    stem_core::project::CountInMode::TwoSeconds,
-                    app.i18n.t("recording-count-in-2s"),
-                );
-                ui.selectable_value(
-                    &mut count_in,
-                    stem_core::project::CountInMode::FourSeconds,
-                    app.i18n.t("recording-count-in-4s"),
-                );
-            });
-        app.project.count_in_mode = count_in;
+            ui.separator();
 
-        // Punch-In Recording Toggle
-        let mut punch_enabled = app.project.punch_in_enabled;
-        let punch_color = if punch_enabled {
-            Color32::from_rgb(255, 120, 50)
-        } else {
-            Color32::GRAY
-        };
-        if ui
-            .selectable_label(
-                punch_enabled,
-                egui::RichText::new("🎯 Punch")
-                    .size(11.0)
-                    .color(punch_color),
-            )
-            .on_hover_text(app.i18n.t("recording-punch-in"))
-            .clicked()
-        {
-            punch_enabled = !punch_enabled;
-            app.project.punch_in_enabled = punch_enabled;
-            if punch_enabled && app.project.punch_region.is_none() {
-                // If punch region is unset, default to current selection or 4 bars from playhead
-                if let Some(sel) = app.waveform_state.selection {
-                    app.project.punch_region = Some(sel);
-                } else {
-                    let start = app.telemetry.playhead_frame;
-                    let len = (app.project.sample_rate as u64 * 4).max(48000);
-                    app.project.punch_region = Some((start, start + len));
+            // Live Hardware Input Level Meter
+            render_input_vu_meter(app, ui);
+
+            // Software Input Monitoring
+            let monitoring = app.project.input_monitoring;
+            let mon_color = if monitoring {
+                Color32::from_rgb(80, 230, 100)
+            } else {
+                Color32::GRAY
+            };
+            if ui
+                .selectable_label(
+                    monitoring,
+                    egui::RichText::new("🎧 Mon").size(11.0).color(mon_color),
+                )
+                .on_hover_text(app.i18n.t("recording-monitoring"))
+                .clicked()
+            {
+                app.action_toggle_input_monitoring();
+            }
+
+            // Count-In Selector
+            let mut count_in = app.project.count_in_mode;
+            let count_in_label = match count_in {
+                stem_core::project::CountInMode::Off => app.i18n.t("recording-count-in-off"),
+                stem_core::project::CountInMode::OneBar => app.i18n.t("recording-count-in-1bar"),
+                stem_core::project::CountInMode::TwoBars => app.i18n.t("recording-count-in-2bars"),
+                stem_core::project::CountInMode::TwoSeconds => app.i18n.t("recording-count-in-2s"),
+                stem_core::project::CountInMode::FourSeconds => app.i18n.t("recording-count-in-4s"),
+            };
+            egui::ComboBox::from_id_salt("transport_count_in")
+                .selected_text(format!("⏱ {}", count_in_label))
+                .width(80.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut count_in,
+                        stem_core::project::CountInMode::Off,
+                        app.i18n.t("recording-count-in-off"),
+                    );
+                    ui.selectable_value(
+                        &mut count_in,
+                        stem_core::project::CountInMode::OneBar,
+                        app.i18n.t("recording-count-in-1bar"),
+                    );
+                    ui.selectable_value(
+                        &mut count_in,
+                        stem_core::project::CountInMode::TwoBars,
+                        app.i18n.t("recording-count-in-2bars"),
+                    );
+                    ui.selectable_value(
+                        &mut count_in,
+                        stem_core::project::CountInMode::TwoSeconds,
+                        app.i18n.t("recording-count-in-2s"),
+                    );
+                    ui.selectable_value(
+                        &mut count_in,
+                        stem_core::project::CountInMode::FourSeconds,
+                        app.i18n.t("recording-count-in-4s"),
+                    );
+                });
+            app.project.count_in_mode = count_in;
+
+            // Punch-In Recording Toggle
+            let mut punch_enabled = app.project.punch_in_enabled;
+            let punch_color = if punch_enabled {
+                Color32::from_rgb(255, 120, 50)
+            } else {
+                Color32::GRAY
+            };
+            if ui
+                .selectable_label(
+                    punch_enabled,
+                    egui::RichText::new("🎯 Punch")
+                        .size(11.0)
+                        .color(punch_color),
+                )
+                .on_hover_text(app.i18n.t("recording-punch-in"))
+                .clicked()
+            {
+                punch_enabled = !punch_enabled;
+                app.project.punch_in_enabled = punch_enabled;
+                if punch_enabled && app.project.punch_region.is_none() {
+                    if let Some(sel) = app.waveform_state.selection {
+                        app.project.punch_region = Some(sel);
+                    } else {
+                        let start = app.telemetry.playhead_frame;
+                        let len = (app.project.sample_rate as u64 * 4).max(48000);
+                        app.project.punch_region = Some((start, start + len));
+                    }
                 }
             }
-        }
 
-        // Loop
-        let mut loop_enabled = app.project.loop_enabled;
-        if ui
-            .selectable_label(loop_enabled, egui::RichText::new("🔁").size(14.0))
-            .clicked()
-        {
-            loop_enabled = !loop_enabled;
-            app.action_set_loop(loop_enabled);
-        }
+            ui.separator();
 
-        ui.separator();
-
-        // ----------------- Timecode Display -----------------
-        let current_frame = app.telemetry.playhead_frame;
-        let seconds = if app.project.sample_rate > 0 {
-            current_frame as f64 / app.project.sample_rate as f64
-        } else {
-            0.0
-        };
-
-        let primary_timecode = match app.timecode_mode {
-            TimecodeMode::TimeCode => format_time_code(seconds),
-            TimecodeMode::Smpte => format_smpte(seconds, 30.0),
-            TimecodeMode::BarsBeats => {
-                format_bars_beats(seconds, app.project.tempo_bpm, app.project.time_signature)
-            }
-            TimecodeMode::Samples => format_samples(current_frame),
-        };
-
-        let mode_label = match app.timecode_mode {
-            TimecodeMode::TimeCode => app.i18n.t("transport-mode-timecode"),
-            TimecodeMode::Smpte => app.i18n.t("transport-mode-smpte"),
-            TimecodeMode::BarsBeats => app.i18n.t("transport-mode-bars"),
-            TimecodeMode::Samples => app.i18n.t("transport-mode-samples"),
-        };
-
-        if ui
-            .group(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
-                ui.label(
-                    egui::RichText::new(&primary_timecode)
-                        .monospace()
-                        .strong()
-                        .size(16.0)
-                        .color(Color32::from_rgb(100, 220, 100)),
-                );
-                ui.label(
-                    egui::RichText::new(mode_label)
-                        .monospace()
-                        .size(11.0)
-                        .color(Color32::GRAY),
-                );
-            })
-            .response
-            .clicked()
-        {
-            // Cycle timecode modes on click
-            app.timecode_mode = match app.timecode_mode {
-                TimecodeMode::TimeCode => TimecodeMode::BarsBeats,
-                TimecodeMode::BarsBeats => TimecodeMode::Smpte,
-                TimecodeMode::Smpte => TimecodeMode::Samples,
-                TimecodeMode::Samples => TimecodeMode::TimeCode,
+            // ----------------- Timecode Display -----------------
+            let current_frame = app.telemetry.playhead_frame;
+            let seconds = if app.project.sample_rate > 0 {
+                current_frame as f64 / app.project.sample_rate as f64
+            } else {
+                0.0
             };
-        }
 
-        ui.separator();
+            let primary_timecode = match app.timecode_mode {
+                TimecodeMode::TimeCode => format_time_code(seconds),
+                TimecodeMode::Smpte => format_smpte(seconds, 30.0),
+                TimecodeMode::BarsBeats => {
+                    format_bars_beats(seconds, app.project.tempo_bpm, app.project.time_signature)
+                }
+                TimecodeMode::Samples => format_samples(current_frame),
+            };
 
-        // ----------------- Tempo & Signature -----------------
-        ui.label(app.i18n.t("transport-tempo"));
-        let mut tempo = app.project.tempo_bpm;
-        if ui
-            .add(
-                egui::DragValue::new(&mut tempo)
-                    .range(20.0..=300.0)
-                    .speed(1.0),
-            )
-            .changed()
-        {
-            app.project.tempo_bpm = tempo;
-        }
+            let mode_label = match app.timecode_mode {
+                TimecodeMode::TimeCode => app.i18n.t("transport-mode-timecode"),
+                TimecodeMode::Smpte => app.i18n.t("transport-mode-smpte"),
+                TimecodeMode::BarsBeats => app.i18n.t("transport-mode-bars"),
+                TimecodeMode::Samples => app.i18n.t("transport-mode-samples"),
+            };
 
-        ui.label(app.i18n.t("transport-time-signature"));
-        ui.label(format!(
-            "{}/{}",
-            app.project.time_signature.0, app.project.time_signature.1
-        ));
+            if ui
+                .group(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
+                    ui.label(
+                        egui::RichText::new(&primary_timecode)
+                            .monospace()
+                            .strong()
+                            .size(15.0)
+                            .color(Color32::from_rgb(100, 220, 100)),
+                    );
+                    ui.label(
+                        egui::RichText::new(mode_label)
+                            .monospace()
+                            .size(11.0)
+                            .color(Color32::GRAY),
+                    );
+                })
+                .response
+                .clicked()
+            {
+                // Cycle timecode modes on click
+                app.timecode_mode = match app.timecode_mode {
+                    TimecodeMode::TimeCode => TimecodeMode::BarsBeats,
+                    TimecodeMode::BarsBeats => TimecodeMode::Smpte,
+                    TimecodeMode::Smpte => TimecodeMode::Samples,
+                    TimecodeMode::Samples => TimecodeMode::TimeCode,
+                };
+            }
+        });
 
-        // Effects Rack Quick Button
-        if ui
-            .button(
-                egui::RichText::new(format!("🎛 {}", app.i18n.t("track-effects-rack"))).size(12.0),
-            )
-            .clicked()
-        {
-            app.show_effects_dialog = !app.show_effects_dialog;
-        }
+        // ================= ROW 2: Session Tools, Mode Tabs & Master Output =================
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::new(8.0, 4.0);
 
-        ui.separator();
-
-        // View Mode Switcher
-        let is_multi = app.view_mode == crate::state::AppViewMode::Multitrack;
-        if ui
-            .selectable_label(
-                is_multi,
-                format!("𝄃 {}", app.i18n.t("view-mode-multitrack")),
-            )
-            .on_hover_text("Multitrack Session View (Key: 1)")
-            .clicked()
-            && !is_multi
-        {
-            app.action_switch_to_multitrack();
-        }
-
-        let is_wave = app.view_mode == crate::state::AppViewMode::Waveform;
-        if ui
-            .selectable_label(is_wave, format!("∿ {}", app.i18n.t("view-mode-waveform")))
-            .on_hover_text("Single-File Waveform Editor (Key: 2)")
-            .clicked()
-            && !is_wave
-        {
-            app.action_switch_to_waveform();
-        }
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // ----------------- Master VU Meter -----------------
-            render_master_vu_meter(app, ui);
-
-            // Master Volume Slider
-            ui.label(format_db(app.project.master_gain_db));
-            let mut master_db = app.project.master_gain_db;
+            // ----------------- Tempo & Signature -----------------
+            ui.label(egui::RichText::new(app.i18n.t("transport-tempo")).size(11.0));
+            let mut tempo = app.project.tempo_bpm;
             if ui
                 .add(
-                    egui::Slider::new(&mut master_db, -60.0..=12.0)
-                        .show_value(false)
-                        .text(app.i18n.t("transport-master-volume")),
+                    egui::DragValue::new(&mut tempo)
+                        .range(20.0..=300.0)
+                        .speed(1.0),
                 )
                 .changed()
             {
-                app.action_set_master_gain(master_db);
+                app.project.tempo_bpm = tempo;
             }
+
+            ui.label(egui::RichText::new(app.i18n.t("transport-time-signature")).size(11.0));
+            ui.label(
+                egui::RichText::new(format!(
+                    "{}/{}",
+                    app.project.time_signature.0, app.project.time_signature.1
+                ))
+                .strong()
+                .size(11.0),
+            );
+
+            // Effects Rack Quick Button
+            if ui
+                .button(
+                    egui::RichText::new(format!("[FX] {}", app.i18n.t("track-effects-rack")))
+                        .size(11.0),
+                )
+                .clicked()
+            {
+                app.show_effects_dialog = !app.show_effects_dialog;
+            }
+
+            ui.separator();
+
+            // View Mode Switcher
+            let is_multi = app.view_mode == crate::state::AppViewMode::Multitrack;
+            if ui
+                .selectable_label(
+                    is_multi,
+                    format!("⊞ {}", app.i18n.t("view-mode-multitrack")),
+                )
+                .on_hover_text("Multitrack Session View (Key: 1)")
+                .clicked()
+                && !is_multi
+            {
+                app.action_switch_to_multitrack();
+            }
+
+            let is_wave = app.view_mode == crate::state::AppViewMode::Waveform;
+            if ui
+                .selectable_label(is_wave, format!("~ {}", app.i18n.t("view-mode-waveform")))
+                .on_hover_text("Single-File Waveform Editor (Key: 2)")
+                .clicked()
+                && !is_wave
+            {
+                app.action_switch_to_waveform();
+            }
+
+            // Right-aligned Master controls
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // ----------------- Master VU Meter -----------------
+                render_master_vu_meter(app, ui);
+
+                // Master Volume Slider
+                ui.label(
+                    egui::RichText::new(format_db(app.project.master_gain_db))
+                        .size(11.0)
+                        .monospace(),
+                );
+                let mut master_db = app.project.master_gain_db;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut master_db, -60.0..=12.0)
+                            .show_value(false)
+                            .text(app.i18n.t("transport-master-volume")),
+                    )
+                    .changed()
+                {
+                    app.action_set_master_gain(master_db);
+                }
+            });
         });
     });
 }

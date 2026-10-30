@@ -5,11 +5,10 @@ use crate::state::DragOp;
 use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
 use stem_core::peaks::PeakPyramid;
 use stem_core::project::Clip;
-use stem_i18n::format_time_code;
 
 pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
     let available_size = ui.available_size();
-    let header_width = 200.0;
+    let header_width = 220.0;
     let ruler_height = 24.0;
 
     let sample_rate = app.project.sample_rate;
@@ -314,38 +313,68 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 60)),
         );
 
-        // Draw time tick marks
+        // Draw time tick marks with dynamic step sizing (no label overlap)
         let scroll_x = app.timeline_state.scroll_x;
         let start_time_sec = (scroll_x / pps).max(0.0);
         let visible_duration = canvas_width / pps;
         let end_time_sec = start_time_sec + visible_duration;
 
-        // Choose step size: 1s, 5s, 10s, 30s, 60s
-        let step_sec = if pps > 100.0 {
-            0.5
-        } else if pps > 40.0 {
-            1.0
-        } else if pps > 15.0 {
-            5.0
-        } else {
-            10.0
-        };
+        // Choose step size dynamically so labels have at least 70px spacing
+        let min_label_width_px = 70.0_f32;
+        let ideal_step_sec = (min_label_width_px / pps) as f64;
+        let standard_steps: &[f64] = &[
+            0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0,
+            1800.0, 3600.0,
+        ];
+        let step_sec = standard_steps
+            .iter()
+            .copied()
+            .find(|&s| s >= ideal_step_sec)
+            .unwrap_or(3600.0);
 
-        let first_tick = (start_time_sec / step_sec).floor() * step_sec;
+        let first_tick = (start_time_sec as f64 / step_sec).floor() * step_sec;
         let mut t = first_tick;
-        while t <= end_time_sec + step_sec {
-            let x = canvas_rect.min.x + (t * pps) - scroll_x;
+        while t <= (end_time_sec as f64) + step_sec {
+            let x = canvas_rect.min.x + (t as f32 * pps) - scroll_x;
             if x >= canvas_rect.min.x && x <= canvas_rect.max.x {
                 painter.line_segment(
                     [pos2(x, ruler_rect.max.y - 8.0), pos2(x, ruler_rect.max.y)],
                     Stroke::new(1.0_f32, Color32::from_rgb(120, 120, 130)),
                 );
+
+                // Format ruler text cleanly like Audacity
+                let label = if step_sec >= 60.0 {
+                    let total_secs = t.round() as i64;
+                    let mins = total_secs / 60;
+                    let secs = (total_secs % 60).abs();
+                    format!("{}:{:02}", mins, secs)
+                } else if step_sec >= 1.0 {
+                    let total_secs = t.round() as i64;
+                    let mins = total_secs / 60;
+                    let secs = (total_secs % 60).abs();
+                    if mins > 0 {
+                        format!("{}:{:02}", mins, secs)
+                    } else {
+                        format!("{}s", secs)
+                    }
+                } else {
+                    let total_secs = t.floor() as i64;
+                    let frac = ((t - t.floor()) * 10.0).round() as i64;
+                    let mins = total_secs / 60;
+                    let secs = (total_secs % 60).abs();
+                    if mins > 0 {
+                        format!("{}:{:02}.{}", mins, secs, frac)
+                    } else {
+                        format!("{}.{}s", secs, frac)
+                    }
+                };
+
                 painter.text(
-                    pos2(x + 3.0, ruler_rect.min.y + 2.0),
+                    pos2(x + 4.0, ruler_rect.min.y + 3.0),
                     egui::Align2::LEFT_TOP,
-                    format_time_code(t as f64),
-                    egui::FontId::monospace(10.0),
-                    Color32::from_rgb(180, 180, 190),
+                    label,
+                    egui::FontId::monospace(10.5),
+                    Color32::from_rgb(190, 195, 205),
                 );
             }
             t += step_sec;
@@ -519,36 +548,77 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
 
                 // Visual handles and hit-testing for Trim and Fades
-                let left_handle_rect =
-                    Rect::from_min_size(clip_rect.min, vec2(8.0, clip_rect.height()));
-                let right_handle_rect = Rect::from_min_size(
-                    pos2(clip_rect.max.x - 8.0, clip_rect.min.y),
-                    vec2(8.0, clip_rect.height()),
-                );
-                let fade_in_handle_rect = Rect::from_min_size(clip_rect.min, vec2(12.0, 12.0));
+                let fade_size = 14.0_f32;
+                let fade_in_handle_rect =
+                    Rect::from_min_size(clip_rect.min, vec2(fade_size, fade_size));
                 let fade_out_handle_rect = Rect::from_min_size(
-                    pos2(clip_rect.max.x - 12.0, clip_rect.min.y),
-                    vec2(12.0, 12.0),
+                    pos2(clip_rect.max.x - fade_size, clip_rect.min.y),
+                    vec2(fade_size, fade_size),
+                );
+
+                let trim_w = 8.0_f32;
+                let left_handle_rect = Rect::from_min_size(
+                    pos2(clip_rect.min.x, clip_rect.min.y + fade_size),
+                    vec2(trim_w, (clip_rect.height() - fade_size).max(4.0)),
+                );
+                let right_handle_rect = Rect::from_min_size(
+                    pos2(clip_rect.max.x - trim_w, clip_rect.min.y + fade_size),
+                    vec2(trim_w, (clip_rect.height() - fade_size).max(4.0)),
                 );
 
                 // Draw subtle fade corner handles
-                painter.rect_filled(
-                    fade_in_handle_rect,
-                    Rounding::same(2.0),
-                    Color32::from_rgba_premultiplied(255, 200, 80, 180),
-                );
-                painter.rect_filled(
-                    fade_out_handle_rect,
-                    Rounding::same(2.0),
-                    Color32::from_rgba_premultiplied(255, 200, 80, 180),
-                );
+                let is_fade_in_hovered =
+                    mouse_pos.is_some_and(|mp| fade_in_handle_rect.contains(mp));
+                let is_fade_out_hovered =
+                    mouse_pos.is_some_and(|mp| fade_out_handle_rect.contains(mp));
+                let is_left_trim_hovered =
+                    mouse_pos.is_some_and(|mp| left_handle_rect.contains(mp));
+                let is_right_trim_hovered =
+                    mouse_pos.is_some_and(|mp| right_handle_rect.contains(mp));
+
+                let fade_in_color = if is_fade_in_hovered {
+                    Color32::from_rgb(255, 230, 90)
+                } else {
+                    Color32::from_rgba_premultiplied(255, 190, 60, 180)
+                };
+                let fade_out_color = if is_fade_out_hovered {
+                    Color32::from_rgb(255, 230, 90)
+                } else {
+                    Color32::from_rgba_premultiplied(255, 190, 60, 180)
+                };
+
+                painter.rect_filled(fade_in_handle_rect, Rounding::same(2.0), fade_in_color);
+                painter.rect_filled(fade_out_handle_rect, Rounding::same(2.0), fade_out_color);
+
+                // Highlight trim edge on hover
+                if is_left_trim_hovered {
+                    painter.rect_filled(
+                        left_handle_rect,
+                        Rounding::same(2.0),
+                        Color32::from_rgba_premultiplied(120, 200, 255, 160),
+                    );
+                }
+                if is_right_trim_hovered {
+                    painter.rect_filled(
+                        right_handle_rect,
+                        Rounding::same(2.0),
+                        Color32::from_rgba_premultiplied(120, 200, 255, 160),
+                    );
+                }
 
                 // Check for click / selection / drag start
                 if let Some(mp) = mouse_pos {
                     if clip_rect.contains(mp) {
-                        if fade_in_handle_rect.contains(mp) {
+                        let primary_pressed =
+                            ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+                        let primary_double = ui.input(|i| {
+                            i.pointer
+                                .button_double_clicked(egui::PointerButton::Primary)
+                        });
+
+                        if is_fade_in_hovered {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                            if ui.input(|i| i.pointer.primary_clicked()) {
+                            if primary_pressed {
                                 app.timeline_state.drag_op = Some(DragOp::FadeIn {
                                     clip_id: clip.id,
                                     track_id,
@@ -556,9 +626,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
-                        } else if fade_out_handle_rect.contains(mp) {
+                        } else if is_fade_out_hovered {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                            if ui.input(|i| i.pointer.primary_clicked()) {
+                            if primary_pressed {
                                 app.timeline_state.drag_op = Some(DragOp::FadeOut {
                                     clip_id: clip.id,
                                     track_id,
@@ -566,9 +636,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
-                        } else if left_handle_rect.contains(mp) {
+                        } else if is_left_trim_hovered {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                            if ui.input(|i| i.pointer.primary_clicked()) {
+                            if primary_pressed {
                                 app.timeline_state.drag_op = Some(DragOp::TrimLeft {
                                     clip_id: clip.id,
                                     track_id,
@@ -578,9 +648,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
-                        } else if right_handle_rect.contains(mp) {
+                        } else if is_right_trim_hovered {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                            if ui.input(|i| i.pointer.primary_clicked()) {
+                            if primary_pressed {
                                 app.timeline_state.drag_op = Some(DragOp::TrimRight {
                                     clip_id: clip.id,
                                     track_id,
@@ -588,12 +658,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
-                        } else if ui.input(|i| {
-                            i.pointer
-                                .button_double_clicked(egui::PointerButton::Primary)
-                        }) {
+                        } else if primary_double {
                             open_clip_in_waveform = Some(clip.id);
-                        } else if ui.input(|i| i.pointer.primary_clicked()) {
+                        } else if primary_pressed {
                             app.timeline_state.selected_clip_id = Some(clip.id);
                             app.timeline_state.selected_track_id = Some(track_id);
 
