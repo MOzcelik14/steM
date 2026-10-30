@@ -17,6 +17,15 @@ use uuid::Uuid;
 
 use stem_core::project::AudioSource;
 
+/// Maximum allowed channels for decoded audio (stereo, 5.1, 7.1).
+pub const MAX_DECODE_CHANNELS: usize = 8;
+/// Minimum supported audio sample rate (8 kHz).
+pub const MIN_DECODE_SAMPLE_RATE: u32 = 8_000;
+/// Maximum supported audio sample rate (192 kHz).
+pub const MAX_DECODE_SAMPLE_RATE: u32 = 192_000;
+/// Maximum allowable decoded audio frames (4 hours at 192 kHz) to prevent OOM exhaustion.
+pub const MAX_DECODE_FRAMES: usize = 192_000 * 3600 * 4;
+
 #[derive(Error, Debug)]
 pub enum DecodeError {
     #[error("I/O error reading audio file: {0}")]
@@ -30,6 +39,15 @@ pub enum DecodeError {
 
     #[error("Unsupported codec")]
     UnsupportedCodec,
+
+    #[error("Invalid channel count: {0} (supported: 1..={MAX_DECODE_CHANNELS})")]
+    InvalidChannelCount(usize),
+
+    #[error("Invalid sample rate: {0} Hz (supported: {MIN_DECODE_SAMPLE_RATE}..={MAX_DECODE_SAMPLE_RATE})")]
+    InvalidSampleRate(u32),
+
+    #[error("Exceeded maximum audio frame limit ({MAX_DECODE_FRAMES} frames)")]
+    FrameLimitExceeded,
 }
 
 /// Decoded audio data stored as planar 32-bit float channels.
@@ -50,6 +68,37 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
         hint.with_extension(ext);
     }
 
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("audio")
+        .to_string();
+
+    decode_stream(mss, hint, PathBuf::from(path), filename)
+}
+
+/// Decodes an in-memory byte slice (useful for fuzzing and unit testing).
+pub fn decode_bytes(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+) -> Result<DecodedAudio, DecodeError> {
+    let cursor = std::io::Cursor::new(bytes.to_vec());
+    let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = extension_hint {
+        hint.with_extension(ext);
+    }
+
+    decode_stream(mss, hint, PathBuf::from("memory"), "memory".to_string())
+}
+
+fn decode_stream(
+    mss: MediaSourceStream,
+    hint: Hint,
+    path_buf: PathBuf,
+    filename: String,
+) -> Result<DecodedAudio, DecodeError> {
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
 
@@ -67,6 +116,14 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
     let track_id = track.id;
     let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
     let num_channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
+
+    if !(1..=MAX_DECODE_CHANNELS).contains(&num_channels) {
+        return Err(DecodeError::InvalidChannelCount(num_channels));
+    }
+
+    if !(MIN_DECODE_SAMPLE_RATE..=MAX_DECODE_SAMPLE_RATE).contains(&sample_rate) {
+        return Err(DecodeError::InvalidSampleRate(sample_rate));
+    }
 
     let dec_opts: DecoderOptions = Default::default();
     let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
@@ -99,11 +156,23 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
                 sbuf.copy_interleaved_ref(decoded);
                 let samples = sbuf.samples();
 
-                // De-interleave into planar channels
+                // Check frame limit to avoid OOM
+                let current_frames = planar_channels.first().map(|ch| ch.len()).unwrap_or(0);
+                let incoming_frames = samples.len() / num_channels;
+                if current_frames + incoming_frames > MAX_DECODE_FRAMES {
+                    return Err(DecodeError::FrameLimitExceeded);
+                }
+
+                // De-interleave into planar channels with NaN/Inf sanitization
                 for chunk in samples.chunks(num_channels) {
                     for (ch_idx, &sample) in chunk.iter().enumerate() {
                         if ch_idx < planar_channels.len() {
-                            planar_channels[ch_idx].push(sample);
+                            let sanitized = if sample.is_nan() || sample.is_infinite() {
+                                0.0
+                            } else {
+                                sample.clamp(-1.0, 1.0)
+                            };
+                            planar_channels[ch_idx].push(sanitized);
                         }
                     }
                 }
@@ -117,15 +186,10 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
     }
 
     let total_frames = planar_channels.first().map(|ch| ch.len()).unwrap_or(0) as u64;
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("audio")
-        .to_string();
 
     let source = AudioSource {
         id: Uuid::new_v4(),
-        path: PathBuf::from(path),
+        path: path_buf,
         filename,
         sample_rate,
         channels: num_channels,
