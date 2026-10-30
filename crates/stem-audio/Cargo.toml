@@ -16,3 +16,6 @@ flacenc = { workspace = true }
 crossbeam-channel = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.6"
