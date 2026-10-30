@@ -28,4 +28,7 @@ pub enum ProjectError {
         length: u64,
         source_len: u64,
     },
+
+    #[error("Project validation error: {0}")]
+    Validation(String),
 }

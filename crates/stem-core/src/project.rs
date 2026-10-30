@@ -988,6 +988,195 @@ impl Project {
         }
     }
 
+    /// Validates all semantic project invariants to defend against malformed or malicious inputs.
+    pub fn validate(&self) -> Result<(), ProjectError> {
+        if !(8000..=192000).contains(&self.sample_rate) {
+            return Err(ProjectError::Validation(format!(
+                "Invalid sample rate: {} Hz (must be between 8000 and 192000)",
+                self.sample_rate
+            )));
+        }
+
+        if !self.tempo_bpm.is_finite() || self.tempo_bpm <= 0.0 || self.tempo_bpm > 1000.0 {
+            return Err(ProjectError::Validation(format!(
+                "Invalid tempo: {} BPM (must be finite and between 0.1 and 1000.0)",
+                self.tempo_bpm
+            )));
+        }
+
+        if self.time_signature.0 == 0 || self.time_signature.1 == 0 {
+            return Err(ProjectError::Validation(format!(
+                "Invalid time signature: {}/{}",
+                self.time_signature.0, self.time_signature.1
+            )));
+        }
+
+        if !self.master_gain_db.is_finite() || !(-120.0..=30.0).contains(&self.master_gain_db) {
+            return Err(ProjectError::Validation(format!(
+                "Invalid master gain: {} dB",
+                self.master_gain_db
+            )));
+        }
+
+        if !self.latency_compensation_ms.is_finite()
+            || !(0.0..=5000.0).contains(&self.latency_compensation_ms)
+        {
+            return Err(ProjectError::Validation(format!(
+                "Invalid latency compensation: {} ms",
+                self.latency_compensation_ms
+            )));
+        }
+
+        // Validate Audio Sources
+        for (source_id, source) in &self.sources {
+            if source.id != *source_id {
+                return Err(ProjectError::Validation(format!(
+                    "Source key ID mismatch: key {}, source id {}",
+                    source_id, source.id
+                )));
+            }
+            if !(1..=8).contains(&source.channels) {
+                return Err(ProjectError::Validation(format!(
+                    "Source {} has invalid channel count: {}",
+                    source_id, source.channels
+                )));
+            }
+            if !(8000..=192000).contains(&source.sample_rate) {
+                return Err(ProjectError::Validation(format!(
+                    "Source {} has invalid sample rate: {} Hz",
+                    source_id, source.sample_rate
+                )));
+            }
+
+            // Path Traversal Check
+            if source.path.as_os_str().is_empty() {
+                return Err(ProjectError::Validation(format!(
+                    "Source {} has empty path",
+                    source_id
+                )));
+            }
+            if source
+                .path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return Err(ProjectError::Validation(format!(
+                    "Source {} path contains prohibited '..' directory traversal: {:?}",
+                    source_id, source.path
+                )));
+            }
+        }
+
+        // Validate Tracks
+        if self.tracks.len() > 256 {
+            return Err(ProjectError::Validation(format!(
+                "Too many tracks: {} (max 256)",
+                self.tracks.len()
+            )));
+        }
+
+        for (t_idx, track) in self.tracks.iter().enumerate() {
+            if !track.gain_db.is_finite() || !(-120.0..=30.0).contains(&track.gain_db) {
+                return Err(ProjectError::Validation(format!(
+                    "Track {} ({}) has invalid gain: {} dB",
+                    t_idx, track.name, track.gain_db
+                )));
+            }
+            if !track.pan.is_finite() || !(-1.0..=1.0).contains(&track.pan) {
+                return Err(ProjectError::Validation(format!(
+                    "Track {} ({}) has invalid pan: {}",
+                    t_idx, track.name, track.pan
+                )));
+            }
+
+            // Validate Clips
+            for (c_idx, clip) in track.clips.iter().enumerate() {
+                if clip.length_frames == 0 {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} has zero length",
+                        t_idx, c_idx
+                    )));
+                }
+
+                if clip
+                    .source_start_frame
+                    .checked_add(clip.length_frames)
+                    .is_none()
+                {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} source bounds overflow u64",
+                        t_idx, c_idx
+                    )));
+                }
+
+                if clip
+                    .track_offset_frames
+                    .checked_add(clip.length_frames)
+                    .is_none()
+                {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} timeline offset overflow u64",
+                        t_idx, c_idx
+                    )));
+                }
+
+                // If source is known in project, ensure clip does not exceed source length
+                if let Some(src) = self.sources.get(&clip.source_id) {
+                    if clip.source_start_frame + clip.length_frames > src.duration_frames {
+                        return Err(ProjectError::InvalidClipBounds {
+                            start: clip.source_start_frame,
+                            length: clip.length_frames,
+                            source_len: src.duration_frames,
+                        });
+                    }
+                }
+
+                if !clip.gain_db.is_finite() || !(-120.0..=30.0).contains(&clip.gain_db) {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} has invalid gain: {} dB",
+                        t_idx, c_idx, clip.gain_db
+                    )));
+                }
+
+                if clip.fade_in_frames > clip.length_frames {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} fade-in frames ({}) exceed clip length ({})",
+                        t_idx, c_idx, clip.fade_in_frames, clip.length_frames
+                    )));
+                }
+
+                if clip.fade_out_frames > clip.length_frames {
+                    return Err(ProjectError::Validation(format!(
+                        "Track {} clip {} fade-out frames ({}) exceed clip length ({})",
+                        t_idx, c_idx, clip.fade_out_frames, clip.length_frames
+                    )));
+                }
+            }
+        }
+
+        // Validate Loop Region
+        if let Some((start, end)) = self.loop_region {
+            if start >= end {
+                return Err(ProjectError::Validation(format!(
+                    "Loop region start ({}) must be less than end ({})",
+                    start, end
+                )));
+            }
+        }
+
+        // Validate Punch Region
+        if let Some((start, end)) = self.punch_region {
+            if start >= end {
+                return Err(ProjectError::Validation(format!(
+                    "Punch region start ({}) must be less than end ({})",
+                    start, end
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
     /// Serializes project state to RON.
     pub fn to_ron(&self) -> Result<String, ProjectError> {
         let pretty_config = ron::ser::PrettyConfig::new()
@@ -997,8 +1186,10 @@ impl Project {
         Ok(ron::ser::to_string_pretty(self, pretty_config)?)
     }
 
-    /// Deserializes project from RON string.
+    /// Deserializes project from RON string and validates all semantic constraints.
     pub fn from_ron(s: &str) -> Result<Self, ProjectError> {
-        Ok(ron::from_str(s)?)
+        let proj: Self = ron::from_str(s)?;
+        proj.validate()?;
+        Ok(proj)
     }
 }
