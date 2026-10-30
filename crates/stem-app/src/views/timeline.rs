@@ -383,8 +383,10 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         // ---------------- Track Waveform Lanes ----------------
         let tracks_top = canvas_rect.min.y + ruler_height;
         let track_height = app.timeline_state.track_height;
-
-        let mouse_pos = response.hover_pos();
+        let mouse_pos = response
+            .interact_pointer_pos()
+            .or_else(|| response.hover_pos())
+            .or_else(|| ui.input(|i| i.pointer.latest_pos()));
         let is_mouse_down = ui.input(|i| i.pointer.primary_down());
         let is_primary_clicked = ui.input(|i| i.pointer.primary_clicked());
         let is_secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
@@ -524,9 +526,12 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
 
                 // Render Fade In & Fade Out curves
+                let fade_in_w =
+                    (clip.fade_in_frames as f32 / sample_rate as f32 * pps).min(clip_rect.width());
+                let fade_out_w =
+                    (clip.fade_out_frames as f32 / sample_rate as f32 * pps).min(clip_rect.width());
+
                 if clip.fade_in_frames > 0 {
-                    let fade_in_w = (clip.fade_in_frames as f32 / sample_rate as f32 * pps)
-                        .min(clip_rect.width());
                     painter.line_segment(
                         [
                             pos2(clip_rect.min.x, clip_rect.max.y),
@@ -536,8 +541,6 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     );
                 }
                 if clip.fade_out_frames > 0 {
-                    let fade_out_w = (clip.fade_out_frames as f32 / sample_rate as f32 * pps)
-                        .min(clip_rect.width());
                     painter.line_segment(
                         [
                             pos2(clip_rect.max.x - fade_out_w, clip_rect.min.y),
@@ -549,10 +552,17 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
                 // Visual handles and hit-testing for Trim and Fades
                 let fade_size = 14.0_f32;
-                let fade_in_handle_rect =
-                    Rect::from_min_size(clip_rect.min, vec2(fade_size, fade_size));
+                let fade_in_handle_x = (clip_rect.min.x + fade_in_w - fade_size * 0.5)
+                    .clamp(clip_rect.min.x, clip_rect.max.x - fade_size);
+                let fade_in_handle_rect = Rect::from_min_size(
+                    pos2(fade_in_handle_x, clip_rect.min.y),
+                    vec2(fade_size, fade_size),
+                );
+
+                let fade_out_handle_x = (clip_rect.max.x - fade_out_w - fade_size * 0.5)
+                    .clamp(clip_rect.min.x, clip_rect.max.x - fade_size);
                 let fade_out_handle_rect = Rect::from_min_size(
-                    pos2(clip_rect.max.x - fade_size, clip_rect.min.y),
+                    pos2(fade_out_handle_x, clip_rect.min.y),
                     vec2(fade_size, fade_size),
                 );
 
@@ -608,7 +618,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
                 // Check for click / selection / drag start
                 if let Some(mp) = mouse_pos {
-                    if clip_rect.contains(mp) {
+                    if clip_rect.contains(mp) && app.timeline_state.drag_op.is_none() {
                         let primary_pressed =
                             ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
                         let primary_double = ui.input(|i| {
@@ -950,6 +960,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         // ---------------- Drag Operations (Move, Trim, Fade) ----------------
         if let Some(drag_op) = app.timeline_state.drag_op {
             if is_mouse_down {
+                ui.ctx().request_repaint();
                 if let Some(mp) = mouse_pos {
                     match drag_op {
                         DragOp::MoveClip {
@@ -958,6 +969,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             original_track_offset,
                             drag_start_x,
                         } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
                             let new_offset =
@@ -978,13 +990,13 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             orig_length,
                             drag_start_x,
                         } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
 
-                            let max_trim =
-                                (orig_length.saturating_sub(sample_rate as u64 / 10)) as i64;
-                            let clamped_delta =
-                                delta_frames.clamp(-(orig_track_offset as i64), max_trim);
+                            let max_trim = (orig_length.saturating_sub(100)) as i64;
+                            let min_trim = -(orig_track_offset.min(orig_source_start) as i64);
+                            let clamped_delta = delta_frames.clamp(min_trim, max_trim);
 
                             let new_start =
                                 (orig_source_start as i64 + clamped_delta).max(0) as u64;
@@ -998,6 +1010,8 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     clip.source_start_frame = new_start;
                                     clip.track_offset_frames = new_offset;
                                     clip.length_frames = new_length;
+                                    clip.fade_in_frames = clip.fade_in_frames.min(new_length);
+                                    clip.fade_out_frames = clip.fade_out_frames.min(new_length);
                                 }
                             }
                         }
@@ -1007,14 +1021,35 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             orig_length,
                             drag_start_x,
                         } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
-                            let new_length = (orig_length as i64 + delta_frames).max(100) as u64;
+
+                            let source_info = app.project.get_track(track_id).and_then(|t| {
+                                t.clips
+                                    .iter()
+                                    .find(|c| c.id == clip_id)
+                                    .map(|c| (c.source_id, c.source_start_frame))
+                            });
+                            let max_source_len = source_info
+                                .and_then(|(sid, start)| {
+                                    app.project
+                                        .sources
+                                        .get(&sid)
+                                        .map(|s| s.duration_frames.saturating_sub(start))
+                                })
+                                .unwrap_or(u64::MAX);
 
                             if let Some(track) = app.project.get_track_mut(track_id) {
                                 if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id)
                                 {
-                                    clip.length_frames = new_length;
+                                    let new_length =
+                                        (orig_length as i64 + delta_frames).max(100) as u64;
+                                    clip.length_frames = new_length.min(max_source_len);
+                                    clip.fade_in_frames =
+                                        clip.fade_in_frames.min(clip.length_frames);
+                                    clip.fade_out_frames =
+                                        clip.fade_out_frames.min(clip.length_frames);
                                 }
                             }
                         }
@@ -1024,6 +1059,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             orig_fade_in,
                             drag_start_x,
                         } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
                             let new_fade = (orig_fade_in as i64 + delta_frames).max(0) as u64;
@@ -1041,6 +1077,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             orig_fade_out,
                             drag_start_x,
                         } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                             let delta_x = drag_start_x - mp.x; // Dragging inward increases fade
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
                             let new_fade = (orig_fade_out as i64 + delta_frames).max(0) as u64;
