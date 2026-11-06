@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "stem-fuzz"
 version = "0.0.0"
@@ -23,3 +25,7 @@ name = "fuzz_decode"
 path = "fuzz_targets/fuzz_decode.rs"
 test = false
 doc = false
+
+[profile.release]
+panic = "unwind"
+

@@ -431,3 +431,66 @@ impl AudioProcessor {
         });
     }
 }
+
+/// Encapsulates the real-time audio thread callback state and timeline buffer management.
+///
+/// Invariants:
+/// - Never allocates or drops heap memory on the audio thread.
+/// - Saturated retired channel halts timeline ingestion without leaking or freeing.
+pub struct RealtimeAudioCallback {
+    pub processor: AudioProcessor,
+    pub timeline_rx: crossbeam_channel::Receiver<Arc<SharedAudioTimeline>>,
+    pub retired_tx: crossbeam_channel::Sender<Arc<SharedAudioTimeline>>,
+    pub stashed_retired: Option<Arc<SharedAudioTimeline>>,
+}
+
+impl RealtimeAudioCallback {
+    pub fn new(
+        processor: AudioProcessor,
+        timeline_rx: crossbeam_channel::Receiver<Arc<SharedAudioTimeline>>,
+        retired_tx: crossbeam_channel::Sender<Arc<SharedAudioTimeline>>,
+    ) -> Self {
+        Self {
+            processor,
+            timeline_rx,
+            retired_tx,
+            stashed_retired: None,
+        }
+    }
+
+    /// Process a block of interleaved audio output samples.
+    pub fn process(&mut self, data: &mut [f32]) {
+        // If we previously couldn't return a retired timeline because the channel was full,
+        // try draining it to retired_tx now.
+        if let Some(stashed) = self.stashed_retired.take() {
+            match self.retired_tx.try_send(stashed) {
+                Ok(()) => {}
+                Err(crossbeam_channel::TrySendError::Full(returned))
+                | Err(crossbeam_channel::TrySendError::Disconnected(returned)) => {
+                    self.stashed_retired = Some(returned);
+                }
+            }
+        }
+
+        // Check if a new timeline buffer was sent from the UI/worker thread.
+        // Invariant: ONLY ingest a new timeline if stashed_retired is empty.
+        // If retired_tx is saturated, pausing ingestion ensures we never drop or leak
+        // an Arc on the audio thread, and timeline memory remains strictly bounded.
+        if self.stashed_retired.is_none() {
+            if let Ok(new_timeline) = self.timeline_rx.try_recv() {
+                if let Some(old) = self.processor.set_audio_data(Some(new_timeline)) {
+                    match self.retired_tx.try_send(old) {
+                        Ok(()) => {}
+                        Err(crossbeam_channel::TrySendError::Full(returned))
+                        | Err(crossbeam_channel::TrySendError::Disconnected(returned)) => {
+                            self.stashed_retired = Some(returned);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.processor.process_interleaved(data);
+    }
+}
+

@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::callback::{AudioCommand, AudioProcessor, AudioTelemetry, SharedAudioTimeline};
+use crate::callback::{
+    AudioCommand, AudioProcessor, AudioTelemetry, RealtimeAudioCallback, SharedAudioTimeline,
+};
 
 #[derive(Error, Debug)]
 pub enum AudioEngineError {
@@ -71,42 +73,16 @@ impl AudioEngine {
         let (timeline_tx, timeline_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(64);
         let (retired_tx, retired_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(64);
 
-        let mut processor = AudioProcessor::new(cmd_rx, telem_tx, Some(mon_rx));
+        let processor = AudioProcessor::new(cmd_rx, telem_tx, Some(mon_rx));
+        let mut audio_callback = RealtimeAudioCallback::new(processor, timeline_rx, retired_tx);
 
         let device_lost = Arc::new(AtomicBool::new(false));
         let device_lost_cb = device_lost.clone();
-        let mut stashed_retired: Option<Arc<SharedAudioTimeline>> = None;
 
         let stream = device.build_output_stream(
             &config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                // If we previously couldn't return a retired timeline because the channel was full,
-                // try draining it to retired_tx now.
-                if let Some(stashed) = stashed_retired.take() {
-                    if let Err(crossbeam_channel::TrySendError::Full(returned)) =
-                        retired_tx.try_send(stashed)
-                    {
-                        stashed_retired = Some(returned);
-                    }
-                }
-
-                // Check if a new timeline buffer was sent from the UI/worker thread
-                if let Ok(new_timeline) = timeline_rx.try_recv() {
-                    // Send previous timeline back to UI thread to avoid deallocating on the real-time audio thread
-                    if let Some(old) = processor.set_audio_data(Some(new_timeline)) {
-                        if let Err(crossbeam_channel::TrySendError::Full(returned)) =
-                            retired_tx.try_send(old)
-                        {
-                            // Retired queue saturated: stash it. If slot occupied, forget reference
-                            // rather than dropping and deallocating memory on the real-time callback thread.
-                            if let Some(prev) = stashed_retired.replace(returned) {
-                                std::mem::forget(prev);
-                            }
-                        }
-                    }
-                }
-
-                processor.process_interleaved(data);
+                audio_callback.process(data);
             },
             move |_err| {
                 device_lost_cb.store(true, Ordering::SeqCst);

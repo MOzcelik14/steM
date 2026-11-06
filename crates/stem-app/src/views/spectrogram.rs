@@ -46,7 +46,7 @@ impl Default for SpectrogramState {
 
 impl SpectrogramState {
     pub fn set_fft_size(&mut self, size: usize) {
-        if size != self.fft_size && size.is_power_of_two() {
+        if size != self.fft_size && size.is_power_of_two() && (256..=16384).contains(&size) {
             self.fft_size = size;
             self.analyzer.set_fft_size(size);
             let num_bins = size / 2 + 1;

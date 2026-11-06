@@ -473,20 +473,24 @@ impl AutomationLane {
             return default_val;
         }
 
-        if frame <= self.points.first().unwrap().frame {
-            return self.points.first().unwrap().value;
+        if let Some(first) = self.points.first() {
+            if frame <= first.frame {
+                return first.value;
+            }
         }
-        if frame >= self.points.last().unwrap().frame {
-            return self.points.last().unwrap().value;
+        if let Some(last) = self.points.last() {
+            if frame >= last.frame {
+                return last.value;
+            }
         }
 
-        for i in 0..(self.points.len() - 1) {
-            let p1 = &self.points[i];
-            let p2 = &self.points[i + 1];
-            if frame >= p1.frame && frame <= p2.frame {
-                let range = (p2.frame - p1.frame).max(1) as f32;
-                let t = (frame - p1.frame) as f32 / range;
-                return p1.curve.interpolate(t, p1.value, p2.value);
+        for w in self.points.windows(2) {
+            if let [p1, p2] = w {
+                if frame >= p1.frame && frame <= p2.frame {
+                    let range = (p2.frame.saturating_sub(p1.frame)).max(1) as f32;
+                    let t = (frame.saturating_sub(p1.frame)) as f32 / range;
+                    return p1.curve.interpolate(t, p1.value, p2.value);
+                }
             }
         }
 

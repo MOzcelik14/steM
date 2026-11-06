@@ -96,7 +96,7 @@ impl AudioRecorder {
     pub fn with_config(
         preferred_device: Option<&str>,
         preferred_sample_rate: Option<u32>,
-        mut monitor_producer: Option<Producer<f32>>,
+        monitor_producer: Option<Producer<f32>>,
     ) -> Result<Self, RecordError> {
         let host = cpal::default_host();
 
@@ -133,88 +133,28 @@ impl AudioRecorder {
         };
 
         // Lock-free ringbuffers
-        let (mut record_producer, mut record_consumer) = RingBuffer::<f32>::new(65536);
-        let (mut telem_producer, telem_consumer) = RingBuffer::<InputTelemetry>::new(256);
+        let (record_producer, mut record_consumer) = RingBuffer::<f32>::new(65536);
+        let (telem_producer, telem_consumer) = RingBuffer::<InputTelemetry>::new(256);
 
         let is_recording = Arc::new(AtomicBool::new(false));
-        let is_recording_cb = is_recording.clone();
-
         let monitoring_enabled = Arc::new(AtomicBool::new(false));
-        let monitoring_cb = monitoring_enabled.clone();
 
         let device_lost = Arc::new(AtomicBool::new(false));
         let device_lost_cb = device_lost.clone();
 
+        let mut record_callback = RealtimeRecordCallback::new(
+            channels,
+            record_producer,
+            telem_producer,
+            monitor_producer,
+            is_recording.clone(),
+            monitoring_enabled.clone(),
+        );
+
         let stream = device.build_input_stream(
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                // 1. Calculate Peak and RMS for live telemetry
-                let mut p_l = 0.0_f32;
-                let mut p_r = 0.0_f32;
-                let mut sum_sq_l = 0.0_f32;
-                let mut sum_sq_r = 0.0_f32;
-                let mut frames = 0_usize;
-
-                if channels == 1 {
-                    for &s in data {
-                        let abs = s.abs();
-                        if abs > p_l {
-                            p_l = abs;
-                        }
-                        sum_sq_l += s * s;
-                        frames += 1;
-                    }
-                    p_r = p_l;
-                    sum_sq_r = sum_sq_l;
-                } else {
-                    for chunk in data.as_chunks::<2>().0 {
-                        let l = chunk[0];
-                        let r = chunk[1];
-                        let abs_l = l.abs();
-                        let abs_r = r.abs();
-                        if abs_l > p_l {
-                            p_l = abs_l;
-                        }
-                        if abs_r > p_r {
-                            p_r = abs_r;
-                        }
-                        sum_sq_l += l * l;
-                        sum_sq_r += r * r;
-                        frames += 1;
-                    }
-                }
-                let count = frames.max(1) as f32;
-                let r_l = (sum_sq_l / count).sqrt();
-                let r_r = (sum_sq_r / count).sqrt();
-                let _ = telem_producer.push(InputTelemetry {
-                    peak_l: p_l,
-                    peak_r: p_r,
-                    rms_l: r_l,
-                    rms_r: r_r,
-                });
-
-                // 2. Stream to recording worker if active
-                if is_recording_cb.load(Ordering::Relaxed) {
-                    for &sample in data {
-                        let _ = record_producer.push(sample);
-                    }
-                }
-
-                // 3. Software input monitoring
-                if monitoring_cb.load(Ordering::Relaxed) {
-                    if let Some(ref mut mon) = monitor_producer {
-                        if channels == 1 {
-                            for &sample in data {
-                                let _ = mon.push(sample);
-                                let _ = mon.push(sample);
-                            }
-                        } else {
-                            for &sample in data {
-                                let _ = mon.push(sample);
-                            }
-                        }
-                    }
-                }
+                record_callback.process(data);
             },
             move |_err| {
                 // Device unplugged or audio service lost: mark flag without panicking or allocating
@@ -359,3 +299,107 @@ impl Drop for AudioRecorder {
         }
     }
 }
+
+/// Encapsulates the real-time audio input callback state.
+///
+/// Invariants:
+/// - Never allocates or locks on the audio recording callback thread.
+pub struct RealtimeRecordCallback {
+    pub channels: u16,
+    pub record_producer: Producer<f32>,
+    pub telem_producer: Producer<InputTelemetry>,
+    pub monitor_producer: Option<Producer<f32>>,
+    pub is_recording: Arc<AtomicBool>,
+    pub monitoring_enabled: Arc<AtomicBool>,
+}
+
+impl RealtimeRecordCallback {
+    pub fn new(
+        channels: u16,
+        record_producer: Producer<f32>,
+        telem_producer: Producer<InputTelemetry>,
+        monitor_producer: Option<Producer<f32>>,
+        is_recording: Arc<AtomicBool>,
+        monitoring_enabled: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            channels,
+            record_producer,
+            telem_producer,
+            monitor_producer,
+            is_recording,
+            monitoring_enabled,
+        }
+    }
+
+    pub fn process(&mut self, data: &[f32]) {
+        // 1. Calculate Peak and RMS for live telemetry
+        let mut p_l = 0.0_f32;
+        let mut p_r = 0.0_f32;
+        let mut sum_sq_l = 0.0_f32;
+        let mut sum_sq_r = 0.0_f32;
+        let mut frames = 0_usize;
+
+        if self.channels == 1 {
+            for &s in data {
+                let abs = s.abs();
+                if abs > p_l {
+                    p_l = abs;
+                }
+                sum_sq_l += s * s;
+                frames += 1;
+            }
+            p_r = p_l;
+            sum_sq_r = sum_sq_l;
+        } else {
+            for chunk in data.as_chunks::<2>().0 {
+                let l = chunk[0];
+                let r = chunk[1];
+                let abs_l = l.abs();
+                let abs_r = r.abs();
+                if abs_l > p_l {
+                    p_l = abs_l;
+                }
+                if abs_r > p_r {
+                    p_r = abs_r;
+                }
+                sum_sq_l += l * l;
+                sum_sq_r += r * r;
+                frames += 1;
+            }
+        }
+        let count = frames.max(1) as f32;
+        let r_l = (sum_sq_l / count).sqrt();
+        let r_r = (sum_sq_r / count).sqrt();
+        let _ = self.telem_producer.push(InputTelemetry {
+            peak_l: p_l,
+            peak_r: p_r,
+            rms_l: r_l,
+            rms_r: r_r,
+        });
+
+        // 2. Stream to recording worker if active
+        if self.is_recording.load(Ordering::Relaxed) {
+            for &sample in data {
+                let _ = self.record_producer.push(sample);
+            }
+        }
+
+        // 3. Software input monitoring
+        if self.monitoring_enabled.load(Ordering::Relaxed) {
+            if let Some(ref mut mon) = self.monitor_producer {
+                if self.channels == 1 {
+                    for &sample in data {
+                        let _ = mon.push(sample);
+                        let _ = mon.push(sample);
+                    }
+                } else {
+                    for &sample in data {
+                        let _ = mon.push(sample);
+                    }
+                }
+            }
+        }
+    }
+}
+

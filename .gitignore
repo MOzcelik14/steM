@@ -4,3 +4,7 @@
 *~
 .DS_Store
 .stem-recovery
+*.proptest-regressions
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/
