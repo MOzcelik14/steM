@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="steM. logo" width="240" />
+  <img src="assets/logo.svg" alt="steM. logo" width="480" />
 </p>
 
 <h1 align="center">steM.</h1>
@@ -153,4 +153,4 @@ Unlike traditional destructive editors that mutate audio files or allocate huge 
 
 ## License
 
-GNU General Public License v3.0 (GPL-3.0). See [LICENSE](LICENSE) for details.
+GNU General Public License v3.0 (GPL-3.0-or-later). See [LICENSE](LICENSE) for details.

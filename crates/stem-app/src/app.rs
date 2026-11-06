@@ -66,6 +66,7 @@ pub struct StemApp {
     pub show_preferences_dialog: bool,
     pub show_export_dialog: bool,
     pub show_about_dialog: bool,
+    pub logo_texture: Option<egui::TextureHandle>,
     pub show_effects_dialog: bool,
 
     // Export State
@@ -190,6 +191,7 @@ impl StemApp {
             show_preferences_dialog: false,
             show_export_dialog: false,
             show_about_dialog: false,
+            logo_texture: None,
             show_effects_dialog: false,
 
             export_destination_path: None,
@@ -1587,7 +1589,10 @@ impl StemApp {
 
     pub fn save_recovery_journal(&self) {
         if let Ok(ron_data) = self.project.to_ron() {
-            let _ = std::fs::write(&self.recovery_file_path, ron_data);
+            let tmp_path = self.recovery_file_path.with_extension("tmp");
+            if std::fs::write(&tmp_path, ron_data).is_ok() {
+                let _ = std::fs::rename(&tmp_path, &self.recovery_file_path);
+            }
         }
     }
 
@@ -1914,6 +1919,19 @@ impl eframe::App for StemApp {
             self.status_text = self.i18n.t("recording-device-lost");
         }
 
+        // Check for audio output hardware disconnection
+        let mut lost_output = false;
+        if let Some(ref engine) = self.audio_engine {
+            if engine.is_device_lost() {
+                lost_output = true;
+            }
+        }
+        if lost_output {
+            self.action_stop();
+            self.audio_engine = None;
+            self.status_text = self.i18n.t("recording-device-lost");
+        }
+
         // Drain telemetry from real-time audio thread
         if let Some(ref mut engine) = self.audio_engine {
             self.telemetry = engine.poll_telemetry();
@@ -2095,3 +2113,12 @@ impl eframe::App for StemApp {
         render_effects_dialog(self, ctx);
     }
 }
+
+impl Drop for StemApp {
+    fn drop(&mut self) {
+        if !self.history.can_undo() {
+            self.discard_recovery_journal();
+        }
+    }
+}
+

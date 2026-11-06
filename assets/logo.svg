@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 216" width="760" height="216">
+  <defs>
+    <linearGradient id="logoBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141824"/>
+      <stop offset="100%" stop-color="#090B12"/>
+    </linearGradient>
+    <linearGradient id="logoRecessGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0C101A"/>
+      <stop offset="100%" stop-color="#0F1422"/>
+    </linearGradient>
+    <linearGradient id="logoStemCyan" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </linearGradient>
+    <linearGradient id="logoStemMaster" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="20%" stop-color="#7DD3FC"/>
+      <stop offset="60%" stop-color="#00D2FF"/>
+      <stop offset="100%" stop-color="#0284C7"/>
+    </linearGradient>
+    <linearGradient id="logoStemIndigo" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="50%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+    <linearGradient id="logoWaveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.3"/>
+      <stop offset="25%" stop-color="#00F0FF" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#FFFFFF"/>
+      <stop offset="75%" stop-color="#38BDF8" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.3"/>
+    </linearGradient>
+    <filter id="logoGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Left Icon Emblem (Scale 0.359 at x=16, y=16) -->
+  <g transform="translate(16, 16) scale(0.359)">
+    <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#logoBgGrad)" stroke="#222B3D" stroke-width="4"/>
+    <rect x="25.5" y="25.5" width="461" height="461" rx="106.5" fill="none" stroke="#38BDF8" stroke-width="1.5" stroke-opacity="0.25"/>
+
+    <rect x="64" y="112" width="384" height="288" rx="24" fill="url(#logoRecessGrad)" stroke="#1A2234" stroke-width="2.5"/>
+
+    <line x1="84" y1="184" x2="428" y2="184" stroke="#1E273A" stroke-width="2" stroke-dasharray="6,8"/>
+    <line x1="84" y1="256" x2="428" y2="256" stroke="#25324B" stroke-width="2"/>
+    <line x1="84" y1="328" x2="428" y2="328" stroke="#1E273A" stroke-width="2" stroke-dasharray="6,8"/>
+
+    <rect x="116" y="232" width="12" height="48" rx="6" fill="#38BDF8" fill-opacity="0.35"/>
+    <rect x="142" y="212" width="13" height="88" rx="6.5" fill="#38BDF8" fill-opacity="0.55"/>
+    <rect x="169" y="184" width="15" height="144" rx="7.5" fill="url(#logoStemCyan)" fill-opacity="0.8"/>
+    <rect x="198" y="158" width="17" height="196" rx="8.5" fill="url(#logoStemCyan)"/>
+    <rect x="229" y="138" width="19" height="236" rx="9.5" fill="url(#logoStemMaster)"/>
+    <line x1="256" y1="104" x2="256" y2="408" stroke="#00F0FF" stroke-width="3" opacity="0.9"/>
+    <rect x="264" y="138" width="19" height="236" rx="9.5" fill="url(#logoStemMaster)"/>
+    <rect x="296" y="158" width="17" height="196" rx="8.5" fill="url(#logoStemIndigo)"/>
+    <rect x="328" y="184" width="15" height="144" rx="7.5" fill="url(#logoStemIndigo)" fill-opacity="0.8"/>
+    <rect x="357" y="212" width="13" height="88" rx="6.5" fill="#818CF8" fill-opacity="0.55"/>
+    <rect x="384" y="232" width="12" height="48" rx="6" fill="#818CF8" fill-opacity="0.35"/>
+
+    <path d="M 88,256 C 130,256 142,196 176,196 C 210,196 220,146 256,146 C 292,146 302,196 336,196 C 370,196 382,256 424,256"
+          fill="none" stroke="url(#logoWaveGrad)" stroke-width="5" stroke-linecap="round" filter="url(#logoGlow)"/>
+    <path d="M 88,256 C 130,256 142,316 176,316 C 210,316 220,366 256,366 C 292,366 302,316 336,316 C 370,316 382,256 424,256"
+          fill="none" stroke="url(#logoWaveGrad)" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+
+    <polygon points="256,92 245,108 267,108" fill="#00F0FF"/>
+    <polygon points="256,420 245,404 267,404" fill="#00F0FF"/>
+    <circle cx="256" cy="256" r="7" fill="#FFFFFF" filter="url(#logoGlow)"/>
+    <circle cx="256" cy="256" r="14" fill="none" stroke="#00F0FF" stroke-width="2" opacity="0.75"/>
+
+    <circle cx="418" cy="428" r="13" fill="#00F0FF" filter="url(#logoGlow)"/>
+    <circle cx="418" cy="428" r="19" fill="none" stroke="#38BDF8" stroke-width="2.5" stroke-opacity="0.4"/>
+  </g>
+
+  <!-- Right Typography Section -->
+  <g transform="translate(228, 28)">
+    <style>
+      .title-text {
+        font-family: "DejaVu Sans", "Liberation Sans", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+        font-size: 82px;
+        letter-spacing: -2.5px;
+      }
+      .title-ste { fill: #EDEDF2; font-weight: 550; }
+      .title-m { fill: #FFFFFF; font-weight: 800; }
+      .title-dot { fill: #00F0FF; font-weight: 900; }
+      .tagline {
+        font-family: "DejaVu Sans", "Liberation Sans", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+        font-size: 19px;
+        font-weight: 500;
+        fill: #94A3B8;
+        letter-spacing: 0.2px;
+      }
+      .pill-text {
+        font-family: "DejaVu Sans Mono", "Liberation Mono", monospace, sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+    </style>
+
+    <text x="0" y="78" class="title-text">
+      <tspan class="title-ste">ste</tspan><tspan class="title-m">M</tspan><tspan class="title-dot">.</tspan>
+    </text>
+
+    <text x="2" y="115" class="tagline">High-Performance Multi-Track Audio Workstation</text>
+
+    <g transform="translate(2, 136)">
+      <rect x="0" y="0" width="84" height="24" rx="6" fill="#141E30" stroke="#1E293B"/>
+      <text x="11" y="16" class="pill-text" fill="#38BDF8">PURE RUST</text>
+
+      <rect x="94" y="0" width="134" height="24" rx="6" fill="#141E30" stroke="#1E293B"/>
+      <text x="105" y="16" class="pill-text" fill="#67E8F9">REAL-TIME ENGINE</text>
+
+      <rect x="238" y="0" width="138" height="24" rx="6" fill="#141E30" stroke="#1E293B"/>
+      <text x="249" y="16" class="pill-text" fill="#818CF8">NON-DESTRUCTIVE</text>
+    </g>
+  </g>
+</svg>
