@@ -131,6 +131,10 @@ dialog-preferences-latency = Tahmini Gecikme
 dialog-close = Kapat
 dialog-apply = Uygula
 dialog-cancel = İptal
+dialog-unsaved-changes-title = Kaydedilmemiş Değişiklikler
+dialog-unsaved-changes-message = Projenizde kaydedilmemiş değişiklikler var. Çıkmadan önce kaydetmek istiyor musunuz?
+dialog-save = Kaydet
+dialog-dont-save = Kaydetmeden Çık
 
 # Dışa Aktarma Penceresi
 export-title = Sesi Dışa Aktar

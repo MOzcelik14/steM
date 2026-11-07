@@ -77,15 +77,40 @@ fn setup_custom_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// Configures modern, clean audio workstation visual styles.
+/// Configures modern, clean audio workstation visual styles with generous breathing room.
 fn configure_app_theme(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
-    visuals.panel_fill = egui::Color32::from_rgb(22, 24, 28);
-    visuals.window_fill = egui::Color32::from_rgb(26, 28, 33);
-    visuals.selection.bg_fill = egui::Color32::from_rgb(90, 180, 255);
-    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 32, 38);
-    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(38, 40, 48);
-    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(50, 54, 65);
-    visuals.widgets.active.bg_fill = egui::Color32::from_rgb(60, 65, 80);
+    visuals.panel_fill = egui::Color32::from_rgb(18, 20, 25);
+    visuals.window_fill = egui::Color32::from_rgb(22, 24, 30);
+    visuals.extreme_bg_color = egui::Color32::from_rgb(12, 13, 16);
+    visuals.selection.bg_fill = egui::Color32::from_rgb(40, 110, 210);
+
+    visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(24, 26, 33);
+    visuals.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(38, 42, 52));
+
+    visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(28, 31, 40);
+    visuals.widgets.inactive.bg_stroke =
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(46, 50, 62));
+
+    visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(40, 45, 58);
+    visuals.widgets.hovered.bg_stroke =
+        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(65, 74, 92));
+
+    visuals.widgets.active.bg_fill = egui::Color32::from_rgb(48, 56, 74);
+    visuals.widgets.active.bg_stroke =
+        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(56, 189, 248));
+
+    visuals.window_rounding = egui::Rounding::same(8.0);
+    visuals.widgets.noninteractive.rounding = egui::Rounding::same(5.0);
+    visuals.widgets.inactive.rounding = egui::Rounding::same(5.0);
+    visuals.widgets.hovered.rounding = egui::Rounding::same(5.0);
+    visuals.widgets.active.rounding = egui::Rounding::same(5.0);
     ctx.set_visuals(visuals);
+
+    let mut style = (*ctx.style()).clone();
+    style.spacing.item_spacing = egui::vec2(8.0, 5.0);
+    style.spacing.button_padding = egui::vec2(9.0, 5.0);
+    style.spacing.window_margin = egui::Margin::same(10.0);
+    ctx.set_style(style);
 }

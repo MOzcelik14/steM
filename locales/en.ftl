@@ -131,6 +131,10 @@ dialog-preferences-latency = Estimated Latency
 dialog-close = Close
 dialog-apply = Apply
 dialog-cancel = Cancel
+dialog-unsaved-changes-title = Unsaved Changes
+dialog-unsaved-changes-message = You have unsaved changes in your project. Do you want to save before quitting?
+dialog-save = Save
+dialog-dont-save = Don't Save
 
 # Export Dialog
 export-title = Export Audio

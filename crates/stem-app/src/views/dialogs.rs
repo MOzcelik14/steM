@@ -3,6 +3,52 @@ use stem_audio::{BitDepth, ExportFormat, ExportRange};
 use stem_i18n::Locale;
 
 pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
+    // ----------------- Unsaved Changes Close Confirmation Dialog -----------------
+    if app.show_unsaved_close_dialog {
+        let mut close_dialog = false;
+        let mut do_quit = false;
+        let mut do_save_and_quit = false;
+
+        egui::Window::new(app.i18n.t("dialog-unsaved-changes-title"))
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical(|ui| {
+                    ui.label(app.i18n.t("dialog-unsaved-changes-message"));
+                    ui.add_space(16.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(app.i18n.t("dialog-save")).clicked() {
+                            do_save_and_quit = true;
+                        }
+                        if ui.button(app.i18n.t("dialog-dont-save")).clicked() {
+                            do_quit = true;
+                        }
+                        if ui.button(app.i18n.t("dialog-cancel")).clicked() {
+                            close_dialog = true;
+                        }
+                    });
+                });
+            });
+
+        if do_save_and_quit {
+            app.action_save_project();
+            if app.project_file_path.is_some() {
+                app.discard_recovery_journal();
+                app.force_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            app.show_unsaved_close_dialog = false;
+        } else if do_quit {
+            app.discard_recovery_journal();
+            app.show_unsaved_close_dialog = false;
+            app.force_close = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else if close_dialog {
+            app.show_unsaved_close_dialog = false;
+        }
+    }
+
     // ----------------- Preferences Dialog -----------------
     if app.show_preferences_dialog {
         let mut open = true;

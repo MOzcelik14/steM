@@ -1,16 +1,24 @@
 //! Menu bar implementation
 
 use crate::app::StemApp;
-use stem_i18n::Locale;
 
 pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
     egui::menu::bar(ui, |ui| {
-        // App brand display
+        // App brand display with icon
+        let texture = app.logo_texture.get_or_insert_with(|| {
+            let icon_rgba = include_bytes!("../../../../assets/icon.rgba");
+            let color_image = egui::ColorImage::from_rgba_unmultiplied([256, 256], icon_rgba);
+            ui.ctx()
+                .load_texture("stem_logo", color_image, egui::TextureOptions::LINEAR)
+        });
+        ui.image((texture.id(), egui::vec2(16.0, 16.0)));
         ui.label(
             egui::RichText::new(stem_i18n::APP_DISPLAY_NAME)
                 .strong()
-                .color(egui::Color32::from_rgb(90, 180, 255)),
+                .size(13.0)
+                .color(egui::Color32::from_rgb(100, 190, 255)),
         );
+        ui.add_space(4.0);
         ui.separator();
 
         // ------------------ File Menu ------------------
@@ -71,7 +79,11 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             }
             ui.separator();
             if ui.button(app.i18n.t("menu-file-exit")).clicked() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                if app.has_unsaved_changes() {
+                    app.show_unsaved_close_dialog = true;
+                } else {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
                 ui.close_menu();
             }
         });
@@ -396,21 +408,6 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 .clicked()
             {
                 app.show_spectrogram_panel = spec_open;
-            }
-        });
-
-        // ------------------ Language Quick Selector ------------------
-        let current_locale = app.i18n.current_locale();
-        ui.menu_button(format!("🌐 {}", current_locale.native_name()), |ui| {
-            for locale in Locale::ALL {
-                let is_active = *locale == current_locale;
-                if ui
-                    .selectable_label(is_active, locale.native_name())
-                    .clicked()
-                {
-                    app.i18n.set_locale(*locale);
-                    ui.close_menu();
-                }
             }
         });
 

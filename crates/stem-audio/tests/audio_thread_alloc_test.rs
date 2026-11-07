@@ -97,8 +97,14 @@ fn run_audio_output_thread_zero_alloc_test() {
             callback.process(&mut out_buffer);
         }
     });
-    assert_eq!(allocs, 0, "Audio thread must not allocate in steady-state playback");
-    assert_eq!(deallocs, 0, "Audio thread must not deallocate in steady-state playback");
+    assert_eq!(
+        allocs, 0,
+        "Audio thread must not allocate in steady-state playback"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Audio thread must not deallocate in steady-state playback"
+    );
 
     // 3. Test timeline swap under active playback: must have ZERO alloc and ZERO dealloc
     let new_timeline = create_test_timeline(48000);
@@ -107,29 +113,71 @@ fn run_audio_output_thread_zero_alloc_test() {
     let (_, allocs, deallocs) = with_alloc_guard(|| {
         callback.process(&mut out_buffer);
     });
-    assert_eq!(allocs, 0, "Audio thread must not allocate during timeline swap");
-    assert_eq!(deallocs, 0, "Audio thread must not deallocate during timeline swap");
+    assert_eq!(
+        allocs, 0,
+        "Audio thread must not allocate during timeline swap"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Audio thread must not deallocate during timeline swap"
+    );
 
     // Verify retired timeline was moved to retired_rx without dropping on audio thread
-    let retired = retired_rx.try_recv().expect("Old timeline must be returned to UI channel");
+    let retired = retired_rx
+        .try_recv()
+        .expect("Old timeline must be returned to UI channel");
     assert_eq!(retired.total_frames, 48000);
 
     // 4. Test command burst: push multiple diverse commands into ringbuffer
     for _ in 0..10 {
         cmd_tx.push(AudioCommand::SetMasterGain(0.8)).unwrap();
-        cmd_tx.push(AudioCommand::SetTrackGain { track_idx: 0, gain: 0.5 }).unwrap();
-        cmd_tx.push(AudioCommand::SetTrackPan { track_idx: 0, pan: -0.2 }).unwrap();
-        cmd_tx.push(AudioCommand::SetTrackMute { track_idx: 1, muted: true }).unwrap();
-        cmd_tx.push(AudioCommand::SetEffectBypass { track_idx: Some(0), effect_idx: 0, bypassed: true }).unwrap();
-        cmd_tx.push(AudioCommand::SetEffectParam { track_idx: Some(0), effect_idx: 0, param_id: 1, value: 0.5 }).unwrap();
+        cmd_tx
+            .push(AudioCommand::SetTrackGain {
+                track_idx: 0,
+                gain: 0.5,
+            })
+            .unwrap();
+        cmd_tx
+            .push(AudioCommand::SetTrackPan {
+                track_idx: 0,
+                pan: -0.2,
+            })
+            .unwrap();
+        cmd_tx
+            .push(AudioCommand::SetTrackMute {
+                track_idx: 1,
+                muted: true,
+            })
+            .unwrap();
+        cmd_tx
+            .push(AudioCommand::SetEffectBypass {
+                track_idx: Some(0),
+                effect_idx: 0,
+                bypassed: true,
+            })
+            .unwrap();
+        cmd_tx
+            .push(AudioCommand::SetEffectParam {
+                track_idx: Some(0),
+                effect_idx: 0,
+                param_id: 1,
+                value: 0.5,
+            })
+            .unwrap();
         cmd_tx.push(AudioCommand::Seek(1000)).unwrap();
     }
 
     let (_, allocs, deallocs) = with_alloc_guard(|| {
         callback.process(&mut out_buffer);
     });
-    assert_eq!(allocs, 0, "Audio thread must not allocate during command bursts");
-    assert_eq!(deallocs, 0, "Audio thread must not deallocate during command bursts");
+    assert_eq!(
+        allocs, 0,
+        "Audio thread must not allocate during command bursts"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Audio thread must not deallocate during command bursts"
+    );
 
     // 5. Test queue-full conditions: fill telemetry and retired queue to capacity
     // Fill retired queue completely (capacity 64)
@@ -147,8 +195,14 @@ fn run_audio_output_thread_zero_alloc_test() {
             callback.process(&mut out_buffer);
         }
     });
-    assert_eq!(allocs, 0, "Audio thread must not allocate when retired queue is full");
-    assert_eq!(deallocs, 0, "Audio thread must not deallocate when retired queue is full");
+    assert_eq!(
+        allocs, 0,
+        "Audio thread must not allocate when retired queue is full"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Audio thread must not deallocate when retired queue is full"
+    );
 
     // Drain retired_rx to simulate UI recovery
     while retired_rx.try_recv().is_ok() {}
@@ -157,8 +211,14 @@ fn run_audio_output_thread_zero_alloc_test() {
     let (_, allocs, deallocs) = with_alloc_guard(|| {
         callback.process(&mut out_buffer);
     });
-    assert_eq!(allocs, 0, "Audio thread must not allocate during recovery flush");
-    assert_eq!(deallocs, 0, "Audio thread must not deallocate during recovery flush");
+    assert_eq!(
+        allocs, 0,
+        "Audio thread must not allocate during recovery flush"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Audio thread must not deallocate during recovery flush"
+    );
 
     // Clean up
     while telem_rx.pop().is_ok() {}
@@ -190,8 +250,14 @@ fn run_audio_record_thread_zero_alloc_test() {
     let (_, allocs, deallocs) = with_alloc_guard(|| {
         record_callback.process(&input_samples);
     });
-    assert_eq!(allocs, 0, "Record callback must not allocate during recording");
-    assert_eq!(deallocs, 0, "Record callback must not deallocate during recording");
+    assert_eq!(
+        allocs, 0,
+        "Record callback must not allocate during recording"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Record callback must not deallocate during recording"
+    );
 
     // Full buffer saturation condition: drain nothing, fill buffers to maximum
     let (_, allocs, deallocs) = with_alloc_guard(|| {
@@ -199,8 +265,14 @@ fn run_audio_record_thread_zero_alloc_test() {
             record_callback.process(&input_samples);
         }
     });
-    assert_eq!(allocs, 0, "Record callback must not allocate when ringbuffers are saturated");
-    assert_eq!(deallocs, 0, "Record callback must not deallocate when ringbuffers are saturated");
+    assert_eq!(
+        allocs, 0,
+        "Record callback must not allocate when ringbuffers are saturated"
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Record callback must not deallocate when ringbuffers are saturated"
+    );
 
     // Clean up
     while record_rx.pop().is_ok() {}

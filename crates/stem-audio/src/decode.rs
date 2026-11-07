@@ -69,7 +69,9 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
 
     let file_len = file.metadata()?.len();
     if file_len < 4 {
-        return Err(DecodeError::CorruptedHeader("Audio file is too small".to_string()));
+        return Err(DecodeError::CorruptedHeader(
+            "Audio file is too small".to_string(),
+        ));
     }
 
     // Read up to first 64KB to validate headers before Symphonia parses untrusted metadata
@@ -78,7 +80,10 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
     file.read_exact(&mut header_buf)?;
     validate_audio_bytes(&header_buf)?;
     file.seek(SeekFrom::Start(0))?;
-    let safe_source = SafeSource { inner: file, seekable: true };
+    let safe_source = SafeSource {
+        inner: file,
+        seekable: true,
+    };
     let mss = MediaSourceStream::new(Box::new(safe_source), Default::default());
 
     let mut hint = Hint::new();
@@ -103,7 +108,10 @@ pub fn decode_bytes(
     validate_audio_bytes(bytes)?;
 
     let cursor = std::io::Cursor::new(bytes.to_vec());
-    let safe_source = SafeSource { inner: cursor, seekable: true };
+    let safe_source = SafeSource {
+        inner: cursor,
+        seekable: true,
+    };
     let mss = MediaSourceStream::new(Box::new(safe_source), Default::default());
 
     let mut hint = Hint::new();
@@ -288,22 +296,30 @@ fn decode_stream(
     path_buf: PathBuf,
     filename: String,
 ) -> Result<DecodedAudio, DecodeError> {
+    let result = catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
+        decode_stream_inner(mss, hint, path_buf, filename)
+    }));
+
+    match result {
+        Ok(res) => res,
+        Err(_) => Err(DecodeError::CorruptedHeader(
+            "Third-party media container or decoder panicked on corrupt stream".to_string(),
+        )),
+    }
+}
+
+fn decode_stream_inner(
+    mss: MediaSourceStream,
+    hint: Hint,
+    path_buf: PathBuf,
+    filename: String,
+) -> Result<DecodedAudio, DecodeError> {
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
 
-    let probed_res = catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
-        symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts)
-    }));
-
-    let probed = match probed_res {
-        Ok(Ok(p)) => p,
-        Ok(Err(e)) => return Err(DecodeError::Symphonia(e)),
-        Err(_) => {
-            return Err(DecodeError::CorruptedHeader(
-                "Third-party media container probe panicked on corrupt stream".to_string(),
-            ))
-        }
-    };
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .map_err(DecodeError::Symphonia)?;
 
     let mut format = probed.format;
 
@@ -327,100 +343,77 @@ fn decode_stream(
     }
 
     let dec_opts: DecoderOptions = Default::default();
-    let mut decoder = match catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
-        symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)
-    })) {
-        Ok(Ok(d)) => d,
-        Ok(Err(e)) => return Err(DecodeError::Symphonia(e)),
-        Err(_) => {
-            return Err(DecodeError::CorruptedHeader(
-                "Third-party codec initialization panicked on corrupt stream".to_string(),
-            ));
-        }
-    };
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &dec_opts)
+        .map_err(DecodeError::Symphonia)?;
 
     let mut planar_channels: Vec<Vec<f32>> = vec![Vec::new(); num_channels];
+    if let Some(est_frames) = track.codec_params.n_frames {
+        let cap = (est_frames as usize).min(MAX_DECODE_FRAMES);
+        for ch in &mut planar_channels {
+            ch.reserve(cap);
+        }
+    }
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
 
     loop {
-        let packet_res = catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
-            format.next_packet()
-        }));
-
-        let packet = match packet_res {
-            Ok(Ok(packet)) => packet,
-            Ok(Err(SymphoniaError::IoError(err)))
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymphoniaError::IoError(err))
                 if err.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
                 break;
             }
-            Ok(Err(err)) => return Err(DecodeError::Symphonia(err)),
-            Err(_) => {
-                return Err(DecodeError::CorruptedHeader(
-                    "Third-party demuxer panicked during packet parsing".to_string(),
-                ));
-            }
+            Err(err) => return Err(DecodeError::Symphonia(err)),
         };
 
         if packet.track_id() != track_id {
             continue;
         }
 
-        let decoded_res = catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
-            match decoder.decode(&packet) {
-                Ok(decoded) => {
-                    let spec = *decoded.spec();
-                    let decoded_channels = spec.channels.count();
-                    if !(1..=MAX_DECODE_CHANNELS).contains(&decoded_channels) {
-                        return Err(DecodeError::InvalidChannelCount(decoded_channels));
-                    }
-                    let duration = decoded.capacity() as u64;
-
-                    let sbuf = sample_buf.get_or_insert_with(|| SampleBuffer::new(duration, spec));
-                    sbuf.copy_interleaved_ref(decoded);
-                    Ok(true)
-                }
-                Err(SymphoniaError::DecodeError(_)) => Ok(false),
-                Err(err) => Err(DecodeError::Symphonia(err)),
-            }
-        }));
-
-        match decoded_res {
-            Ok(Ok(true)) => {
-                if let Some(ref sbuf) = sample_buf {
-                    let samples = sbuf.samples();
-
-                    // Check frame limit to avoid OOM
-                    let current_frames = planar_channels.first().map(|ch| ch.len()).unwrap_or(0);
-                    let incoming_frames = samples.len() / num_channels;
-                    if current_frames + incoming_frames > MAX_DECODE_FRAMES {
-                        return Err(DecodeError::FrameLimitExceeded);
-                    }
-
-                    // De-interleave into planar channels with NaN/Inf sanitization
-                    for chunk in samples.chunks(num_channels) {
-                        for (ch_idx, &sample) in chunk.iter().enumerate() {
-                            if ch_idx < planar_channels.len() {
-                                let sanitized = if sample.is_nan() || sample.is_infinite() {
-                                    0.0
-                                } else {
-                                    sample.clamp(-1.0, 1.0)
-                                };
-                                planar_channels[ch_idx].push(sanitized);
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(Ok(false)) => {
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(SymphoniaError::DecodeError(_)) => {
                 // Recoverable decode error, skip frame
                 continue;
             }
-            Ok(Err(err)) => return Err(err),
-            Err(_) => {
-                return Err(DecodeError::CorruptedHeader(
-                    "Third-party decoder panicked during frame decoding".to_string(),
-                ));
+            Err(err) => return Err(DecodeError::Symphonia(err)),
+        };
+
+        let spec = *decoded.spec();
+        let decoded_channels = spec.channels.count();
+        if !(1..=MAX_DECODE_CHANNELS).contains(&decoded_channels) {
+            return Err(DecodeError::InvalidChannelCount(decoded_channels));
+        }
+        let duration = decoded.capacity() as u64;
+
+        let sbuf = sample_buf.get_or_insert_with(|| SampleBuffer::new(duration, spec));
+        sbuf.copy_interleaved_ref(decoded);
+
+        let samples = sbuf.samples();
+
+        // Check frame limit to avoid OOM
+        let current_frames = planar_channels.first().map(|ch| ch.len()).unwrap_or(0);
+        let incoming_frames = samples.len() / num_channels;
+        if current_frames + incoming_frames > MAX_DECODE_FRAMES {
+            return Err(DecodeError::FrameLimitExceeded);
+        }
+
+        for ch in &mut planar_channels {
+            ch.reserve(incoming_frames);
+        }
+
+        // De-interleave into planar channels with NaN/Inf sanitization
+        for chunk in samples.chunks(num_channels) {
+            for (ch_idx, &sample) in chunk.iter().enumerate() {
+                if ch_idx < planar_channels.len() {
+                    let sanitized = if sample.is_nan() || sample.is_infinite() {
+                        0.0
+                    } else {
+                        sample.clamp(-1.0, 1.0)
+                    };
+                    planar_channels[ch_idx].push(sanitized);
+                }
             }
         }
     }

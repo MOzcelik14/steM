@@ -114,6 +114,11 @@ pub enum DragOp {
         orig_fade_out: u64,
         drag_start_x: f32,
     },
+    SelectTimeRange {
+        anchor_frame: u64,
+    },
+    DragSelectionLeft,
+    DragSelectionRight,
     ScrubPlayhead,
 }
 
@@ -130,6 +135,8 @@ pub struct TimelineViewState {
     pub track_height: f32,
     /// Active drag operation.
     pub drag_op: Option<DragOp>,
+    /// Selected time range across all tracks (start_frame, end_frame).
+    pub time_selection: Option<(u64, u64)>,
     /// Selected track ID.
     pub selected_track_id: Option<Uuid>,
     /// Selected clip ID.
@@ -150,6 +157,7 @@ impl Default for TimelineViewState {
             scroll_y: 0.0,
             track_height: 110.0,
             drag_op: None,
+            time_selection: None,
             selected_track_id: None,
             selected_clip_id: None,
             expanded_automation_track_id: None,
@@ -319,6 +327,7 @@ pub enum AppAction {
     Stop,
     Record,
     SplitClip,
+    DuplicateClip,
     DropMarker,
     NamedMarkerDialog,
     PrevMarker,
@@ -341,6 +350,7 @@ impl AppAction {
             AppAction::Stop,
             AppAction::Record,
             AppAction::SplitClip,
+            AppAction::DuplicateClip,
             AppAction::DropMarker,
             AppAction::NamedMarkerDialog,
             AppAction::PrevMarker,
@@ -363,6 +373,7 @@ impl AppAction {
             Self::Stop => "Stop",
             Self::Record => "Record",
             Self::SplitClip => "Split Clip",
+            Self::DuplicateClip => "Duplicate Clip",
             Self::DropMarker => "Drop Marker",
             Self::NamedMarkerDialog => "Create Named Marker",
             Self::PrevMarker => "Jump to Previous Marker",
@@ -442,6 +453,7 @@ impl Shortcut {
             "D" => egui::Key::D,
             "E" => egui::Key::E,
             "I" => egui::Key::I,
+            "K" => egui::Key::K,
             "M" => egui::Key::M,
             "R" => egui::Key::R,
             "S" => egui::Key::S,
@@ -476,9 +488,10 @@ impl Default for KeyBindingMap {
             Shortcut::new("Escape", false, false, false),
         );
         bindings.insert(AppAction::Record, Shortcut::new("R", false, false, false));
+        bindings.insert(AppAction::SplitClip, Shortcut::new("K", true, false, false));
         bindings.insert(
-            AppAction::SplitClip,
-            Shortcut::new("S", false, false, false),
+            AppAction::DuplicateClip,
+            Shortcut::new("D", true, false, false),
         );
         bindings.insert(
             AppAction::DropMarker,
@@ -679,5 +692,23 @@ mod tests {
             restored.bindings.get(&AppAction::PlayPause).unwrap().key,
             "Space"
         );
+    }
+
+    #[test]
+    fn test_split_and_duplicate_keybindings() {
+        let map = KeyBindingMap::default();
+        let split_shortcut = map
+            .bindings
+            .get(&AppAction::SplitClip)
+            .expect("SplitClip binding");
+        assert_eq!(split_shortcut.key, "K");
+        assert!(split_shortcut.ctrl);
+
+        let dup_shortcut = map
+            .bindings
+            .get(&AppAction::DuplicateClip)
+            .expect("DuplicateClip binding");
+        assert_eq!(dup_shortcut.key, "D");
+        assert!(dup_shortcut.ctrl);
     }
 }

@@ -66,6 +66,8 @@ pub struct StemApp {
     pub show_preferences_dialog: bool,
     pub show_export_dialog: bool,
     pub show_about_dialog: bool,
+    pub show_unsaved_close_dialog: bool,
+    pub force_close: bool,
     pub logo_texture: Option<egui::TextureHandle>,
     pub show_effects_dialog: bool,
 
@@ -185,12 +187,14 @@ impl StemApp {
             worker_tx,
             worker_rx,
 
-            show_mixer_panel: true,
+            show_mixer_panel: false,
             show_spectrogram_panel: false,
             show_history_panel: false,
             show_preferences_dialog: false,
             show_export_dialog: false,
             show_about_dialog: false,
+            show_unsaved_close_dialog: false,
+            force_close: false,
             logo_texture: None,
             show_effects_dialog: false,
 
@@ -988,6 +992,13 @@ impl StemApp {
                     }
                 }
             }
+        } else if !self.is_playing {
+            if let Some((start, end)) = self.timeline_state.time_selection {
+                let cur = self.telemetry.playhead_frame;
+                if cur < start || cur >= end {
+                    self.action_seek(start);
+                }
+            }
         }
         if let Some(ref mut engine) = self.audio_engine {
             engine.toggle_play();
@@ -1525,14 +1536,82 @@ impl StemApp {
         }
     }
 
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.history.can_undo() || self.waveform_state.history.can_undo()
+    }
+
     pub fn action_split_selected_clip(&mut self) {
         let playhead = self.telemetry.playhead_frame;
+        let mut target: Option<(Uuid, Uuid)> = None;
+
+        // 1. Check selected clip first
         if let Some(clip_id) = self.timeline_state.selected_clip_id {
             for track in &self.project.tracks {
-                if track.clips.iter().any(|c| c.id == clip_id) {
+                if let Some(clip) = track.clips.iter().find(|c| c.id == clip_id) {
+                    if playhead > clip.track_offset_frames && playhead < clip.timeline_end_frame() {
+                        target = Some((track.id, clip.id));
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback: clip under playhead on selected track
+        if target.is_none() {
+            if let Some(track_id) = self.timeline_state.selected_track_id {
+                if let Some(track) = self.project.get_track(track_id) {
+                    if let Some(clip) = track.clips.iter().find(|c| {
+                        playhead > c.track_offset_frames && playhead < c.timeline_end_frame()
+                    }) {
+                        target = Some((track.id, clip.id));
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: first clip under playhead on any track
+        if target.is_none() {
+            for track in &self.project.tracks {
+                if let Some(clip) = track
+                    .clips
+                    .iter()
+                    .find(|c| playhead > c.track_offset_frames && playhead < c.timeline_end_frame())
+                {
+                    target = Some((track.id, clip.id));
+                    break;
+                }
+            }
+        }
+
+        if let Some((track_id, clip_id)) = target {
+            if let Ok((_first_id, second_id)) = self.project.split_clip(track_id, clip_id, playhead)
+            {
+                self.timeline_state.selected_clip_id = Some(second_id);
+                self.sync_timeline_to_audio_engine();
+                self.save_recovery_journal();
+            }
+        }
+    }
+
+    pub fn action_duplicate_selected_clip(&mut self) {
+        if let Some(clip_id) = self.timeline_state.selected_clip_id {
+            for track in &self.project.tracks {
+                if let Some(orig) = track.clips.iter().find(|c| c.id == clip_id) {
+                    let mut dup = orig.clone();
+                    dup.id = Uuid::new_v4();
+                    dup.track_offset_frames = orig.timeline_end_frame();
+                    let new_id = dup.id;
                     let track_id = track.id;
-                    let _ = self.project.split_clip(track_id, clip_id, playhead);
+                    let _ = self.history.push_and_execute(
+                        Action::AddClip {
+                            track_id,
+                            clip: dup,
+                        },
+                        &mut self.project,
+                    );
+                    self.timeline_state.selected_clip_id = Some(new_id);
                     self.sync_timeline_to_audio_engine();
+                    self.save_recovery_journal();
                     break;
                 }
             }
@@ -1839,12 +1918,23 @@ impl StemApp {
                 self.action_waveform_redo();
             }
         } else {
-            // Split Clip
+            // Split Clip (Ctrl+K or S)
             if self
                 .keybindings
                 .is_action_triggered(AppAction::SplitClip, &input)
+                || (input.modifiers.command && input.key_pressed(egui::Key::K))
+                || input.key_pressed(egui::Key::S)
             {
                 self.action_split_selected_clip();
+            }
+
+            // Duplicate Clip (Ctrl+D)
+            if self
+                .keybindings
+                .is_action_triggered(AppAction::DuplicateClip, &input)
+                || (input.modifiers.command && input.key_pressed(egui::Key::D))
+            {
+                self.action_duplicate_selected_clip();
             }
 
             // Delete selected clip
@@ -1859,6 +1949,13 @@ impl StemApp {
             // Home: Seek to frame 0
             if input.key_pressed(egui::Key::Home) {
                 self.action_seek(0);
+            }
+
+            // Escape: Deselect / clear time selection
+            if input.key_pressed(egui::Key::Escape) {
+                self.timeline_state.time_selection = None;
+                self.timeline_state.selected_clip_id = None;
+                self.waveform_state.selection = None;
             }
 
             // Undo
@@ -1885,6 +1982,14 @@ impl StemApp {
 
 impl eframe::App for StemApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Intercept window close button if there are unsaved changes
+        if !self.force_close
+            && ctx.input(|i| i.viewport().close_requested())
+            && self.has_unsaved_changes()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_unsaved_close_dialog = true;
+        }
         // Continuous repaint during playback, recording, count-in, or input monitoring
         if self.is_playing
             || self.is_recording
@@ -1984,6 +2089,16 @@ impl eframe::App for StemApp {
                         self.action_toggle_play();
                         self.action_seek_waveform(end);
                     }
+                }
+            }
+        } else if self.view_mode == AppViewMode::Multitrack
+            && self.is_playing
+            && !self.project.loop_enabled
+        {
+            if let Some((_, end)) = self.timeline_state.time_selection {
+                if self.telemetry.playhead_frame >= end {
+                    self.action_toggle_play();
+                    self.action_seek(end);
                 }
             }
         }
@@ -2121,4 +2236,3 @@ impl Drop for StemApp {
         }
     }
 }
-

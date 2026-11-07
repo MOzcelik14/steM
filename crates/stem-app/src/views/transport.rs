@@ -18,28 +18,69 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             let is_playing = app.is_playing;
 
             // Play / Pause
-            let play_text = if is_playing { "⏸" } else { "▶" };
-            let play_btn = egui::Button::new(egui::RichText::new(play_text).size(16.0));
-            if ui.add(play_btn).clicked() {
+            let (play_fill, play_text_color) = if is_playing {
+                (
+                    Color32::from_rgb(16, 185, 129),
+                    Color32::from_rgb(10, 20, 15),
+                )
+            } else {
+                (
+                    Color32::from_rgb(28, 32, 42),
+                    Color32::from_rgb(52, 211, 153),
+                )
+            };
+            let play_btn = egui::Button::new(
+                egui::RichText::new(if is_playing { "⏸" } else { "▶" })
+                    .size(15.0)
+                    .color(play_text_color)
+                    .strong(),
+            )
+            .fill(play_fill)
+            .min_size(Vec2::new(38.0, 26.0))
+            .rounding(Rounding::same(4.0));
+            if ui
+                .add(play_btn)
+                .on_hover_text("Oynat / Duraklat (Boşluk)")
+                .clicked()
+            {
                 app.action_toggle_play();
             }
 
             // Stop
-            if ui.button(egui::RichText::new("⏹").size(16.0)).clicked() {
+            let stop_btn = egui::Button::new(
+                egui::RichText::new("⏹")
+                    .size(14.0)
+                    .color(Color32::from_rgb(203, 213, 225)),
+            )
+            .fill(Color32::from_rgb(28, 32, 42))
+            .min_size(Vec2::new(32.0, 26.0))
+            .rounding(Rounding::same(4.0));
+            if ui.add(stop_btn).on_hover_text("Durdur").clicked() {
                 app.action_stop();
             }
 
             // Record Button
             let is_recording = app.is_recording;
             let is_count_in = app.recording_state.count_in_active;
-            let rec_color = if is_recording {
-                Color32::from_rgb(255, 30, 30)
+            let (rec_fill, rec_text_color) = if is_recording {
+                (Color32::from_rgb(239, 68, 68), Color32::WHITE)
             } else if is_count_in {
-                Color32::from_rgb(255, 180, 30)
+                (Color32::from_rgb(245, 158, 11), Color32::BLACK)
             } else {
-                Color32::from_rgb(180, 50, 50)
+                (
+                    Color32::from_rgb(28, 32, 42),
+                    Color32::from_rgb(248, 113, 113),
+                )
             };
-            let rec_btn = egui::Button::new(egui::RichText::new("⏺").size(16.0).color(rec_color));
+            let rec_btn = egui::Button::new(
+                egui::RichText::new("⏺")
+                    .size(15.0)
+                    .color(rec_text_color)
+                    .strong(),
+            )
+            .fill(rec_fill)
+            .min_size(Vec2::new(36.0, 26.0))
+            .rounding(Rounding::same(4.0));
             if ui
                 .add(rec_btn)
                 .on_hover_text(app.i18n.t("transport-record"))
@@ -50,9 +91,25 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
 
             // Loop
             let mut loop_enabled = app.project.loop_enabled;
+            let (loop_fill, loop_color) = if loop_enabled {
+                (
+                    Color32::from_rgb(30, 58, 138),
+                    Color32::from_rgb(56, 189, 248),
+                )
+            } else {
+                (
+                    Color32::from_rgb(28, 32, 42),
+                    Color32::from_rgb(148, 163, 184),
+                )
+            };
+            let loop_btn =
+                egui::Button::new(egui::RichText::new("🔁").size(14.0).color(loop_color))
+                    .fill(loop_fill)
+                    .min_size(Vec2::new(32.0, 26.0))
+                    .rounding(Rounding::same(4.0));
             if ui
-                .selectable_label(loop_enabled, egui::RichText::new("🔁").size(14.0))
-                .on_hover_text("Loop Playback (L)")
+                .add(loop_btn)
+                .on_hover_text("Döngü Oynatma (L)")
                 .clicked()
             {
                 loop_enabled = !loop_enabled;
@@ -179,24 +236,34 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 TimecodeMode::Samples => app.i18n.t("transport-mode-samples"),
             };
 
-            if ui
-                .group(|ui| {
+            let lcd_frame = egui::Frame::none()
+                .fill(Color32::from_rgb(12, 14, 18))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(36, 42, 54)))
+                .rounding(Rounding::same(5.0))
+                .inner_margin(egui::Margin::symmetric(10.0, 3.0));
+
+            let timecode_resp = lcd_frame
+                .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(8.0, 0.0);
                     ui.label(
                         egui::RichText::new(&primary_timecode)
                             .monospace()
                             .strong()
-                            .size(15.0)
-                            .color(Color32::from_rgb(100, 220, 100)),
+                            .size(16.0)
+                            .color(Color32::from_rgb(52, 211, 153)),
                     );
                     ui.label(
                         egui::RichText::new(mode_label)
                             .monospace()
-                            .size(11.0)
-                            .color(Color32::GRAY),
+                            .size(10.0)
+                            .color(Color32::from_rgb(148, 163, 184)),
                     );
                 })
-                .response
+                .response;
+
+            if timecode_resp
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Zaman formatını değiştir (Tıkla)")
                 .clicked()
             {
                 // Cycle timecode modes on click
@@ -250,28 +317,124 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
 
             ui.separator();
 
-            // View Mode Switcher
-            let is_multi = app.view_mode == crate::state::AppViewMode::Multitrack;
-            if ui
-                .selectable_label(
-                    is_multi,
-                    format!("⊞ {}", app.i18n.t("view-mode-multitrack")),
-                )
-                .on_hover_text("Multitrack Session View (Key: 1)")
-                .clicked()
-                && !is_multi
-            {
-                app.action_switch_to_multitrack();
-            }
+            // Segmented View Mode Switcher
+            let tab_frame = egui::Frame::none()
+                .fill(Color32::from_rgb(18, 21, 28))
+                .stroke(Stroke::new(1.0_f32, Color32::from_rgb(36, 42, 54)))
+                .rounding(Rounding::same(5.0))
+                .inner_margin(egui::Margin::same(2.0));
 
-            let is_wave = app.view_mode == crate::state::AppViewMode::Waveform;
-            if ui
-                .selectable_label(is_wave, format!("~ {}", app.i18n.t("view-mode-waveform")))
-                .on_hover_text("Single-File Waveform Editor (Key: 2)")
-                .clicked()
-                && !is_wave
-            {
-                app.action_switch_to_waveform();
+            tab_frame.show(ui, |ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
+
+                let is_multi = app.view_mode == crate::state::AppViewMode::Multitrack;
+                let multi_fill = if is_multi {
+                    Color32::from_rgb(40, 52, 74)
+                } else {
+                    Color32::TRANSPARENT
+                };
+                let multi_color = if is_multi {
+                    Color32::from_rgb(248, 250, 252)
+                } else {
+                    Color32::from_rgb(148, 163, 184)
+                };
+                let multi_btn = egui::Button::new(
+                    egui::RichText::new(format!("⊞ {}", app.i18n.t("view-mode-multitrack")))
+                        .size(11.0)
+                        .color(multi_color),
+                )
+                .fill(multi_fill)
+                .rounding(Rounding::same(4.0));
+                if ui
+                    .add(multi_btn)
+                    .on_hover_text("Çok Kanallı Oturum Görünümü (1)")
+                    .clicked()
+                    && !is_multi
+                {
+                    app.action_switch_to_multitrack();
+                }
+
+                let is_wave = app.view_mode == crate::state::AppViewMode::Waveform;
+                let wave_fill = if is_wave {
+                    Color32::from_rgb(40, 52, 74)
+                } else {
+                    Color32::TRANSPARENT
+                };
+                let wave_color = if is_wave {
+                    Color32::from_rgb(248, 250, 252)
+                } else {
+                    Color32::from_rgb(148, 163, 184)
+                };
+                let wave_btn = egui::Button::new(
+                    egui::RichText::new(format!("~ {}", app.i18n.t("view-mode-waveform")))
+                        .size(11.0)
+                        .color(wave_color),
+                )
+                .fill(wave_fill)
+                .rounding(Rounding::same(4.0));
+                if ui
+                    .add(wave_btn)
+                    .on_hover_text("Tek Dosya Dalga Formu Editörü (2)")
+                    .clicked()
+                    && !is_wave
+                {
+                    app.action_switch_to_waveform();
+                }
+            });
+
+            if app.view_mode == crate::state::AppViewMode::Multitrack {
+                ui.separator();
+
+                // Mixer Panel Toggle Pill
+                let is_mixer = app.show_mixer_panel;
+                let mixer_fill = if is_mixer {
+                    Color32::from_rgb(30, 58, 138)
+                } else {
+                    Color32::from_rgb(24, 27, 35)
+                };
+                let mixer_color = if is_mixer {
+                    Color32::from_rgb(147, 197, 253)
+                } else {
+                    Color32::from_rgb(148, 163, 184)
+                };
+                let mixer_btn =
+                    egui::Button::new(egui::RichText::new("Mikser").size(11.0).color(mixer_color))
+                        .fill(mixer_fill)
+                        .rounding(Rounding::same(4.0));
+                if ui
+                    .add(mixer_btn)
+                    .on_hover_text("Alt Mikser Panelini Göster/Gizle")
+                    .clicked()
+                {
+                    app.show_mixer_panel = !is_mixer;
+                }
+
+                // Spectrogram Panel Toggle Pill
+                let is_spec = app.show_spectrogram_panel;
+                let spec_fill = if is_spec {
+                    Color32::from_rgb(30, 58, 138)
+                } else {
+                    Color32::from_rgb(24, 27, 35)
+                };
+                let spec_color = if is_spec {
+                    Color32::from_rgb(147, 197, 253)
+                } else {
+                    Color32::from_rgb(148, 163, 184)
+                };
+                let spec_btn = egui::Button::new(
+                    egui::RichText::new("Spektrogram")
+                        .size(11.0)
+                        .color(spec_color),
+                )
+                .fill(spec_fill)
+                .rounding(Rounding::same(4.0));
+                if ui
+                    .add(spec_btn)
+                    .on_hover_text("Spektrogram Panelini Göster/Gizle")
+                    .clicked()
+                {
+                    app.show_spectrogram_panel = !is_spec;
+                }
             }
 
             // Right-aligned Master controls

@@ -8,14 +8,60 @@ use stem_core::project::Clip;
 
 pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
     let available_size = ui.available_size();
-    let header_width = 220.0;
-    let ruler_height = 24.0;
+    let header_width = 240.0;
+    let ruler_height = 26.0;
+    let scrollbar_h = 14.0_f32;
 
     let sample_rate = app.project.sample_rate;
     let pps = app.timeline_state.pixels_per_second;
 
+    let canvas_width = (available_size.x - header_width).max(100.0);
+    let track_spacing = 2.0_f32;
+    let base_track_height = app.timeline_state.track_height.max(120.0);
+    app.timeline_state.track_height = base_track_height;
+
+    let num_tracks = app.project.tracks.len();
+    let mut track_heights = Vec::with_capacity(num_tracks);
+    let mut track_y_offsets = Vec::with_capacity(num_tracks);
+    let mut total_tracks_h = 0.0_f32;
+
+    for track in &app.project.tracks {
+        let is_auto_expanded = app.timeline_state.expanded_automation_track_id == Some(track.id);
+        let h = if is_auto_expanded {
+            base_track_height + 55.0
+        } else {
+            base_track_height
+        };
+        track_heights.push(h);
+        track_y_offsets.push(total_tracks_h);
+        total_tracks_h += h + track_spacing;
+    }
+
+    let visible_tracks_h = (available_size.y - ruler_height - scrollbar_h).max(50.0);
+    let max_scroll_y = (total_tracks_h - visible_tracks_h).max(0.0);
+
+    let project_end_frame = app
+        .project
+        .tracks
+        .iter()
+        .flat_map(|t| t.clips.iter())
+        .map(|c| c.timeline_end_frame())
+        .max()
+        .unwrap_or(0);
+    let project_duration_sec = (project_end_frame as f32 / sample_rate as f32).max(120.0);
+    let total_timeline_w = project_duration_sec * pps * 1.5;
+    let max_scroll_x = (total_timeline_w - canvas_width).max(0.0);
+
     // Handle horizontal / vertical mouse wheel zooming and scrolling
-    let scroll_delta = ui.input(|i| i.raw_scroll_delta);
+    let scroll_delta = ui.input(|i| {
+        let s = i.smooth_scroll_delta;
+        let r = i.raw_scroll_delta;
+        if s != egui::Vec2::ZERO {
+            s
+        } else {
+            r
+        }
+    });
     let zoom_delta = ui.input(|i| i.zoom_delta());
 
     if ui.input(|i| i.modifiers.ctrl) && (scroll_delta.y != 0.0 || zoom_delta != 1.0) {
@@ -27,268 +73,396 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             0.85
         };
         app.timeline_state.pixels_per_second = (pps * factor).clamp(5.0, 1000.0);
-    } else if ui.input(|i| i.modifiers.shift) && scroll_delta.y != 0.0 {
-        app.timeline_state.scroll_x = (app.timeline_state.scroll_x - scroll_delta.y).max(0.0);
+    } else if scroll_delta.x != 0.0 || (ui.input(|i| i.modifiers.shift) && scroll_delta.y != 0.0) {
+        let dx = if scroll_delta.x != 0.0 {
+            scroll_delta.x
+        } else {
+            scroll_delta.y
+        };
+        app.timeline_state.scroll_x = (app.timeline_state.scroll_x - dx).clamp(0.0, max_scroll_x);
+    } else if scroll_delta.y != 0.0 {
+        app.timeline_state.scroll_y =
+            (app.timeline_state.scroll_y - scroll_delta.y).clamp(0.0, max_scroll_y);
+    }
+
+    // Middle mouse button drag panning (horizontal and vertical)
+    if ui.input(|i| i.pointer.middle_down()) {
+        let delta = ui.input(|i| i.pointer.delta());
+        if delta != egui::Vec2::ZERO {
+            app.timeline_state.scroll_x =
+                (app.timeline_state.scroll_x - delta.x).clamp(0.0, max_scroll_x);
+            app.timeline_state.scroll_y =
+                (app.timeline_state.scroll_y - delta.y).clamp(0.0, max_scroll_y);
+        }
     }
 
     ui.horizontal(|ui| {
         // ================= Left Column: Track Headers =================
-        ui.allocate_ui_with_layout(
-            vec2(header_width, available_size.y),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                // Ruler spacer
-                ui.add_space(ruler_height);
+        let (col_rect, _) =
+            ui.allocate_exact_size(vec2(header_width, available_size.y), egui::Sense::hover());
+        let tracks_top = col_rect.min.y + ruler_height;
+        let header_clip_rect = Rect::from_min_max(
+            pos2(col_rect.min.x, tracks_top),
+            pos2(col_rect.max.x, col_rect.max.y),
+        );
 
-                let track_height = app.timeline_state.track_height;
-                let num_tracks = app.project.tracks.len();
+        // Fixed Top Header above tracks (ruler spacer)
+        let top_hdr_rect = Rect::from_min_size(col_rect.min, vec2(header_width, ruler_height));
+        ui.painter()
+            .rect_filled(top_hdr_rect, Rounding::ZERO, Color32::from_rgb(26, 28, 33));
+        ui.painter().line_segment(
+            [
+                pos2(top_hdr_rect.min.x, top_hdr_rect.max.y),
+                pos2(top_hdr_rect.max.x, top_hdr_rect.max.y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 60)),
+        );
+        ui.allocate_new_ui(egui::UiBuilder::new().max_rect(top_hdr_rect), |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(format!("Tracks ({})", num_tracks))
+                        .strong()
+                        .size(11.0)
+                        .color(Color32::LIGHT_GRAY),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(8.0);
+                    if ui
+                        .button("+ Add Track")
+                        .on_hover_text("Add a new audio track")
+                        .clicked()
+                    {
+                        app.action_add_track(format!("Track {}", num_tracks + 1));
+                    }
+                });
+            });
+        });
 
-                for t_idx in 0..num_tracks {
-                    let track = &app.project.tracks[t_idx];
-                    let track_id = track.id;
+        // Draw continuous vertical border between Track Header column and Timeline Canvas
+        ui.painter().line_segment(
+            [
+                pos2(col_rect.max.x, col_rect.min.y),
+                pos2(col_rect.max.x, col_rect.max.y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
+        );
 
-                    let is_auto_expanded =
-                        app.timeline_state.expanded_automation_track_id == Some(track_id);
-                    let header_h = if is_auto_expanded {
-                        track_height + 50.0
-                    } else {
-                        track_height
-                    };
+        // Scrolled track headers
+        for t_idx in 0..num_tracks {
+            let track = &app.project.tracks[t_idx];
+            let track_id = track.id;
+            let is_auto_expanded =
+                app.timeline_state.expanded_automation_track_id == Some(track_id);
+            let track_y = tracks_top - app.timeline_state.scroll_y + track_y_offsets[t_idx];
+            let header_h = track_heights[t_idx];
+            let rect =
+                Rect::from_min_size(pos2(col_rect.min.x, track_y), vec2(header_width, header_h));
 
-                    let (rect, _response) = ui.allocate_exact_size(
-                        vec2(header_width - 8.0, header_h),
-                        egui::Sense::click(),
-                    );
+            // Cull if completely outside visible view
+            if rect.max.y < tracks_top || rect.min.y > col_rect.max.y {
+                continue;
+            }
 
-                    let painter = ui.painter();
-                    let is_selected = app.timeline_state.selected_track_id == Some(track_id);
-                    let bg_color = if is_selected {
-                        Color32::from_rgb(45, 55, 75)
-                    } else {
-                        Color32::from_rgb(32, 34, 38)
-                    };
-                    painter.rect_filled(rect, Rounding::same(4.0), bg_color);
-                    painter.rect_stroke(
-                        rect,
-                        Rounding::same(4.0),
-                        Stroke::new(1.0_f32, Color32::from_rgb(50, 50, 55)),
-                    );
+            let painter = ui.painter().with_clip_rect(header_clip_rect);
+            let is_selected = app.timeline_state.selected_track_id == Some(track_id);
+            let bg_color = if is_selected {
+                Color32::from_rgb(38, 44, 58)
+            } else {
+                Color32::from_rgb(26, 28, 34)
+            };
+            painter.rect_filled(rect, Rounding::ZERO, bg_color);
 
-                    // Track Header Controls
-                    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(rect.shrink(4.0)), |ui| {
-                        ui.horizontal(|ui| {
-                            let track_name = app.project.tracks[t_idx].name.clone();
-                            ui.label(egui::RichText::new(&track_name).strong());
+            // Left track color stripe (4px)
+            let track_colors = [
+                Color32::from_rgb(60, 160, 240),  // blue
+                Color32::from_rgb(50, 200, 140),  // emerald
+                Color32::from_rgb(240, 160, 50),  // amber
+                Color32::from_rgb(180, 100, 240), // purple
+                Color32::from_rgb(240, 80, 100),  // red
+                Color32::from_rgb(80, 220, 220),  // cyan
+            ];
+            let stripe_color = track_colors[t_idx % track_colors.len()];
+            painter.rect_filled(
+                Rect::from_min_size(pos2(rect.min.x, rect.min.y), vec2(4.0, header_h)),
+                Rounding::ZERO,
+                stripe_color,
+            );
 
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    let auto_active = is_auto_expanded;
-                                    let auto_color = if auto_active {
-                                        Color32::from_rgb(100, 220, 150)
-                                    } else {
-                                        Color32::GRAY
-                                    };
-                                    if ui
-                                        .selectable_label(
-                                            auto_active,
-                                            egui::RichText::new("Auto")
-                                                .size(10.0)
-                                                .color(auto_color),
-                                        )
-                                        .clicked()
-                                    {
-                                        if auto_active {
-                                            app.timeline_state.expanded_automation_track_id = None;
-                                        } else {
-                                            app.timeline_state.expanded_automation_track_id =
-                                                Some(track_id);
-                                        }
-                                    }
-                                },
-                            );
-                        });
+            // Bottom border matching timeline lane separator
+            painter.line_segment(
+                [pos2(rect.min.x, rect.max.y), pos2(rect.max.x, rect.max.y)],
+                Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
+            );
 
-                        ui.horizontal(|ui| {
-                            // Mute button
-                            let mut muted = app.project.tracks[t_idx].muted;
-                            let mute_color = if muted {
-                                Color32::from_rgb(230, 80, 80)
+            // Track Header Controls with top_down layout
+            let inner_rect = Rect::from_min_max(
+                pos2(rect.min.x + 8.0, rect.min.y + 4.0),
+                pos2(rect.max.x - 6.0, rect.max.y - 4.0),
+            );
+            let ui_builder = egui::UiBuilder::new()
+                .max_rect(inner_rect)
+                .layout(egui::Layout::top_down(egui::Align::Min))
+                .id_salt(format!("hdr_{}", track_id));
+            ui.allocate_new_ui(ui_builder, |ui| {
+                ui.set_clip_rect(header_clip_rect.intersect(inner_rect));
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+
+                // Row 1: Delete button [x] + Track Name + Auto button
+                ui.horizontal(|ui| {
+                    if ui.small_button("×").on_hover_text("Kanalı Sil").clicked() {
+                        app.action_delete_track(track_id);
+                    }
+                    let track_name = app.project.tracks[t_idx].name.clone();
+                    ui.label(egui::RichText::new(&track_name).strong().size(12.0));
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let auto_active = is_auto_expanded;
+                        let auto_color = if auto_active {
+                            Color32::from_rgb(100, 220, 150)
+                        } else {
+                            Color32::GRAY
+                        };
+                        if ui
+                            .selectable_label(
+                                auto_active,
+                                egui::RichText::new("Auto").size(10.0).color(auto_color),
+                            )
+                            .clicked()
+                        {
+                            if auto_active {
+                                app.timeline_state.expanded_automation_track_id = None;
                             } else {
-                                Color32::GRAY
-                            };
-                            if ui
-                                .selectable_label(
-                                    muted,
-                                    egui::RichText::new(app.i18n.t("track-header-mute"))
-                                        .color(mute_color),
-                                )
-                                .clicked()
-                            {
-                                muted = !muted;
-                                app.action_set_track_mute(t_idx, muted);
+                                app.timeline_state.expanded_automation_track_id = Some(track_id);
                             }
-
-                            // Solo button
-                            let mut soloed = app.project.tracks[t_idx].soloed;
-                            let solo_color = if soloed {
-                                Color32::from_rgb(220, 200, 50)
-                            } else {
-                                Color32::GRAY
-                            };
-                            if ui
-                                .selectable_label(
-                                    soloed,
-                                    egui::RichText::new(app.i18n.t("track-header-solo"))
-                                        .color(solo_color),
-                                )
-                                .clicked()
-                            {
-                                soloed = !soloed;
-                                app.action_set_track_solo(t_idx, soloed);
-                            }
-
-                            // Arm button
-                            let mut armed = app.project.tracks[t_idx].armed;
-                            let arm_color = if armed {
-                                Color32::from_rgb(240, 50, 50)
-                            } else {
-                                Color32::GRAY
-                            };
-                            if ui
-                                .selectable_label(
-                                    armed,
-                                    egui::RichText::new(app.i18n.t("track-header-arm"))
-                                        .color(arm_color),
-                                )
-                                .clicked()
-                            {
-                                armed = !armed;
-                                app.action_set_track_arm(t_idx, armed);
-                            }
-
-                            // Input Routing Selector
-                            let mut routing = app.project.tracks[t_idx].input_routing;
-                            let routing_label = match routing {
-                                stem_core::project::TrackInputRouting::Mono1 => {
-                                    app.i18n.t("recording-input-mono1")
-                                }
-                                stem_core::project::TrackInputRouting::Mono2 => {
-                                    app.i18n.t("recording-input-mono2")
-                                }
-                                stem_core::project::TrackInputRouting::Stereo => {
-                                    app.i18n.t("recording-input-stereo")
-                                }
-                                stem_core::project::TrackInputRouting::None => {
-                                    app.i18n.t("recording-input-none")
-                                }
-                            };
-                            egui::ComboBox::from_id_salt(format!("track_in_{}", track_id))
-                                .selected_text(egui::RichText::new(routing_label).size(10.0))
-                                .width(70.0)
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut routing,
-                                        stem_core::project::TrackInputRouting::Mono1,
-                                        app.i18n.t("recording-input-mono1"),
-                                    );
-                                    ui.selectable_value(
-                                        &mut routing,
-                                        stem_core::project::TrackInputRouting::Mono2,
-                                        app.i18n.t("recording-input-mono2"),
-                                    );
-                                    ui.selectable_value(
-                                        &mut routing,
-                                        stem_core::project::TrackInputRouting::Stereo,
-                                        app.i18n.t("recording-input-stereo"),
-                                    );
-                                    ui.selectable_value(
-                                        &mut routing,
-                                        stem_core::project::TrackInputRouting::None,
-                                        app.i18n.t("recording-input-none"),
-                                    );
-                                });
-                            app.project.tracks[t_idx].input_routing = routing;
-                        });
-
-                        // Gain Slider
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(app.i18n.t("track-header-volume")).size(11.0),
-                            );
-                            let mut gain_db = app.project.tracks[t_idx].gain_db;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut gain_db, -48.0..=12.0).show_value(false),
-                                )
-                                .changed()
-                            {
-                                app.action_set_track_gain(t_idx, gain_db);
-                            }
-                        });
-
-                        // Pan Slider
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(app.i18n.t("track-header-pan")).size(11.0),
-                            );
-                            let mut pan = app.project.tracks[t_idx].pan;
-                            if ui
-                                .add(egui::Slider::new(&mut pan, -1.0..=1.0).show_value(false))
-                                .changed()
-                            {
-                                app.action_set_track_pan(t_idx, pan);
-                            }
-                        });
-
-                        // Expanded Automation Controls
-                        if is_auto_expanded {
-                            ui.separator();
-                            ui.horizontal(|ui| {
-                                let mut target = app.timeline_state.active_automation_target;
-                                let target_str = match target {
-                                    stem_core::project::AutomationTarget::Volume => {
-                                        app.i18n.t("automation-volume")
-                                    }
-                                    stem_core::project::AutomationTarget::Pan => {
-                                        app.i18n.t("automation-pan")
-                                    }
-                                };
-                                egui::ComboBox::from_id_salt(format!("auto_tgt_{}", track_id))
-                                    .selected_text(egui::RichText::new(target_str).size(9.0))
-                                    .width(65.0)
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut target,
-                                            stem_core::project::AutomationTarget::Volume,
-                                            app.i18n.t("automation-volume"),
-                                        );
-                                        ui.selectable_value(
-                                            &mut target,
-                                            stem_core::project::AutomationTarget::Pan,
-                                            app.i18n.t("automation-pan"),
-                                        );
-                                    });
-                                app.timeline_state.active_automation_target = target;
-
-                                if let Some(lane) = app.project.tracks[t_idx]
-                                    .automation_lanes
-                                    .iter_mut()
-                                    .find(|l| l.target == target)
-                                {
-                                    ui.checkbox(
-                                        &mut lane.enabled,
-                                        egui::RichText::new("On").size(9.0),
-                                    );
-                                }
-                            });
                         }
                     });
+                });
 
-                    ui.add_space(4.0);
+                ui.add_space(2.0);
+
+                // Row 2: Mute, Solo, Arm & Input Routing
+                ui.horizontal(|ui| {
+                    // Mute button (M)
+                    let mut muted = app.project.tracks[t_idx].muted;
+                    let (mute_bg, mute_text) = if muted {
+                        (Color32::from_rgb(220, 38, 38), Color32::WHITE)
+                    } else {
+                        (
+                            Color32::from_rgb(30, 34, 44),
+                            Color32::from_rgb(148, 163, 184),
+                        )
+                    };
+                    let mute_btn = egui::Button::new(
+                        egui::RichText::new("M")
+                            .strong()
+                            .size(11.0)
+                            .color(mute_text),
+                    )
+                    .fill(mute_bg)
+                    .min_size(vec2(24.0, 20.0))
+                    .rounding(Rounding::same(3.0));
+                    if ui
+                        .add(mute_btn)
+                        .on_hover_text("Sessize Al (Mute)")
+                        .clicked()
+                    {
+                        muted = !muted;
+                        app.action_set_track_mute(t_idx, muted);
+                    }
+
+                    // Solo button (S)
+                    let mut soloed = app.project.tracks[t_idx].soloed;
+                    let (solo_bg, solo_text) = if soloed {
+                        (
+                            Color32::from_rgb(234, 179, 8),
+                            Color32::from_rgb(20, 20, 20),
+                        )
+                    } else {
+                        (
+                            Color32::from_rgb(30, 34, 44),
+                            Color32::from_rgb(148, 163, 184),
+                        )
+                    };
+                    let solo_btn = egui::Button::new(
+                        egui::RichText::new("S")
+                            .strong()
+                            .size(11.0)
+                            .color(solo_text),
+                    )
+                    .fill(solo_bg)
+                    .min_size(vec2(24.0, 20.0))
+                    .rounding(Rounding::same(3.0));
+                    if ui.add(solo_btn).on_hover_text("Solo Dinle").clicked() {
+                        soloed = !soloed;
+                        app.action_set_track_solo(t_idx, soloed);
+                    }
+
+                    // Arm button (R)
+                    let mut armed = app.project.tracks[t_idx].armed;
+                    let (arm_bg, arm_text) = if armed {
+                        (Color32::from_rgb(225, 29, 72), Color32::WHITE)
+                    } else {
+                        (
+                            Color32::from_rgb(30, 34, 44),
+                            Color32::from_rgb(148, 163, 184),
+                        )
+                    };
+                    let arm_btn = egui::Button::new(
+                        egui::RichText::new("R").strong().size(11.0).color(arm_text),
+                    )
+                    .fill(arm_bg)
+                    .min_size(vec2(24.0, 20.0))
+                    .rounding(Rounding::same(3.0));
+                    if ui.add(arm_btn).on_hover_text("Kayıt Hazır (Arm)").clicked() {
+                        armed = !armed;
+                        app.action_set_track_arm(t_idx, armed);
+                    }
+
+                    // Input Routing Selector
+                    let mut routing = app.project.tracks[t_idx].input_routing;
+                    let routing_label = match routing {
+                        stem_core::project::TrackInputRouting::Mono1 => {
+                            app.i18n.t("recording-input-mono1")
+                        }
+                        stem_core::project::TrackInputRouting::Mono2 => {
+                            app.i18n.t("recording-input-mono2")
+                        }
+                        stem_core::project::TrackInputRouting::Stereo => {
+                            app.i18n.t("recording-input-stereo")
+                        }
+                        stem_core::project::TrackInputRouting::None => {
+                            app.i18n.t("recording-input-none")
+                        }
+                    };
+                    egui::ComboBox::from_id_salt(format!("track_in_{}", track_id))
+                        .selected_text(egui::RichText::new(routing_label).size(9.0))
+                        .width(55.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut routing,
+                                stem_core::project::TrackInputRouting::Mono1,
+                                app.i18n.t("recording-input-mono1"),
+                            );
+                            ui.selectable_value(
+                                &mut routing,
+                                stem_core::project::TrackInputRouting::Mono2,
+                                app.i18n.t("recording-input-mono2"),
+                            );
+                            ui.selectable_value(
+                                &mut routing,
+                                stem_core::project::TrackInputRouting::Stereo,
+                                app.i18n.t("recording-input-stereo"),
+                            );
+                            ui.selectable_value(
+                                &mut routing,
+                                stem_core::project::TrackInputRouting::None,
+                                app.i18n.t("recording-input-none"),
+                            );
+                        });
+                    app.project.tracks[t_idx].input_routing = routing;
+                });
+
+                ui.add_space(2.0);
+
+                // Row 3: Volume Slider
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(app.i18n.t("track-header-volume"))
+                            .size(10.0)
+                            .color(Color32::LIGHT_GRAY),
+                    );
+                    let mut gain_db = app.project.tracks[t_idx].gain_db;
+                    if ui
+                        .add_sized(
+                            [105.0, 16.0],
+                            egui::Slider::new(&mut gain_db, -48.0..=12.0).show_value(false),
+                        )
+                        .changed()
+                    {
+                        app.action_set_track_gain(t_idx, gain_db);
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{:.1}dB", gain_db))
+                            .size(9.0)
+                            .monospace()
+                            .color(Color32::GRAY),
+                    );
+                });
+
+                // Row 4: Pan Slider
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(app.i18n.t("track-header-pan"))
+                            .size(10.0)
+                            .color(Color32::LIGHT_GRAY),
+                    );
+                    let mut pan = app.project.tracks[t_idx].pan;
+                    if ui
+                        .add_sized(
+                            [105.0, 16.0],
+                            egui::Slider::new(&mut pan, -1.0..=1.0).show_value(false),
+                        )
+                        .changed()
+                    {
+                        app.action_set_track_pan(t_idx, pan);
+                    }
+                    let pan_text = if pan.abs() < 0.05 {
+                        "C".to_string()
+                    } else if pan < 0.0 {
+                        format!("L{:.0}", -pan * 100.0)
+                    } else {
+                        format!("R{:.0}", pan * 100.0)
+                    };
+                    ui.label(
+                        egui::RichText::new(pan_text)
+                            .size(9.0)
+                            .monospace()
+                            .color(Color32::GRAY),
+                    );
+                });
+
+                // Expanded Automation Controls
+                if is_auto_expanded {
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        let mut target = app.timeline_state.active_automation_target;
+                        let target_str = match target {
+                            stem_core::project::AutomationTarget::Volume => {
+                                app.i18n.t("automation-volume")
+                            }
+                            stem_core::project::AutomationTarget::Pan => {
+                                app.i18n.t("automation-pan")
+                            }
+                        };
+                        egui::ComboBox::from_id_salt(format!("auto_tgt_{}", track_id))
+                            .selected_text(egui::RichText::new(target_str).size(9.0))
+                            .width(65.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut target,
+                                    stem_core::project::AutomationTarget::Volume,
+                                    app.i18n.t("automation-volume"),
+                                );
+                                ui.selectable_value(
+                                    &mut target,
+                                    stem_core::project::AutomationTarget::Pan,
+                                    app.i18n.t("automation-pan"),
+                                );
+                            });
+                        app.timeline_state.active_automation_target = target;
+
+                        if let Some(lane) = app.project.tracks[t_idx]
+                            .automation_lanes
+                            .iter_mut()
+                            .find(|l| l.target == target)
+                        {
+                            ui.checkbox(&mut lane.enabled, egui::RichText::new("On").size(9.0));
+                        }
+                    });
                 }
-            },
-        );
+            });
+        }
 
         // ================= Right Column: Timeline Canvas =================
         let canvas_width = (available_size.x - header_width).max(100.0);
@@ -382,7 +556,12 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
         // ---------------- Track Waveform Lanes ----------------
         let tracks_top = canvas_rect.min.y + ruler_height;
-        let track_height = app.timeline_state.track_height;
+        let tracks_clip_rect = Rect::from_min_max(
+            pos2(canvas_rect.min.x, tracks_top),
+            pos2(canvas_rect.max.x, canvas_rect.max.y - scrollbar_h),
+        );
+        let lane_painter = ui.painter().with_clip_rect(tracks_clip_rect);
+
         let mouse_pos = response
             .interact_pointer_pos()
             .or_else(|| response.hover_pos())
@@ -391,18 +570,28 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         let is_primary_clicked = ui.input(|i| i.pointer.primary_clicked());
         let is_secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
         let mut open_clip_in_waveform: Option<uuid::Uuid> = None;
-        let mut curr_track_top = tracks_top;
         let mut timeline_needs_sync = false;
 
         for t_idx in 0..app.project.tracks.len() {
             let track_id = app.project.tracks[t_idx].id;
             let is_auto_expanded =
                 app.timeline_state.expanded_automation_track_id == Some(track_id);
-            let track_top = curr_track_top;
+            let track_top = tracks_top - app.timeline_state.scroll_y + track_y_offsets[t_idx];
+            let track_h = track_heights[t_idx];
+            let lane_h = if is_auto_expanded {
+                track_h - 50.0
+            } else {
+                track_h
+            };
             let track_rect = Rect::from_min_size(
                 pos2(canvas_rect.min.x, track_top),
-                vec2(canvas_rect.width(), track_height),
+                vec2(canvas_rect.width(), track_h),
             );
+
+            // Cull if track is completely outside the visible viewport
+            if track_rect.max.y < tracks_top || track_rect.min.y > canvas_rect.max.y - scrollbar_h {
+                continue;
+            }
 
             // Alternate track background
             let track_bg = if t_idx % 2 == 0 {
@@ -410,8 +599,8 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             } else {
                 Color32::from_rgb(28, 30, 35)
             };
-            painter.rect_filled(track_rect, Rounding::ZERO, track_bg);
-            painter.line_segment(
+            lane_painter.rect_filled(track_rect, Rounding::ZERO, track_bg);
+            lane_painter.line_segment(
                 [
                     pos2(track_rect.min.x, track_rect.max.y),
                     pos2(track_rect.max.x, track_rect.max.y),
@@ -429,7 +618,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 let clip_width = (clip.length_frames as f32 / sample_rate as f32 * pps).max(4.0);
                 let clip_rect = Rect::from_min_size(
                     pos2(clip_x_start, track_top + 4.0),
-                    vec2(clip_width, track_height - 8.0),
+                    vec2(clip_width, lane_h - 8.0),
                 );
 
                 // Check crossfade with next clip on the track
@@ -445,23 +634,23 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             - scroll_x;
                         let xf_rect = Rect::from_min_max(
                             pos2(x1.max(canvas_rect.min.x), track_top + 4.0),
-                            pos2(x2.min(canvas_rect.max.x), track_top + track_height - 4.0),
+                            pos2(x2.min(canvas_rect.max.x), track_top + lane_h - 4.0),
                         );
                         if xf_rect.width() > 2.0 {
                             // Crossfade region overlay
-                            painter.rect_filled(
+                            lane_painter.rect_filled(
                                 xf_rect,
                                 Rounding::ZERO,
                                 Color32::from_rgba_premultiplied(40, 150, 220, 50),
                             );
-                            painter.line_segment(
+                            lane_painter.line_segment(
                                 [
                                     pos2(xf_rect.min.x, xf_rect.min.y),
                                     pos2(xf_rect.max.x, xf_rect.max.y),
                                 ],
                                 Stroke::new(1.5_f32, Color32::from_rgb(100, 220, 255)),
                             );
-                            painter.line_segment(
+                            lane_painter.line_segment(
                                 [
                                     pos2(xf_rect.min.x, xf_rect.max.y),
                                     pos2(xf_rect.max.x, xf_rect.min.y),
@@ -474,7 +663,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 stem_core::project::CrossfadeType::Linear => "✕ Linear",
                                 stem_core::project::CrossfadeType::Exponential => "✕ Exp",
                             };
-                            painter.text(
+                            lane_painter.text(
                                 pos2(xf_rect.center().x, xf_rect.min.y + 4.0),
                                 egui::Align2::CENTER_TOP,
                                 xf_label,
@@ -486,43 +675,86 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
 
                 // Only render if visible within canvas bounds
-                if clip_rect.max.x < canvas_rect.min.x || clip_rect.min.x > canvas_rect.max.x {
+                if clip_rect.max.x < canvas_rect.min.x
+                    || clip_rect.min.x > canvas_rect.max.x
+                    || clip_rect.max.y < tracks_top
+                    || clip_rect.min.y > canvas_rect.max.y - scrollbar_h
+                {
                     continue;
                 }
 
                 let is_clip_selected = app.timeline_state.selected_clip_id == Some(clip.id);
 
-                // Clip box
+                // Clip box background
                 let clip_bg = if is_clip_selected {
-                    Color32::from_rgb(40, 70, 110)
+                    Color32::from_rgb(32, 54, 84)
                 } else {
-                    Color32::from_rgb(35, 55, 80)
+                    Color32::from_rgb(24, 38, 56)
                 };
-                painter.rect_filled(clip_rect, Rounding::same(3.0), clip_bg);
+                lane_painter.rect_filled(clip_rect, Rounding::same(4.0), clip_bg);
 
+                // Clip border stroke
                 let stroke_color = if is_clip_selected {
-                    Color32::from_rgb(100, 180, 255)
+                    Color32::from_rgb(56, 189, 248)
                 } else {
-                    Color32::from_rgb(60, 100, 150)
+                    Color32::from_rgb(50, 75, 105)
                 };
-                painter.rect_stroke(
+                let stroke_width = if is_clip_selected { 1.5_f32 } else { 1.0_f32 };
+                lane_painter.rect_stroke(
                     clip_rect,
-                    Rounding::same(3.0),
-                    Stroke::new(1.5_f32, stroke_color),
+                    Rounding::same(4.0),
+                    Stroke::new(stroke_width, stroke_color),
                 );
 
-                // Clip title
-                painter.text(
-                    clip_rect.min + vec2(6.0, 4.0),
+                // Clip titlebar header strip
+                let titlebar_h = 16.0_f32.min(clip_rect.height());
+                let titlebar_rect =
+                    Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), titlebar_h));
+                lane_painter.rect_filled(
+                    titlebar_rect,
+                    Rounding {
+                        nw: 4.0,
+                        ne: 4.0,
+                        sw: 0.0,
+                        se: 0.0,
+                    },
+                    Color32::from_rgba_premultiplied(14, 18, 26, 200),
+                );
+                lane_painter.line_segment(
+                    [
+                        pos2(clip_rect.min.x, clip_rect.min.y + titlebar_h),
+                        pos2(clip_rect.max.x, clip_rect.min.y + titlebar_h),
+                    ],
+                    Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 20)),
+                );
+
+                // Clip title text inside titlebar
+                lane_painter.text(
+                    clip_rect.min + vec2(6.0, 2.0),
                     egui::Align2::LEFT_TOP,
                     &clip.name,
-                    egui::FontId::proportional(11.0),
-                    Color32::WHITE,
+                    egui::FontId::proportional(10.5),
+                    if is_clip_selected {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(226, 232, 240)
+                    },
                 );
 
-                // Draw Waveform using multi-resolution PeakPyramid
+                // Draw Waveform using multi-resolution PeakPyramid below titlebar
                 if let Some(pyramid) = app.peak_pyramids.get(&clip.source_id) {
-                    render_clip_waveform(&painter, clip_rect, clip, pyramid, sample_rate);
+                    let wave_rect = Rect::from_min_max(
+                        pos2(clip_rect.min.x, clip_rect.min.y + titlebar_h),
+                        clip_rect.max,
+                    );
+                    render_clip_waveform(
+                        &lane_painter,
+                        wave_rect,
+                        clip,
+                        pyramid,
+                        sample_rate,
+                        is_clip_selected,
+                    );
                 }
 
                 // Render Fade In & Fade Out curves
@@ -532,7 +764,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     (clip.fade_out_frames as f32 / sample_rate as f32 * pps).min(clip_rect.width());
 
                 if clip.fade_in_frames > 0 {
-                    painter.line_segment(
+                    lane_painter.line_segment(
                         [
                             pos2(clip_rect.min.x, clip_rect.max.y),
                             pos2(clip_rect.min.x + fade_in_w, clip_rect.min.y),
@@ -541,7 +773,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     );
                 }
                 if clip.fade_out_frames > 0 {
-                    painter.line_segment(
+                    lane_painter.line_segment(
                         [
                             pos2(clip_rect.max.x - fade_out_w, clip_rect.min.y),
                             pos2(clip_rect.max.x, clip_rect.max.y),
@@ -552,15 +784,16 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 
                 // Visual handles and hit-testing for Trim and Fades
                 let fade_size = 14.0_f32;
+                let max_fade_x = (clip_rect.max.x - fade_size).max(clip_rect.min.x);
                 let fade_in_handle_x = (clip_rect.min.x + fade_in_w - fade_size * 0.5)
-                    .clamp(clip_rect.min.x, clip_rect.max.x - fade_size);
+                    .clamp(clip_rect.min.x, max_fade_x);
                 let fade_in_handle_rect = Rect::from_min_size(
                     pos2(fade_in_handle_x, clip_rect.min.y),
                     vec2(fade_size, fade_size),
                 );
 
                 let fade_out_handle_x = (clip_rect.max.x - fade_out_w - fade_size * 0.5)
-                    .clamp(clip_rect.min.x, clip_rect.max.x - fade_size);
+                    .clamp(clip_rect.min.x, max_fade_x);
                 let fade_out_handle_rect = Rect::from_min_size(
                     pos2(fade_out_handle_x, clip_rect.min.y),
                     vec2(fade_size, fade_size),
@@ -576,40 +809,51 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     vec2(trim_w, (clip_rect.height() - fade_size).max(4.0)),
                 );
 
-                // Draw subtle fade corner handles
-                let is_fade_in_hovered =
-                    mouse_pos.is_some_and(|mp| fade_in_handle_rect.contains(mp));
-                let is_fade_out_hovered =
-                    mouse_pos.is_some_and(|mp| fade_out_handle_rect.contains(mp));
+                let can_draw_fade_handles = clip_rect.width() >= fade_size * 2.0;
+
                 let is_left_trim_hovered =
                     mouse_pos.is_some_and(|mp| left_handle_rect.contains(mp));
                 let is_right_trim_hovered =
                     mouse_pos.is_some_and(|mp| right_handle_rect.contains(mp));
+                let is_fade_in_hovered = can_draw_fade_handles
+                    && mouse_pos.is_some_and(|mp| fade_in_handle_rect.contains(mp));
+                let is_fade_out_hovered = can_draw_fade_handles
+                    && mouse_pos.is_some_and(|mp| fade_out_handle_rect.contains(mp));
 
-                let fade_in_color = if is_fade_in_hovered {
-                    Color32::from_rgb(255, 230, 90)
-                } else {
-                    Color32::from_rgba_premultiplied(255, 190, 60, 180)
-                };
-                let fade_out_color = if is_fade_out_hovered {
-                    Color32::from_rgb(255, 230, 90)
-                } else {
-                    Color32::from_rgba_premultiplied(255, 190, 60, 180)
-                };
+                if can_draw_fade_handles {
+                    let fade_in_color = if is_fade_in_hovered {
+                        Color32::from_rgb(255, 230, 90)
+                    } else {
+                        Color32::from_rgba_premultiplied(255, 190, 60, 180)
+                    };
+                    let fade_out_color = if is_fade_out_hovered {
+                        Color32::from_rgb(255, 230, 90)
+                    } else {
+                        Color32::from_rgba_premultiplied(255, 190, 60, 180)
+                    };
 
-                painter.rect_filled(fade_in_handle_rect, Rounding::same(2.0), fade_in_color);
-                painter.rect_filled(fade_out_handle_rect, Rounding::same(2.0), fade_out_color);
+                    lane_painter.rect_filled(
+                        fade_in_handle_rect,
+                        Rounding::same(2.0),
+                        fade_in_color,
+                    );
+                    lane_painter.rect_filled(
+                        fade_out_handle_rect,
+                        Rounding::same(2.0),
+                        fade_out_color,
+                    );
+                }
 
                 // Highlight trim edge on hover
                 if is_left_trim_hovered {
-                    painter.rect_filled(
+                    lane_painter.rect_filled(
                         left_handle_rect,
                         Rounding::same(2.0),
                         Color32::from_rgba_premultiplied(120, 200, 255, 160),
                     );
                 }
                 if is_right_trim_hovered {
-                    painter.rect_filled(
+                    lane_painter.rect_filled(
                         right_handle_rect,
                         Rounding::same(2.0),
                         Color32::from_rgba_premultiplied(120, 200, 255, 160),
@@ -626,27 +870,8 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 .button_double_clicked(egui::PointerButton::Primary)
                         });
 
-                        if is_fade_in_hovered {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                            if primary_pressed {
-                                app.timeline_state.drag_op = Some(DragOp::FadeIn {
-                                    clip_id: clip.id,
-                                    track_id,
-                                    orig_fade_in: clip.fade_in_frames,
-                                    drag_start_x: mp.x,
-                                });
-                            }
-                        } else if is_fade_out_hovered {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                            if primary_pressed {
-                                app.timeline_state.drag_op = Some(DragOp::FadeOut {
-                                    clip_id: clip.id,
-                                    track_id,
-                                    orig_fade_out: clip.fade_out_frames,
-                                    drag_start_x: mp.x,
-                                });
-                            }
-                        } else if is_left_trim_hovered {
+                        // Prioritize edge trim handles over fade handles
+                        if is_left_trim_hovered {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                             if primary_pressed {
                                 app.timeline_state.drag_op = Some(DragOp::TrimLeft {
@@ -668,19 +893,52 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     drag_start_x: mp.x,
                                 });
                             }
+                        } else if is_fade_in_hovered {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                            if primary_pressed {
+                                app.timeline_state.drag_op = Some(DragOp::FadeIn {
+                                    clip_id: clip.id,
+                                    track_id,
+                                    orig_fade_in: clip.fade_in_frames,
+                                    drag_start_x: mp.x,
+                                });
+                            }
+                        } else if is_fade_out_hovered {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                            if primary_pressed {
+                                app.timeline_state.drag_op = Some(DragOp::FadeOut {
+                                    clip_id: clip.id,
+                                    track_id,
+                                    orig_fade_out: clip.fade_out_frames,
+                                    drag_start_x: mp.x,
+                                });
+                            }
                         } else if primary_double {
                             open_clip_in_waveform = Some(clip.id);
                         } else if primary_pressed {
-                            app.timeline_state.selected_clip_id = Some(clip.id);
-                            app.timeline_state.selected_track_id = Some(track_id);
+                            if ui.input(|i| i.modifiers.shift) {
+                                let frame_at_mouse =
+                                    ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
+                                        * sample_rate as f32)
+                                        .round() as u64;
+                                app.timeline_state.drag_op = Some(DragOp::SelectTimeRange {
+                                    anchor_frame: frame_at_mouse,
+                                });
+                                app.timeline_state.time_selection =
+                                    Some((frame_at_mouse, frame_at_mouse));
+                                app.action_seek(frame_at_mouse);
+                            } else {
+                                app.timeline_state.selected_clip_id = Some(clip.id);
+                                app.timeline_state.selected_track_id = Some(track_id);
 
-                            // Start Move Clip drag operation
-                            app.timeline_state.drag_op = Some(DragOp::MoveClip {
-                                clip_id: clip.id,
-                                track_id,
-                                original_track_offset: clip.track_offset_frames,
-                                drag_start_x: mp.x,
-                            });
+                                // Start Move Clip drag operation
+                                app.timeline_state.drag_op = Some(DragOp::MoveClip {
+                                    clip_id: clip.id,
+                                    track_id,
+                                    original_track_offset: clip.track_offset_frames,
+                                    drag_start_x: mp.x,
+                                });
+                            }
                         }
                     }
                 }
@@ -689,8 +947,8 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             // Render Automation Lane if expanded
             if is_auto_expanded {
                 let lane_rect = Rect::from_min_size(
-                    pos2(canvas_rect.min.x, curr_track_top + track_height),
-                    vec2(canvas_rect.width(), 50.0),
+                    pos2(canvas_rect.min.x, track_top + lane_h),
+                    vec2(canvas_width, 50.0),
                 );
                 let active_target = app.timeline_state.active_automation_target;
                 if let Some(lane) = app.project.tracks[t_idx]
@@ -711,13 +969,10 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                         drag_point: &mut app.timeline_state.drag_automation_point,
                         track_id,
                     };
-                    if render_automation_lane(&painter, lane, ctx) {
+                    if render_automation_lane(&lane_painter, lane, ctx) {
                         timeline_needs_sync = true;
                     }
                 }
-                curr_track_top += track_height + 50.0 + 4.0;
-            } else {
-                curr_track_top += track_height + 4.0;
             }
         }
 
@@ -731,6 +986,53 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         if let Some(clip_id) = open_clip_in_waveform {
             app.action_open_clip_in_waveform_editor(clip_id);
             return;
+        }
+
+        // ---------------- Canvas Click / Range Selection / Selection Edge Drag ----------------
+        let primary_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+        if let Some(mp) = mouse_pos {
+            let in_track_area = mp.x >= canvas_rect.min.x
+                && mp.x <= canvas_rect.max.x
+                && mp.y >= tracks_top
+                && mp.y <= canvas_rect.max.y - scrollbar_h;
+
+            if in_track_area {
+                let frame_at_mouse = ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
+                    * sample_rate as f32)
+                    .round() as u64;
+
+                // 1. Check if hovering / clicking existing selection edges
+                if let Some((s_frame, e_frame)) = app.timeline_state.time_selection {
+                    let s_x =
+                        canvas_rect.min.x + (s_frame as f32 / sample_rate as f32 * pps) - scroll_x;
+                    let e_x =
+                        canvas_rect.min.x + (e_frame as f32 / sample_rate as f32 * pps) - scroll_x;
+                    let left_x = s_x.min(e_x);
+                    let right_x = s_x.max(e_x);
+
+                    if (mp.x - left_x).abs() <= 6.0 {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        if primary_pressed && app.timeline_state.drag_op.is_none() {
+                            app.timeline_state.drag_op = Some(DragOp::DragSelectionLeft);
+                        }
+                    } else if (mp.x - right_x).abs() <= 6.0 {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        if primary_pressed && app.timeline_state.drag_op.is_none() {
+                            app.timeline_state.drag_op = Some(DragOp::DragSelectionRight);
+                        }
+                    }
+                }
+
+                // 2. Click on empty space: start time range selection & seek playhead
+                if primary_pressed && app.timeline_state.drag_op.is_none() {
+                    app.timeline_state.selected_clip_id = None;
+                    app.timeline_state.drag_op = Some(DragOp::SelectTimeRange {
+                        anchor_frame: frame_at_mouse,
+                    });
+                    app.timeline_state.time_selection = Some((frame_at_mouse, frame_at_mouse));
+                    app.action_seek(frame_at_mouse);
+                }
+            }
         }
 
         // ---------------- Musical Grid Lines Overlay ----------------
@@ -880,6 +1182,64 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             app.named_marker_state.open_for_edit(&m);
         }
 
+        // ---------------- Time Range Selection Overlay ----------------
+        if let Some((s_frame, e_frame)) = app.timeline_state.time_selection {
+            let s_x = canvas_rect.min.x + (s_frame as f32 / sample_rate as f32 * pps) - scroll_x;
+            let e_x = canvas_rect.min.x + (e_frame as f32 / sample_rate as f32 * pps) - scroll_x;
+            let left_x = s_x.min(e_x);
+            let right_x = s_x.max(e_x);
+
+            let sel_rect = Rect::from_min_max(
+                pos2(left_x.max(canvas_rect.min.x), tracks_top),
+                pos2(
+                    right_x.min(canvas_rect.max.x),
+                    canvas_rect.max.y - scrollbar_h,
+                ),
+            );
+
+            if sel_rect.width() > 0.0 {
+                // Shaded selection box across all tracks (Audacity blue tint)
+                painter.rect_filled(
+                    sel_rect,
+                    Rounding::ZERO,
+                    Color32::from_rgba_premultiplied(70, 150, 255, 45),
+                );
+
+                // Left boundary line
+                if left_x >= canvas_rect.min.x && left_x <= canvas_rect.max.x {
+                    painter.line_segment(
+                        [
+                            pos2(left_x, tracks_top),
+                            pos2(left_x, canvas_rect.max.y - scrollbar_h),
+                        ],
+                        Stroke::new(1.5_f32, Color32::from_rgb(100, 190, 255)),
+                    );
+                }
+
+                // Right boundary line
+                if right_x >= canvas_rect.min.x && right_x <= canvas_rect.max.x {
+                    painter.line_segment(
+                        [
+                            pos2(right_x, tracks_top),
+                            pos2(right_x, canvas_rect.max.y - scrollbar_h),
+                        ],
+                        Stroke::new(1.5_f32, Color32::from_rgb(100, 190, 255)),
+                    );
+                }
+
+                // Ruler selection highlight
+                let ruler_sel = Rect::from_min_max(
+                    pos2(left_x.max(canvas_rect.min.x), ruler_rect.min.y),
+                    pos2(right_x.min(canvas_rect.max.x), ruler_rect.max.y),
+                );
+                painter.rect_filled(
+                    ruler_sel,
+                    Rounding::ZERO,
+                    Color32::from_rgba_premultiplied(100, 190, 255, 65),
+                );
+            }
+        }
+
         // ---------------- Playhead Rendering ----------------
         let playhead_frame = app.telemetry.playhead_frame;
         let playhead_x =
@@ -994,15 +1354,19 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
 
-                            let max_trim = (orig_length.saturating_sub(100)) as i64;
+                            let min_clip_len = (sample_rate as u64 / 20).max(500);
+                            let max_trim = (orig_length.saturating_sub(min_clip_len)) as i64;
                             let min_trim = -(orig_track_offset.min(orig_source_start) as i64);
+                            let max_trim = max_trim.max(min_trim);
                             let clamped_delta = delta_frames.clamp(min_trim, max_trim);
 
                             let new_start =
                                 (orig_source_start as i64 + clamped_delta).max(0) as u64;
                             let new_offset =
                                 (orig_track_offset as i64 + clamped_delta).max(0) as u64;
-                            let new_length = (orig_length as i64 - clamped_delta).max(100) as u64;
+                            let new_length = (orig_length as i64 - clamped_delta)
+                                .max(min_clip_len as i64)
+                                as u64;
 
                             if let Some(track) = app.project.get_track_mut(track_id) {
                                 if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id)
@@ -1025,6 +1389,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             let delta_x = mp.x - drag_start_x;
                             let delta_frames = (delta_x / pps * sample_rate as f32).round() as i64;
 
+                            let min_clip_len = (sample_rate as u64 / 20).max(500);
                             let source_info = app.project.get_track(track_id).and_then(|t| {
                                 t.clips
                                     .iter()
@@ -1043,9 +1408,11 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                             if let Some(track) = app.project.get_track_mut(track_id) {
                                 if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id)
                                 {
-                                    let new_length =
-                                        (orig_length as i64 + delta_frames).max(100) as u64;
-                                    clip.length_frames = new_length.min(max_source_len);
+                                    let new_length = (orig_length as i64 + delta_frames)
+                                        .max(min_clip_len as i64)
+                                        as u64;
+                                    clip.length_frames =
+                                        new_length.min(max_source_len).max(min_clip_len);
                                     clip.fade_in_frames =
                                         clip.fade_in_frames.min(clip.length_frames);
                                     clip.fade_out_frames =
@@ -1089,13 +1456,143 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                 }
                             }
                         }
+                        DragOp::SelectTimeRange { anchor_frame } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                            let curr_frame = ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
+                                * sample_rate as f32)
+                                .round() as u64;
+                            let s = anchor_frame.min(curr_frame);
+                            let e = anchor_frame.max(curr_frame);
+                            app.timeline_state.time_selection = Some((s, e));
+                            app.action_seek(curr_frame);
+                        }
+                        DragOp::DragSelectionLeft => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                            if let Some((_, e)) = app.timeline_state.time_selection {
+                                let curr_frame =
+                                    ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
+                                        * sample_rate as f32)
+                                        .round() as u64;
+                                let s = curr_frame.min(e);
+                                app.timeline_state.time_selection = Some((s, e));
+                                app.action_seek(s);
+                            }
+                        }
+                        DragOp::DragSelectionRight => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                            if let Some((s, _)) = app.timeline_state.time_selection {
+                                let curr_frame =
+                                    ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
+                                        * sample_rate as f32)
+                                        .round() as u64;
+                                let e = curr_frame.max(s);
+                                app.timeline_state.time_selection = Some((s, e));
+                                app.action_seek(e);
+                            }
+                        }
                         _ => {}
                     }
                 }
             } else {
                 // Mouse released, end drag
+                if let Some(DragOp::SelectTimeRange { .. }) = app.timeline_state.drag_op {
+                    if let Some((s, e)) = app.timeline_state.time_selection {
+                        // If it was just a click without moving (< 150 frames / ~3ms), clear the range selection
+                        if e.saturating_sub(s) < 150 {
+                            app.timeline_state.time_selection = None;
+                        }
+                    }
+                }
                 app.timeline_state.drag_op = None;
                 app.sync_timeline_to_audio_engine();
+            }
+        }
+
+        // ---------------- Horizontal Scrollbar ----------------
+        let h_scrollbar_rect = Rect::from_min_size(
+            pos2(canvas_rect.min.x, canvas_rect.max.y - scrollbar_h),
+            vec2(canvas_rect.width(), scrollbar_h),
+        );
+        painter.rect_filled(
+            h_scrollbar_rect,
+            Rounding::ZERO,
+            Color32::from_rgb(22, 24, 28),
+        );
+        painter.line_segment(
+            [
+                pos2(h_scrollbar_rect.min.x, h_scrollbar_rect.min.y),
+                pos2(h_scrollbar_rect.max.x, h_scrollbar_rect.min.y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
+        );
+
+        if total_timeline_w > canvas_width {
+            let thumb_ratio = (canvas_width / total_timeline_w).clamp(0.05, 1.0);
+            let thumb_width = (canvas_width * thumb_ratio).max(30.0);
+            let scroll_ratio =
+                (app.timeline_state.scroll_x / max_scroll_x.max(1.0)).clamp(0.0, 1.0);
+            let thumb_x = h_scrollbar_rect.min.x + scroll_ratio * (canvas_width - thumb_width);
+            let thumb_rect = Rect::from_min_size(
+                pos2(thumb_x, h_scrollbar_rect.min.y + 2.0),
+                vec2(thumb_width, scrollbar_h - 4.0),
+            );
+
+            let is_h_hover = mouse_pos.is_some_and(|mp| h_scrollbar_rect.contains(mp));
+            let thumb_color = if is_h_hover {
+                Color32::from_rgb(100, 105, 120)
+            } else {
+                Color32::from_rgb(60, 64, 75)
+            };
+            painter.rect_filled(thumb_rect, Rounding::same(3.0), thumb_color);
+
+            if is_mouse_down && is_h_hover {
+                if let Some(mp) = mouse_pos {
+                    let click_rel = (mp.x - h_scrollbar_rect.min.x - thumb_width * 0.5)
+                        / (canvas_width - thumb_width).max(1.0);
+                    app.timeline_state.scroll_x =
+                        (click_rel.clamp(0.0, 1.0) * max_scroll_x).clamp(0.0, max_scroll_x);
+                }
+            }
+        }
+
+        // ---------------- Vertical Scrollbar ----------------
+        if max_scroll_y > 0.0 {
+            let v_scrollbar_w = 12.0_f32;
+            let v_scrollbar_rect = Rect::from_min_size(
+                pos2(canvas_rect.max.x - v_scrollbar_w, tracks_top),
+                vec2(v_scrollbar_w, visible_tracks_h),
+            );
+            painter.rect_filled(
+                v_scrollbar_rect,
+                Rounding::ZERO,
+                Color32::from_rgb(22, 24, 28),
+            );
+
+            let thumb_ratio = (visible_tracks_h / total_tracks_h.max(1.0)).clamp(0.08, 1.0);
+            let thumb_h = (visible_tracks_h * thumb_ratio).max(24.0);
+            let scroll_ratio =
+                (app.timeline_state.scroll_y / max_scroll_y.max(1.0)).clamp(0.0, 1.0);
+            let thumb_y = v_scrollbar_rect.min.y + scroll_ratio * (visible_tracks_h - thumb_h);
+            let thumb_rect = Rect::from_min_size(
+                pos2(v_scrollbar_rect.min.x + 2.0, thumb_y),
+                vec2(v_scrollbar_w - 4.0, thumb_h),
+            );
+
+            let is_v_hover = mouse_pos.is_some_and(|mp| v_scrollbar_rect.contains(mp));
+            let thumb_color = if is_v_hover {
+                Color32::from_rgb(100, 105, 120)
+            } else {
+                Color32::from_rgb(60, 64, 75)
+            };
+            painter.rect_filled(thumb_rect, Rounding::same(3.0), thumb_color);
+
+            if is_mouse_down && is_v_hover {
+                if let Some(mp) = mouse_pos {
+                    let click_rel = (mp.y - v_scrollbar_rect.min.y - thumb_h * 0.5)
+                        / (visible_tracks_h - thumb_h).max(1.0);
+                    app.timeline_state.scroll_y =
+                        (click_rel.clamp(0.0, 1.0) * max_scroll_y).clamp(0.0, max_scroll_y);
+                }
             }
         }
     });
@@ -1104,12 +1601,16 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
 /// Renders waveform peaks for a clip using the multi-resolution PeakPyramid.
 fn render_clip_waveform(
     painter: &egui::Painter,
-    clip_rect: Rect,
+    wave_rect: Rect,
     clip: &Clip,
     pyramid: &PeakPyramid,
     _sample_rate: u32,
+    is_selected: bool,
 ) {
-    let target_points = (clip_rect.width() as usize).clamp(10, 2000);
+    if wave_rect.height() < 4.0 || wave_rect.width() < 2.0 {
+        return;
+    }
+    let target_points = (wave_rect.width() as usize).clamp(10, 2000);
     let peaks = pyramid.query_channel_peaks(
         0, // Left channel or mono
         clip.source_start_frame,
@@ -1121,14 +1622,25 @@ fn render_clip_waveform(
         return;
     }
 
-    let mid_y = clip_rect.center().y;
-    let half_h = (clip_rect.height() * 0.42).max(4.0);
-    let waveform_color = Color32::from_rgb(120, 200, 255);
+    let mid_y = wave_rect.center().y;
+    let half_h = (wave_rect.height() * 0.44).max(2.0);
 
-    let step_x = clip_rect.width() / peaks.len() as f32;
+    // Subtle zero line
+    painter.line_segment(
+        [pos2(wave_rect.min.x, mid_y), pos2(wave_rect.max.x, mid_y)],
+        Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 18)),
+    );
+
+    let waveform_color = if is_selected {
+        Color32::from_rgb(125, 211, 252) // bright cyan highlight
+    } else {
+        Color32::from_rgb(56, 189, 248) // studio cyan
+    };
+
+    let step_x = wave_rect.width() / peaks.len() as f32;
 
     for (i, p) in peaks.iter().enumerate() {
-        let x = clip_rect.min.x + i as f32 * step_x;
+        let x = wave_rect.min.x + i as f32 * step_x;
         let top_y = mid_y - (p.max.clamp(-1.0, 1.0) * half_h);
         let bot_y = mid_y - (p.min.clamp(-1.0, 1.0) * half_h);
 

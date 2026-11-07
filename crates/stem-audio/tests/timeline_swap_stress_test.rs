@@ -45,7 +45,7 @@ fn test_timeline_swap_stress_bounded_memory() {
 
     for i in 0..num_swaps {
         let tl = create_timeline(1024, i as f32);
-        
+
         // Emulate UI thread: send timeline, then drain retired queue
         while timeline_tx.try_send(tl.clone()).is_err() {
             // If timeline_tx is full, drain retired queue to relieve pressure
@@ -75,7 +75,9 @@ fn test_timeline_swap_stress_bounded_memory() {
     }
 
     running.store(false, Ordering::Relaxed);
-    let blocks = audio_thread.join().expect("Audio thread terminated cleanly");
+    let blocks = audio_thread
+        .join()
+        .expect("Audio thread terminated cleanly");
 
     println!(
         "Timeline swap stress completed: {} swaps attempted, {} retired reclaimed, {} audio blocks processed",

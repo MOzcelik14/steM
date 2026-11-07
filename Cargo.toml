@@ -10,7 +10,7 @@ members = [
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.5"
 edition = "2021"
 authors = ["steM. Contributors"]
 license = "GPL-3.0-or-later"
