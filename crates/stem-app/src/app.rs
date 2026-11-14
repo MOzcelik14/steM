@@ -70,6 +70,7 @@ pub struct StemApp {
     pub force_close: bool,
     pub logo_texture: Option<egui::TextureHandle>,
     pub show_effects_dialog: bool,
+    pub metronome_enabled: bool,
 
     // Export State
     pub export_destination_path: Option<String>,
@@ -197,6 +198,7 @@ impl StemApp {
             force_close: false,
             logo_texture: None,
             show_effects_dialog: false,
+            metronome_enabled: false,
 
             export_destination_path: None,
             export_settings: ExportSettings::default(),
@@ -788,6 +790,21 @@ impl StemApp {
         self.status_text = self.i18n.t("status-ready");
     }
 
+    pub fn action_new_project_from_template(
+        &mut self,
+        template: stem_core::project::ProjectTemplate,
+    ) {
+        self.action_stop();
+        self.project = Project::from_template(template, 48000);
+        self.project_file_path = None;
+        self.source_buffers.clear();
+        self.peak_pyramids.clear();
+        self.history = UndoRedoStack::new();
+        self.active_timeline = None;
+        self.sync_timeline_to_audio_engine();
+        self.status_text = self.i18n.t("status-ready");
+    }
+
     pub fn action_load_demo(&mut self) {
         self.action_stop();
         let (demo_proj, demo_buffers) = stem_core::generate_demo_project(48000);
@@ -834,6 +851,8 @@ impl StemApp {
                                     let _ = tx.send(WorkerMessage::ImportComplete {
                                         decoded: Box::new(decoded),
                                         pyramid: Box::new(pyramid),
+                                        target_track_idx: None,
+                                        target_offset_frames: None,
                                     });
                                 }
                             });
@@ -886,6 +905,33 @@ impl StemApp {
         }
     }
 
+    pub fn import_audio_path(
+        &mut self,
+        path: PathBuf,
+        target_track_idx: Option<usize>,
+        target_offset_frames: Option<u64>,
+    ) {
+        self.status_text = self.i18n.t("status-loading");
+        let tx = self.worker_tx.clone();
+
+        std::thread::spawn(move || match stem_audio::decode_file(&path) {
+            Ok(decoded) => {
+                let channel_refs: Vec<&[f32]> =
+                    decoded.channels.iter().map(|ch| ch.as_slice()).collect();
+                let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+                let _ = tx.send(WorkerMessage::ImportComplete {
+                    decoded: Box::new(decoded),
+                    pyramid: Box::new(pyramid),
+                    target_track_idx,
+                    target_offset_frames,
+                });
+            }
+            Err(e) => {
+                let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+            }
+        });
+    }
+
     pub fn action_import_audio(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter(
@@ -897,23 +943,72 @@ impl StemApp {
             )
             .pick_file()
         {
-            self.status_text = self.i18n.t("status-loading");
-            let tx = self.worker_tx.clone();
+            self.import_audio_path(path, None, None);
+        }
+    }
 
-            std::thread::spawn(move || match stem_audio::decode_file(&path) {
-                Ok(decoded) => {
-                    let channel_refs: Vec<&[f32]> =
-                        decoded.channels.iter().map(|ch| ch.as_slice()).collect();
-                    let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
-                    let _ = tx.send(WorkerMessage::ImportComplete {
-                        decoded: Box::new(decoded),
-                        pyramid: Box::new(pyramid),
-                    });
+    pub fn action_set_metronome(&mut self, enabled: bool) {
+        self.metronome_enabled = enabled;
+        if let Some(ref mut engine) = self.audio_engine {
+            engine.set_metronome(
+                enabled,
+                self.project.tempo_bpm,
+                self.project.time_signature.0,
+                self.project.sample_rate,
+            );
+        }
+    }
+
+    pub fn action_ripple_delete_selection(&mut self) {
+        if let Some((start, end)) = self.timeline_state.time_selection {
+            let target_track = self.timeline_state.selected_track_id;
+            self.project.ripple_delete_range(start, end, target_track);
+            self.timeline_state.time_selection = None;
+            self.sync_timeline_to_audio_engine();
+        }
+    }
+
+    pub fn action_silence_selection(&mut self) {
+        if let Some((start, end)) = self.timeline_state.time_selection {
+            let target_track = self.timeline_state.selected_track_id;
+            self.project.silence_range(start, end, target_track);
+            self.sync_timeline_to_audio_engine();
+        }
+    }
+
+    pub fn action_split_at_selection(&mut self) {
+        if let Some((start, end)) = self.timeline_state.time_selection {
+            let target_track = self.timeline_state.selected_track_id;
+            self.project.split_all_at_frame(start, target_track);
+            self.project.split_all_at_frame(end, target_track);
+            self.sync_timeline_to_audio_engine();
+        }
+    }
+
+    pub fn action_export_chapter_markers(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name("chapters.txt")
+            .add_filter("Text", &["txt"])
+            .save_file()
+        {
+            let sr = self.project.sample_rate.max(1) as f64;
+            let mut markers = self.project.markers.clone();
+            markers.sort_by_key(|m| m.frame);
+            let mut out = String::new();
+            for m in markers {
+                let sec = m.frame as f64 / sr;
+                let mins = (sec / 60.0).floor() as u64;
+                let rem = sec - (mins as f64 * 60.0);
+                out.push_str(&format!("{mins:02}:{rem:06.3} {}\n", m.name));
+            }
+            match std::fs::write(&path, out) {
+                Ok(_) => {
+                    self.status_text = self.i18n.t("export-chapters-completed");
                 }
                 Err(e) => {
-                    let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+                    self.status_text = format!("Export error: {e}");
                 }
-            });
+            }
         }
     }
 
@@ -1708,6 +1803,8 @@ impl StemApp {
         let ext = match format {
             stem_audio::ExportFormat::Wav => "wav",
             stem_audio::ExportFormat::Flac => "flac",
+            stem_audio::ExportFormat::Mp3 => "mp3",
+            stem_audio::ExportFormat::Ogg => "ogg",
         };
 
         let mut count = 0;
@@ -1735,6 +1832,7 @@ impl StemApp {
                         range: stem_audio::ExportRange::EntireProject,
                         apply_dither: bit_depth != stem_audio::BitDepth::Float32,
                         normalize_target_lufs: None,
+                        ..ExportSettings::default()
                     };
                     let _ = stem_audio::export_buffer_to_file(&stem_buf, &out_file, &settings);
                     count += 1;
@@ -1765,6 +1863,7 @@ impl StemApp {
                     range,
                     apply_dither: bit_depth != stem_audio::BitDepth::Float32,
                     normalize_target_lufs: None,
+                    ..ExportSettings::default()
                 };
                 let _ = stem_audio::export_project_to_file(
                     &self.project,
@@ -2106,7 +2205,12 @@ impl eframe::App for StemApp {
         // Drain messages from background workers (decoding, peak caching, export)
         while let Ok(msg) = self.worker_rx.try_recv() {
             match msg {
-                WorkerMessage::ImportComplete { decoded, pyramid } => {
+                WorkerMessage::ImportComplete {
+                    decoded,
+                    pyramid,
+                    target_track_idx,
+                    target_offset_frames,
+                } => {
                     let source = decoded.source.clone();
                     let source_id = source.id;
                     let source_frames = source.duration_frames;
@@ -2116,10 +2220,14 @@ impl eframe::App for StemApp {
                     self.source_buffers.insert(source_id, decoded.channels);
                     self.peak_pyramids.insert(source_id, *pyramid);
 
-                    // Add a default clip on the first available track
+                    // Add clip on requested track (for drag & drop) or first available track
                     if !self.project.tracks.is_empty() {
-                        let track_id = self.project.tracks[0].id;
-                        let clip = Clip::new(&filename, source_id, 0, source_frames, 0);
+                        let t_idx = target_track_idx
+                            .unwrap_or(0)
+                            .min(self.project.tracks.len().saturating_sub(1));
+                        let offset = target_offset_frames.unwrap_or(0);
+                        let track_id = self.project.tracks[t_idx].id;
+                        let clip = Clip::new(&filename, source_id, 0, source_frames, offset);
                         let _ = self.project.add_clip_to_track(track_id, clip);
                     }
 

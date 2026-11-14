@@ -155,6 +155,16 @@ impl AudioEngine {
         self.is_input_monitoring
     }
 
+    /// Configures real-time metronome click synthesis on the audio thread.
+    pub fn set_metronome(&mut self, enabled: bool, bpm: f64, beats_per_bar: u8, sample_rate: u32) {
+        let _ = self.command_tx.push(AudioCommand::SetMetronome {
+            enabled,
+            bpm,
+            beats_per_bar,
+            sample_rate,
+        });
+    }
+
     /// Start playback.
     pub fn play(&mut self) {
         self.is_playing = true;

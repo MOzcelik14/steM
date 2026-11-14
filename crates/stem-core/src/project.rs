@@ -222,6 +222,19 @@ pub enum EffectConfig {
         damping: f32,
         mix: f32,
     },
+    NoiseGate {
+        threshold_db: f32,
+        attack_ms: f32,
+        hold_ms: f32,
+        release_ms: f32,
+        range_db: f32,
+    },
+    DeEsser {
+        frequency_hz: f32,
+        threshold_db: f32,
+        ratio: f32,
+        range_db: f32,
+    },
 }
 
 /// Count-in countdown duration before recording begins.
@@ -1195,5 +1208,408 @@ impl Project {
         let proj: Self = ron::from_str(s)?;
         proj.validate()?;
         Ok(proj)
+    }
+
+    /// Creates a new project initialized from a built-in workflow template.
+    pub fn from_template(template: ProjectTemplate, sample_rate: u32) -> Self {
+        let mut proj = Self::new("Yeni Proje", sample_rate);
+        proj.tracks.clear();
+
+        match template {
+            ProjectTemplate::Empty => {
+                proj.tracks.push(Track::new("Kanal 1"));
+            }
+            ProjectTemplate::PodcastTwoHosts => {
+                proj.name = "Podcast (2 Konuşmacı)".to_string();
+                let vocal_chain = || {
+                    vec![
+                        EffectConfig::NoiseGate {
+                            threshold_db: -48.0,
+                            attack_ms: 2.0,
+                            hold_ms: 80.0,
+                            release_ms: 150.0,
+                            range_db: -40.0,
+                        },
+                        EffectConfig::DeEsser {
+                            frequency_hz: 6500.0,
+                            threshold_db: -22.0,
+                            ratio: 4.0,
+                            range_db: -9.0,
+                        },
+                        EffectConfig::Compressor {
+                            threshold_db: -18.0,
+                            ratio: 3.0,
+                            attack_ms: 10.0,
+                            release_ms: 120.0,
+                            makeup_gain_db: 3.0,
+                        },
+                    ]
+                };
+
+                let mut host = Track::new("Sunucu");
+                host.input_routing = TrackInputRouting::Mono1;
+                host.effects = vocal_chain();
+                proj.tracks.push(host);
+
+                let mut guest = Track::new("Konuk");
+                guest.input_routing = TrackInputRouting::Mono2;
+                guest.effects = vocal_chain();
+                proj.tracks.push(guest);
+
+                let mut music = Track::new("Jenerik / Müzik");
+                music.gain_db = -12.0;
+                proj.tracks.push(music);
+            }
+            ProjectTemplate::VocalAndBacking => {
+                proj.name = "Vokal + Altyapı".to_string();
+                let mut backing = Track::new("Altyapı (Beat)");
+                backing.gain_db = -3.0;
+                proj.tracks.push(backing);
+
+                let mut vocal = Track::new("Ana Vokal");
+                vocal.armed = true;
+                vocal.input_routing = TrackInputRouting::Mono1;
+                vocal.effects = vec![
+                    EffectConfig::Compressor {
+                        threshold_db: -16.0,
+                        ratio: 3.5,
+                        attack_ms: 8.0,
+                        release_ms: 100.0,
+                        makeup_gain_db: 4.0,
+                    },
+                    EffectConfig::Reverb {
+                        room_size: 0.35,
+                        damping: 0.5,
+                        mix: 0.15,
+                    },
+                ];
+                proj.tracks.push(vocal);
+            }
+            ProjectTemplate::AudioRestoration => {
+                proj.name = "Ses Temizleme".to_string();
+                let mut clean = Track::new("Temizlenecek Kayıt");
+                clean.effects = vec![
+                    EffectConfig::NoiseGate {
+                        threshold_db: -45.0,
+                        attack_ms: 3.0,
+                        hold_ms: 60.0,
+                        release_ms: 120.0,
+                        range_db: -48.0,
+                    },
+                    EffectConfig::Limiter {
+                        threshold_db: -1.0,
+                        release_ms: 50.0,
+                    },
+                ];
+                proj.tracks.push(clean);
+            }
+        }
+
+        proj
+    }
+
+    /// Non-destructively splits all clips crossing `frame` (optionally scoped to `target_track_id`).
+    /// Returns the number of clips split.
+    pub fn split_all_at_frame(&mut self, frame: u64, target_track_id: Option<Uuid>) -> usize {
+        let mut split_count = 0;
+        let track_ids: Vec<Uuid> = self
+            .tracks
+            .iter()
+            .filter(|t| target_track_id.is_none_or(|tid| tid == t.id))
+            .map(|t| t.id)
+            .collect();
+
+        for tid in track_ids {
+            let clip_ids: Vec<Uuid> = self
+                .tracks
+                .iter()
+                .find(|t| t.id == tid)
+                .map(|t| {
+                    t.clips
+                        .iter()
+                        .filter(|c| frame > c.track_offset_frames && frame < c.timeline_end_frame())
+                        .map(|c| c.id)
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            for cid in clip_ids {
+                if self.split_clip(tid, cid, frame).is_ok() {
+                    split_count += 1;
+                }
+            }
+        }
+        split_count
+    }
+
+    /// Non-destructively removes `[start_frame, end_frame)` from clips without shifting later clips.
+    /// Returns the number of affected clips.
+    pub fn silence_range(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        target_track_id: Option<Uuid>,
+    ) -> usize {
+        if start_frame >= end_frame {
+            return 0;
+        }
+        let mut affected = 0;
+
+        for track in &mut self.tracks {
+            if target_track_id.is_some_and(|tid| tid != track.id) {
+                continue;
+            }
+            let mut new_clips = Vec::with_capacity(track.clips.len() + 2);
+            for clip in &track.clips {
+                let c_start = clip.track_offset_frames;
+                let c_end = clip.timeline_end_frame();
+
+                if c_end <= start_frame || c_start >= end_frame {
+                    new_clips.push(clip.clone());
+                    continue;
+                }
+
+                affected += 1;
+                // Left remnant before start_frame
+                if c_start < start_frame {
+                    let mut left = clip.clone();
+                    left.length_frames = start_frame - c_start;
+                    left.fade_in_frames = left.fade_in_frames.min(left.length_frames);
+                    left.fade_out_frames = 0;
+                    new_clips.push(left);
+                }
+
+                // Right remnant after end_frame
+                if c_end > end_frame {
+                    let cut_offset = end_frame - c_start;
+                    let mut right = clip.clone();
+                    right.id = Uuid::new_v4();
+                    right.track_offset_frames = end_frame;
+                    right.source_start_frame = clip.source_start_frame + cut_offset;
+                    right.length_frames = c_end - end_frame;
+                    right.fade_in_frames = 0;
+                    right.fade_out_frames = right.fade_out_frames.min(right.length_frames);
+                    new_clips.push(right);
+                }
+            }
+            new_clips.sort_by_key(|c| c.track_offset_frames);
+            track.clips = new_clips;
+        }
+        affected
+    }
+
+    /// Non-destructively cuts `[start_frame, end_frame)` and shifts downstream clips left by `end - start`.
+    /// Returns the number of affected clips.
+    pub fn ripple_delete_range(
+        &mut self,
+        start_frame: u64,
+        end_frame: u64,
+        target_track_id: Option<Uuid>,
+    ) -> usize {
+        if start_frame >= end_frame {
+            return 0;
+        }
+        let delta = end_frame - start_frame;
+        let mut affected = self.silence_range(start_frame, end_frame, target_track_id);
+
+        for track in &mut self.tracks {
+            if target_track_id.is_some_and(|tid| tid != track.id) {
+                continue;
+            }
+            for clip in &mut track.clips {
+                if clip.track_offset_frames >= end_frame {
+                    clip.track_offset_frames -= delta;
+                    affected += 1;
+                }
+            }
+        }
+        affected
+    }
+
+    /// Applies automatic equal-power crossfades when `moved_clip_id` overlaps adjacent clips on `track_id`.
+    pub fn apply_auto_crossfades_on_track(&mut self, track_id: Uuid, moved_clip_id: Uuid) {
+        let Some(track) = self.get_track_mut(track_id) else {
+            return;
+        };
+        let Some(moved_idx) = track.clips.iter().position(|c| c.id == moved_clip_id) else {
+            return;
+        };
+
+        let moved_start = track.clips[moved_idx].track_offset_frames;
+        let moved_end = track.clips[moved_idx].timeline_end_frame();
+        let moved_len = track.clips[moved_idx].length_frames;
+
+        for idx in 0..track.clips.len() {
+            if idx == moved_idx {
+                continue;
+            }
+            let other_start = track.clips[idx].track_offset_frames;
+            let other_end = track.clips[idx].timeline_end_frame();
+            let other_len = track.clips[idx].length_frames;
+
+            // Check overlap
+            let overlap_start = moved_start.max(other_start);
+            let overlap_end = moved_end.min(other_end);
+            if overlap_start >= overlap_end {
+                continue;
+            }
+            let overlap = overlap_end - overlap_start;
+            // Avoid full engulfment turning entire clip into fade
+            let max_fade = overlap.min(moved_len / 2).min(other_len / 2);
+            if max_fade == 0 {
+                continue;
+            }
+
+            if other_start <= moved_start {
+                track.clips[idx].fade_out_frames = max_fade;
+                track.clips[idx].fade_out_curve = FadeCurve::SCurve;
+                track.clips[moved_idx].fade_in_frames = max_fade;
+                track.clips[moved_idx].fade_in_curve = FadeCurve::SCurve;
+                track.clips[moved_idx].crossfade_type = CrossfadeType::EqualPower;
+            } else {
+                track.clips[moved_idx].fade_out_frames = max_fade;
+                track.clips[moved_idx].fade_out_curve = FadeCurve::SCurve;
+                track.clips[idx].fade_in_frames = max_fade;
+                track.clips[idx].fade_in_curve = FadeCurve::SCurve;
+                track.clips[idx].crossfade_type = CrossfadeType::EqualPower;
+            }
+        }
+    }
+}
+
+/// Snap-to-grid mode for timeline editing.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum SnapGridMode {
+    #[default]
+    Off,
+    Seconds,
+    HalfSecond,
+    Beats,
+    Bars,
+}
+
+/// Snaps a timeline frame to the nearest grid interval for the given mode.
+pub fn snap_frame(
+    frame: u64,
+    sample_rate: u32,
+    bpm: f64,
+    beats_per_bar: u8,
+    mode: SnapGridMode,
+) -> u64 {
+    if mode == SnapGridMode::Off || sample_rate == 0 {
+        return frame;
+    }
+    let sr = sample_rate as f64;
+    let step_frames = match mode {
+        SnapGridMode::Off => return frame,
+        SnapGridMode::Seconds => sr,
+        SnapGridMode::HalfSecond => sr * 0.5,
+        SnapGridMode::Beats => (60.0 / bpm.max(20.0)) * sr,
+        SnapGridMode::Bars => (60.0 / bpm.max(20.0)) * (beats_per_bar.max(1) as f64) * sr,
+    };
+    if step_frames <= 1.0 {
+        return frame;
+    }
+    ((frame as f64 / step_frames).round() * step_frames).max(0.0) as u64
+}
+
+/// Built-in starter project templates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectTemplate {
+    Empty,
+    PodcastTwoHosts,
+    VocalAndBacking,
+    AudioRestoration,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_from_template_and_validation() {
+        for tpl in [
+            ProjectTemplate::Empty,
+            ProjectTemplate::PodcastTwoHosts,
+            ProjectTemplate::VocalAndBacking,
+            ProjectTemplate::AudioRestoration,
+        ] {
+            let proj = Project::from_template(tpl, 48_000);
+            assert!(proj.validate().is_ok());
+            assert!(!proj.tracks.is_empty());
+        }
+        let podcast = Project::from_template(ProjectTemplate::PodcastTwoHosts, 48_000);
+        assert_eq!(podcast.tracks.len(), 3);
+        assert!(podcast.tracks[0]
+            .effects
+            .iter()
+            .any(|e| matches!(e, EffectConfig::DeEsser { .. })));
+    }
+
+    #[test]
+    fn test_snap_frame_modes() {
+        assert_eq!(
+            snap_frame(12_345, 48_000, 120.0, 4, SnapGridMode::Off),
+            12_345
+        );
+        assert_eq!(
+            snap_frame(50_000, 48_000, 120.0, 4, SnapGridMode::Seconds),
+            48_000
+        );
+        assert_eq!(
+            snap_frame(30_000, 48_000, 120.0, 4, SnapGridMode::HalfSecond),
+            24_000
+        );
+        // 120 BPM => 1 beat = 0.5s = 24_000 frames; 1 bar (4 beats) = 96_000 frames
+        assert_eq!(
+            snap_frame(25_000, 48_000, 120.0, 4, SnapGridMode::Beats),
+            24_000
+        );
+        assert_eq!(
+            snap_frame(90_000, 48_000, 120.0, 4, SnapGridMode::Bars),
+            96_000
+        );
+    }
+
+    #[test]
+    fn test_silence_and_ripple_delete_range() {
+        let mut proj = Project::new("Test", 48_000);
+        let asset_id = uuid::Uuid::new_v4();
+        let clip = Clip::new("C1", asset_id, 0, 10_000, 0);
+        proj.tracks[0].clips.push(clip);
+
+        // Silence middle [2000, 5000) -> leaves [0, 2000) and [5000, 10000)
+        proj.silence_range(2_000, 5_000, None);
+        assert_eq!(proj.tracks[0].clips.len(), 2);
+        assert_eq!(proj.tracks[0].clips[0].track_offset_frames, 0);
+        assert_eq!(proj.tracks[0].clips[0].length_frames, 2_000);
+        assert_eq!(proj.tracks[0].clips[1].track_offset_frames, 5_000);
+        assert_eq!(proj.tracks[0].clips[1].length_frames, 5_000);
+
+        // Ripple delete [2000, 5000) -> shifts second clip left by 3000 frames to 2000
+        proj.ripple_delete_range(2_000, 5_000, None);
+        assert_eq!(proj.tracks[0].clips.len(), 2);
+        assert_eq!(proj.tracks[0].clips[1].track_offset_frames, 2_000);
+    }
+
+    #[test]
+    fn test_auto_crossfades_on_track() {
+        let mut proj = Project::new("Xfade", 48_000);
+        let track_id = proj.tracks[0].id;
+        let asset_id = uuid::Uuid::new_v4();
+        let c1 = Clip::new("A", asset_id, 0, 10_000, 0);
+        let c2 = Clip::new("B", asset_id, 0, 10_000, 8_000);
+        let c2_id = c2.id;
+        proj.tracks[0].clips.push(c1);
+        proj.tracks[0].clips.push(c2);
+        proj.apply_auto_crossfades_on_track(track_id, c2_id);
+        assert_eq!(proj.tracks[0].clips[0].fade_out_frames, 2_000);
+        assert_eq!(proj.tracks[0].clips[0].fade_out_curve, FadeCurve::SCurve);
+        assert_eq!(proj.tracks[0].clips[1].fade_in_frames, 2_000);
+        assert_eq!(proj.tracks[0].clips[1].fade_in_curve, FadeCurve::SCurve);
+        assert_eq!(
+            proj.tracks[0].clips[1].crossfade_type,
+            CrossfadeType::EqualPower
+        );
     }
 }

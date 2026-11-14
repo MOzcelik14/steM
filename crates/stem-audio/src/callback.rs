@@ -60,7 +60,15 @@ pub enum AudioCommand {
         effect_idx: usize,
     },
     SetInputMonitoring(bool),
+    SetMetronome {
+        enabled: bool,
+        bpm: f64,
+        beats_per_bar: u8,
+        sample_rate: u32,
+    },
 }
+
+pub const MAX_TRACKS: usize = 32;
 
 /// Telemetry metrics returned from the audio thread back to the UI.
 #[derive(Debug, Clone, Copy, Default)]
@@ -70,9 +78,8 @@ pub struct AudioTelemetry {
     pub peak_right: f32,
     pub rms_left: f32,
     pub rms_right: f32,
+    pub track_peaks: [f32; MAX_TRACKS],
 }
-
-pub const MAX_TRACKS: usize = 32;
 
 /// Static per-track state kept in the audio callback.
 #[derive(Clone, Copy)]
@@ -123,6 +130,16 @@ pub struct AudioProcessor {
     // Software input monitoring
     monitor_consumer: Option<Consumer<f32>>,
     monitoring_enabled: bool,
+
+    // Real-time metronome click oscillator (zero-alloc)
+    metronome_enabled: bool,
+    metronome_bpm: f64,
+    metronome_beats_per_bar: u8,
+    metronome_sample_rate: u32,
+    metronome_phase: f32,
+    metronome_env: f32,
+    metronome_freq_hz: f32,
+    metronome_last_beat_idx: i64,
 }
 
 impl AudioProcessor {
@@ -148,6 +165,14 @@ impl AudioProcessor {
             audio_data: None,
             monitor_consumer,
             monitoring_enabled: false,
+            metronome_enabled: false,
+            metronome_bpm: 120.0,
+            metronome_beats_per_bar: 4,
+            metronome_sample_rate: 48000,
+            metronome_phase: 0.0,
+            metronome_env: 0.0,
+            metronome_freq_hz: 1000.0,
+            metronome_last_beat_idx: -1,
         }
     }
 
@@ -165,13 +190,21 @@ impl AudioProcessor {
         while let Ok(cmd) = self.command_consumer.pop() {
             match cmd {
                 AudioCommand::Play => self.is_playing = true,
-                AudioCommand::Pause => self.is_playing = false,
+                AudioCommand::Pause => {
+                    self.is_playing = false;
+                    self.metronome_env = 0.0;
+                    self.metronome_last_beat_idx = -1;
+                }
                 AudioCommand::Stop => {
                     self.is_playing = false;
                     self.playhead_frame = 0;
+                    self.metronome_env = 0.0;
+                    self.metronome_last_beat_idx = -1;
                 }
                 AudioCommand::Seek(frame) => {
                     self.playhead_frame = frame;
+                    self.metronome_env = 0.0;
+                    self.metronome_last_beat_idx = -1;
                 }
                 AudioCommand::SetMasterGain(gain) => {
                     self.master_gain = gain;
@@ -260,6 +293,21 @@ impl AudioProcessor {
                 AudioCommand::SetInputMonitoring(enabled) => {
                     self.monitoring_enabled = enabled;
                 }
+                AudioCommand::SetMetronome {
+                    enabled,
+                    bpm,
+                    beats_per_bar,
+                    sample_rate,
+                } => {
+                    self.metronome_enabled = enabled;
+                    self.metronome_bpm = bpm.max(20.0);
+                    self.metronome_beats_per_bar = beats_per_bar.max(1);
+                    self.metronome_sample_rate = sample_rate.max(8000);
+                    if !enabled {
+                        self.metronome_env = 0.0;
+                        self.metronome_last_beat_idx = -1;
+                    }
+                }
             }
         }
     }
@@ -277,82 +325,120 @@ impl AudioProcessor {
         let mut sum_sq_l = 0.0f32;
         let mut sum_sq_r = 0.0f32;
         let mut frames_counted = 0usize;
+        let mut track_peaks = [0.0f32; MAX_TRACKS];
 
         if !self.is_playing {
             output.fill(0.0);
-        } else if let Some(ref timeline) = self.audio_data {
-            let left_ch = &timeline.channels[0];
-            let right_ch = if timeline.channels.len() > 1 {
-                &timeline.channels[1]
-            } else {
-                &timeline.channels[0]
-            };
-
-            let total_frames = timeline.total_frames;
+        } else {
             let has_solos = self.tracks.iter().any(|t| t.soloed);
-            let has_multitrack = !timeline.track_channels.is_empty();
 
             for f in 0..num_frames {
-                // Check looping
-                if self.loop_enabled
-                    && self.loop_end_frame > self.loop_start_frame
-                    && self.playhead_frame >= self.loop_end_frame
+                let (mut l_sample, mut r_sample, maybe_total_frames) = if let Some(ref timeline) =
+                    self.audio_data
                 {
-                    self.playhead_frame = self.loop_start_frame;
-                }
+                    let total_frames = timeline.total_frames;
+                    if self.loop_enabled
+                        && self.loop_end_frame > self.loop_start_frame
+                        && self.playhead_frame >= self.loop_end_frame
+                    {
+                        self.playhead_frame = self.loop_start_frame;
+                        self.metronome_last_beat_idx = -1;
+                    }
 
-                let current_frame = self.playhead_frame as usize;
-                let (l_sample, r_sample) = if current_frame < total_frames as usize {
-                    if has_multitrack {
-                        let mut accum_l = 0.0f32;
-                        let mut accum_r = 0.0f32;
-                        let num_tracks = timeline.track_channels.len().min(MAX_TRACKS);
+                    let current_frame = self.playhead_frame as usize;
+                    if current_frame < total_frames as usize {
+                        if !timeline.track_channels.is_empty() {
+                            let mut accum_l = 0.0f32;
+                            let mut accum_r = 0.0f32;
+                            let num_tracks = timeline.track_channels.len().min(MAX_TRACKS);
 
-                        for t in 0..num_tracks {
-                            let track_state = self.tracks[t];
-                            if track_state.muted || (has_solos && !track_state.soloed) {
-                                continue;
+                            #[allow(clippy::needless_range_loop)]
+                            for t in 0..num_tracks {
+                                let track_state = self.tracks[t];
+                                if track_state.muted || (has_solos && !track_state.soloed) {
+                                    continue;
+                                }
+                                let t_chans = &timeline.track_channels[t];
+                                if t_chans.is_empty() {
+                                    continue;
+                                }
+                                let t_left = t_chans[0].get(current_frame).copied().unwrap_or(0.0);
+                                let t_right = if t_chans.len() > 1 {
+                                    t_chans[1].get(current_frame).copied().unwrap_or(0.0)
+                                } else {
+                                    t_left
+                                };
+
+                                let (proc_l, proc_r) =
+                                    self.track_effects[t].process_stereo(t_left, t_right);
+
+                                let pan = track_state.pan.clamp(-1.0, 1.0);
+                                let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+                                let gain_l = track_state.gain * pan_rad.cos();
+                                let gain_r = track_state.gain * pan_rad.sin();
+
+                                let out_l = proc_l * gain_l;
+                                let out_r = proc_r * gain_r;
+                                let trk_peak = out_l.abs().max(out_r.abs());
+                                if trk_peak > track_peaks[t] {
+                                    track_peaks[t] = trk_peak;
+                                }
+
+                                accum_l += out_l;
+                                accum_r += out_r;
                             }
-                            let t_chans = &timeline.track_channels[t];
-                            if t_chans.is_empty() {
-                                continue;
-                            }
-                            let t_left = t_chans[0].get(current_frame).copied().unwrap_or(0.0);
-                            let t_right = if t_chans.len() > 1 {
-                                t_chans[1].get(current_frame).copied().unwrap_or(0.0)
+
+                            let (ml, mr) = self.master_effects.process_stereo(accum_l, accum_r);
+                            (
+                                ml * self.master_gain,
+                                mr * self.master_gain,
+                                Some(total_frames),
+                            )
+                        } else {
+                            let left_ch = &timeline.channels[0];
+                            let right_ch = if timeline.channels.len() > 1 {
+                                &timeline.channels[1]
                             } else {
-                                t_left
+                                &timeline.channels[0]
                             };
-
-                            // Real-time per-track effect chain
-                            let (proc_l, proc_r) =
-                                self.track_effects[t].process_stereo(t_left, t_right);
-
-                            // Constant-power panning law
-                            let pan = track_state.pan.clamp(-1.0, 1.0);
-                            let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
-                            let gain_l = track_state.gain * pan_rad.cos();
-                            let gain_r = track_state.gain * pan_rad.sin();
-
-                            accum_l += proc_l * gain_l;
-                            accum_r += proc_r * gain_r;
+                            let raw_l = left_ch.get(current_frame).copied().unwrap_or(0.0);
+                            let raw_r = right_ch.get(current_frame).copied().unwrap_or(0.0);
+                            let (ml, mr) = self.master_effects.process_stereo(raw_l, raw_r);
+                            (
+                                ml * self.master_gain,
+                                mr * self.master_gain,
+                                Some(total_frames),
+                            )
                         }
-
-                        // Real-time master insert chain
-                        let (ml, mr) = self.master_effects.process_stereo(accum_l, accum_r);
-                        (ml * self.master_gain, mr * self.master_gain)
                     } else {
-                        // Single stereo stream (e.g. waveform editor preview or stereo file)
-                        let raw_l = left_ch.get(current_frame).copied().unwrap_or(0.0);
-                        let raw_r = right_ch.get(current_frame).copied().unwrap_or(0.0);
-
-                        // Real-time master insert chain preview
-                        let (ml, mr) = self.master_effects.process_stereo(raw_l, raw_r);
-                        (ml * self.master_gain, mr * self.master_gain)
+                        (0.0, 0.0, Some(total_frames))
                     }
                 } else {
-                    (0.0, 0.0)
+                    (0.0, 0.0, None)
                 };
+
+                // Zero-alloc real-time metronome click synthesis
+                if self.metronome_enabled {
+                    let sr = self.metronome_sample_rate.max(1) as f64;
+                    let frames_per_beat = (60.0 / self.metronome_bpm.max(20.0)) * sr;
+                    let beat_idx = (self.playhead_frame as f64 / frames_per_beat).floor() as i64;
+                    if beat_idx != self.metronome_last_beat_idx {
+                        self.metronome_last_beat_idx = beat_idx;
+                        let bpb = self.metronome_beats_per_bar.max(1) as i64;
+                        self.metronome_freq_hz = if beat_idx % bpb == 0 { 1500.0 } else { 1000.0 };
+                        self.metronome_env = 0.35;
+                        self.metronome_phase = 0.0;
+                    }
+                    if self.metronome_env > 1e-4 {
+                        let click = (self.metronome_phase * std::f32::consts::TAU).sin()
+                            * self.metronome_env;
+                        self.metronome_phase =
+                            (self.metronome_phase + self.metronome_freq_hz / sr as f32).fract();
+                        self.metronome_env *= 0.996;
+                        l_sample += click;
+                        r_sample += click;
+                    }
+                }
 
                 let out_idx = f * 2;
                 output[out_idx] = l_sample;
@@ -373,19 +459,21 @@ impl AudioProcessor {
 
                 self.playhead_frame = self.playhead_frame.saturating_add(1);
 
-                // Auto-stop at end if not looping
-                if !self.loop_enabled && self.playhead_frame >= total_frames {
-                    self.is_playing = false;
-                    // Zero out remaining frames
-                    for rem in (f + 1)..num_frames {
-                        output[rem * 2] = 0.0;
-                        output[rem * 2 + 1] = 0.0;
+                // Auto-stop at end if not looping and metronome is off
+                if let Some(total_frames) = maybe_total_frames {
+                    if !self.loop_enabled
+                        && !self.metronome_enabled
+                        && self.playhead_frame >= total_frames
+                    {
+                        self.is_playing = false;
+                        for rem in (f + 1)..num_frames {
+                            output[rem * 2] = 0.0;
+                            output[rem * 2 + 1] = 0.0;
+                        }
+                        break;
                     }
-                    break;
                 }
             }
-        } else {
-            output.fill(0.0);
         }
 
         // Software input monitoring (live passthrough of inputs to playback outputs)
@@ -428,6 +516,7 @@ impl AudioProcessor {
             peak_right: peak_r,
             rms_left: rms_l,
             rms_right: rms_r,
+            track_peaks,
         });
     }
 }

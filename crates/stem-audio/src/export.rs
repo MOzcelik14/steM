@@ -28,6 +28,12 @@ pub enum ExportError {
     #[error("FLAC encoder error: {0}")]
     Flac(String),
 
+    #[error("MP3 encoder error: {0}")]
+    Mp3(String),
+
+    #[error("OGG Vorbis encoder error: {0}")]
+    Ogg(String),
+
     #[error("Resampling error: {0}")]
     Resample(#[from] stem_dsp::resample::ResampleError),
 
@@ -48,6 +54,8 @@ pub enum ExportError {
 pub enum ExportFormat {
     Wav,
     Flac,
+    Mp3,
+    Ogg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -71,6 +79,8 @@ pub struct ExportSettings {
     pub apply_dither: bool,
     pub normalize_target_lufs: Option<f32>,
     pub range: ExportRange,
+    pub mp3_bitrate_kbps: u16,
+    pub ogg_quality: f32,
 }
 
 impl Default for ExportSettings {
@@ -82,6 +92,8 @@ impl Default for ExportSettings {
             apply_dither: true,
             normalize_target_lufs: None,
             range: ExportRange::EntireProject,
+            mp3_bitrate_kbps: 192,
+            ogg_quality: 0.6,
         }
     }
 }
@@ -460,6 +472,8 @@ pub fn export_project_to_file<P: AsRef<Path>>(
     let res = match settings.format {
         ExportFormat::Wav => write_wav(&tmp_dest, &channels, settings),
         ExportFormat::Flac => write_flac(&tmp_dest, &channels, settings),
+        ExportFormat::Mp3 => write_mp3(&tmp_dest, &channels, settings),
+        ExportFormat::Ogg => write_ogg(&tmp_dest, &channels, settings),
     };
 
     if let Err(e) = res {
@@ -624,6 +638,93 @@ fn write_flac(
     Ok(())
 }
 
+fn write_mp3(
+    path: &Path,
+    channels: &[Vec<f32>],
+    settings: &ExportSettings,
+) -> Result<(), ExportError> {
+    use mp3lame_encoder::{Bitrate, Builder, DualPcm, FlushNoGap, Quality};
+
+    let mut builder =
+        Builder::new().ok_or_else(|| ExportError::Mp3("Failed to create LAME builder".into()))?;
+    builder
+        .set_num_channels(2)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+    builder
+        .set_sample_rate(settings.sample_rate)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+    let brate = match settings.mp3_bitrate_kbps {
+        0..=128 => Bitrate::Kbps128,
+        129..=192 => Bitrate::Kbps192,
+        193..=256 => Bitrate::Kbps256,
+        _ => Bitrate::Kbps320,
+    };
+    builder
+        .set_brate(brate)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+    builder
+        .set_quality(Quality::Best)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+    let mut encoder = builder
+        .build()
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+
+    let input = DualPcm {
+        left: &channels[0],
+        right: &channels[1],
+    };
+    let mut mp3_out_buffer =
+        Vec::with_capacity(mp3lame_encoder::max_required_buffer_size(channels[0].len()).max(7200));
+    encoder
+        .encode_to_vec(input, &mut mp3_out_buffer)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+    mp3_out_buffer.reserve(7200);
+    encoder
+        .flush_to_vec::<FlushNoGap>(&mut mp3_out_buffer)
+        .map_err(|e| ExportError::Mp3(format!("{e:?}")))?;
+
+    let mut file = File::create(path)?;
+    file.write_all(&mp3_out_buffer)?;
+    Ok(())
+}
+
+fn write_ogg(
+    path: &Path,
+    channels: &[Vec<f32>],
+    settings: &ExportSettings,
+) -> Result<(), ExportError> {
+    use std::num::{NonZeroU32, NonZeroU8};
+    use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
+
+    let sr = NonZeroU32::new(settings.sample_rate.max(8000))
+        .ok_or_else(|| ExportError::Ogg("Invalid sample rate".into()))?;
+    let ch = NonZeroU8::new(2).ok_or_else(|| ExportError::Ogg("Invalid channel count".into()))?;
+    let file = File::create(path)?;
+    let mut encoder = VorbisEncoderBuilder::new(sr, ch, file)
+        .map_err(|e| ExportError::Ogg(format!("{e:?}")))?
+        .bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+            target_quality: settings.ogg_quality.clamp(-0.1, 1.0),
+        })
+        .build()
+        .map_err(|e| ExportError::Ogg(format!("{e:?}")))?;
+
+    const BLOCK_FRAMES: usize = 4096;
+    let total = channels[0].len();
+    let mut offset = 0;
+    while offset < total {
+        let end = (offset + BLOCK_FRAMES).min(total);
+        encoder
+            .encode_audio_block([&channels[0][offset..end], &channels[1][offset..end]])
+            .map_err(|e| ExportError::Ogg(format!("{e:?}")))?;
+        offset = end;
+    }
+
+    encoder
+        .finish()
+        .map_err(|e| ExportError::Ogg(format!("{e:?}")))?;
+    Ok(())
+}
+
 /// Formats an export filename according to a template with tokens.
 /// Supported tokens:
 /// - `{project}`: Project title
@@ -737,5 +838,7 @@ pub fn export_buffer_to_file(
     match settings.format {
         ExportFormat::Wav => write_wav(dest, channels, settings),
         ExportFormat::Flac => write_flac(dest, channels, settings),
+        ExportFormat::Mp3 => write_mp3(dest, channels, settings),
+        ExportFormat::Ogg => write_ogg(dest, channels, settings),
     }
 }

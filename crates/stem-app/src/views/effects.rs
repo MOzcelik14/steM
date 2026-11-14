@@ -6,7 +6,8 @@ use egui::{pos2, vec2, Color32, Rounding, Stroke};
 use stem_core::project::{EqBandConfig, FilterType};
 use stem_dsp::biquad::BiquadCoeffs;
 use stem_dsp::chain::{
-    CompressorEffect, DelayEffect, EffectChain, EqEffect, InsertEffect, LimiterEffect, ReverbEffect,
+    CompressorEffect, DeEsserEffect, DelayEffect, EffectChain, EqEffect, InsertEffect,
+    LimiterEffect, NoiseGateEffect, ReverbEffect,
 };
 use stem_dsp::dynamics::Compressor;
 use stem_i18n::format_frequency;
@@ -24,6 +25,8 @@ pub enum EffectSlotType {
     Limiter,
     Delay,
     Reverb,
+    NoiseGate,
+    DeEsser,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +63,19 @@ pub struct EffectsRackState {
     pub reverb_room_size: f32,
     pub reverb_damping: f32,
     pub reverb_mix: f32,
+
+    // 6. Noise Gate parameters
+    pub gate_threshold_db: f32,
+    pub gate_attack_ms: f32,
+    pub gate_hold_ms: f32,
+    pub gate_release_ms: f32,
+    pub gate_range_db: f32,
+
+    // 7. De-Esser parameters
+    pub deesser_frequency_hz: f32,
+    pub deesser_threshold_db: f32,
+    pub deesser_ratio: f32,
+    pub deesser_range_db: f32,
 }
 
 impl Default for EffectsRackState {
@@ -85,6 +101,14 @@ impl Default for EffectsRackState {
                 },
                 EffectSlotState {
                     effect_type: EffectSlotType::Reverb,
+                    bypassed: true,
+                },
+                EffectSlotState {
+                    effect_type: EffectSlotType::NoiseGate,
+                    bypassed: true,
+                },
+                EffectSlotState {
+                    effect_type: EffectSlotType::DeEsser,
                     bypassed: true,
                 },
             ],
@@ -132,6 +156,15 @@ impl Default for EffectsRackState {
             reverb_room_size: 0.65,
             reverb_damping: 0.3,
             reverb_mix: 0.2,
+            gate_threshold_db: -42.0,
+            gate_attack_ms: 2.0,
+            gate_hold_ms: 40.0,
+            gate_release_ms: 120.0,
+            gate_range_db: -60.0,
+            deesser_frequency_hz: 6500.0,
+            deesser_threshold_db: -24.0,
+            deesser_ratio: 4.5,
+            deesser_range_db: -12.0,
         }
     }
 }
@@ -190,6 +223,29 @@ impl EffectsRackState {
                     );
                     reverb.bypassed = slot.bypassed;
                     chain.add_effect(InsertEffect::Reverb(reverb));
+                }
+                EffectSlotType::NoiseGate => {
+                    let mut gate = NoiseGateEffect::new(
+                        sample_rate,
+                        self.gate_threshold_db,
+                        self.gate_attack_ms,
+                        self.gate_hold_ms,
+                        self.gate_release_ms,
+                        self.gate_range_db,
+                    );
+                    gate.bypassed = slot.bypassed;
+                    chain.add_effect(InsertEffect::NoiseGate(gate));
+                }
+                EffectSlotType::DeEsser => {
+                    let mut deesser = DeEsserEffect::new(
+                        sample_rate,
+                        self.deesser_frequency_hz,
+                        self.deesser_threshold_db,
+                        self.deesser_ratio,
+                        self.deesser_range_db,
+                    );
+                    deesser.bypassed = slot.bypassed;
+                    chain.add_effect(InsertEffect::DeEsser(deesser));
                 }
             }
         }
@@ -251,7 +307,12 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
                                 app.i18n.t("effect-target-master"),
                             );
                             for (t_idx, track) in app.project.tracks.iter().enumerate() {
-                                let label = format!("Track {}: {}", t_idx + 1, track.name);
+                                let trk_label = app.i18n.t_arg(
+                                    "timeline-track-default-name",
+                                    "index",
+                                    (t_idx + 1).to_string(),
+                                );
+                                let label = format!("{trk_label}: {}", track.name);
                                 ui.selectable_value(
                                     &mut app.effects_state.target,
                                     EffectTarget::Track(t_idx),
@@ -268,6 +329,34 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
                 EffectTarget::Master => None,
                 EffectTarget::Track(idx) => Some(idx),
             };
+
+            // Rack Preset Bar
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(app.i18n.t("effect-presets-label")).size(11.5));
+                let mut apply_preset: Option<usize> = None;
+                if ui
+                    .small_button(app.i18n.t("effect-preset-podcast-vocal"))
+                    .clicked()
+                {
+                    apply_preset = Some(0);
+                }
+                if ui
+                    .small_button(app.i18n.t("effect-preset-warm-radio"))
+                    .clicked()
+                {
+                    apply_preset = Some(1);
+                }
+                if ui
+                    .small_button(app.i18n.t("effect-preset-clean-speech"))
+                    .clicked()
+                {
+                    apply_preset = Some(2);
+                }
+                if let Some(p) = apply_preset {
+                    apply_rack_preset(app, target_opt, p);
+                }
+            });
+            ui.separator();
 
             // Reorder actions or slots manipulation
             let mut move_up_idx: Option<usize> = None;
@@ -289,6 +378,8 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
                             EffectSlotType::Limiter => app.i18n.t("effect-limiter-title"),
                             EffectSlotType::Delay => app.i18n.t("effect-delay-title"),
                             EffectSlotType::Reverb => app.i18n.t("effect-reverb-title"),
+                            EffectSlotType::NoiseGate => app.i18n.t("effect-noise-gate"),
+                            EffectSlotType::DeEsser => app.i18n.t("effect-deesser"),
                         };
 
                         let header_color = if bypassed {
@@ -336,7 +427,7 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
 
                                         if ui
                                             .button(app.i18n.t("effect-btn-reset"))
-                                            .on_hover_text("Reset parameters to default")
+                                            .on_hover_text(app.i18n.t("effect-btn-reset-tooltip"))
                                             .clicked()
                                         {
                                             reset_idx = Some(slot_idx);
@@ -372,6 +463,12 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
                                 }
                                 EffectSlotType::Reverb => {
                                     render_reverb_controls(app, ui, target_opt, slot_idx);
+                                }
+                                EffectSlotType::NoiseGate => {
+                                    render_noise_gate_controls(app, ui, target_opt, slot_idx);
+                                }
+                                EffectSlotType::DeEsser => {
+                                    render_deesser_controls(app, ui, target_opt, slot_idx);
                                 }
                             }
                         });
@@ -431,6 +528,19 @@ pub fn render_effects_dialog(app: &mut StemApp, ctx: &egui::Context) {
                         app.effects_state.reverb_room_size = 0.65;
                         app.effects_state.reverb_damping = 0.3;
                         app.effects_state.reverb_mix = 0.2;
+                    }
+                    EffectSlotType::NoiseGate => {
+                        app.effects_state.gate_threshold_db = -42.0;
+                        app.effects_state.gate_attack_ms = 2.0;
+                        app.effects_state.gate_hold_ms = 40.0;
+                        app.effects_state.gate_release_ms = 120.0;
+                        app.effects_state.gate_range_db = -60.0;
+                    }
+                    EffectSlotType::DeEsser => {
+                        app.effects_state.deesser_frequency_hz = 6500.0;
+                        app.effects_state.deesser_threshold_db = -24.0;
+                        app.effects_state.deesser_ratio = 4.5;
+                        app.effects_state.deesser_range_db = -12.0;
                     }
                 }
                 if let Some(ref mut engine) = app.audio_engine {
@@ -599,7 +709,7 @@ fn render_parametric_eq_visualizer(
                     engine.set_effect_param(target_opt, slot_idx, (sel_idx as u8) + 12, val);
                 }
             }
-            ui.label("Freq:");
+            ui.label(app.i18n.t("effect-eq-freq-short"));
             if ui
                 .add(
                     egui::DragValue::new(&mut band.frequency)
@@ -617,7 +727,7 @@ fn render_parametric_eq_visualizer(
                     );
                 }
             }
-            ui.label("Gain (dB):");
+            ui.label(app.i18n.t("effect-eq-gain-short"));
             if ui
                 .add(
                     egui::DragValue::new(&mut band.gain_db)
@@ -897,6 +1007,253 @@ fn render_reverb_controls(
         {
             if let Some(ref mut engine) = app.audio_engine {
                 engine.set_effect_param(target_opt, slot_idx, 2, app.effects_state.reverb_mix);
+            }
+        }
+    });
+}
+
+fn apply_rack_preset(app: &mut StemApp, target_opt: Option<usize>, preset_idx: usize) {
+    // Enable relevant slots and set parameters in EffectsRackState & AudioEngine
+    let slot_index_of = |app: &StemApp, ty: EffectSlotType| -> Option<usize> {
+        app.effects_state
+            .slots
+            .iter()
+            .position(|s| s.effect_type == ty)
+    };
+
+    match preset_idx {
+        // 0: Podcast Vocal (NoiseGate + Compressor + DeEsser + Limiter)
+        0 => {
+            app.effects_state.gate_threshold_db = -42.0;
+            app.effects_state.comp_threshold_db = -18.0;
+            app.effects_state.comp_ratio = 3.5;
+            app.effects_state.comp_makeup_db = 3.0;
+            app.effects_state.deesser_frequency_hz = 6500.0;
+            app.effects_state.deesser_threshold_db = -24.0;
+            app.effects_state.deesser_ratio = 4.5;
+            app.effects_state.limiter_threshold_db = -1.0;
+
+            for slot in &mut app.effects_state.slots {
+                slot.bypassed = matches!(
+                    slot.effect_type,
+                    EffectSlotType::Delay | EffectSlotType::Reverb
+                );
+            }
+        }
+        // 1: Warm Radio (EQ + Compressor + DeEsser + Limiter)
+        1 => {
+            app.effects_state.bands[0].gain_db = 2.5;
+            app.effects_state.bands[2].gain_db = 1.5;
+            app.effects_state.comp_threshold_db = -20.0;
+            app.effects_state.comp_ratio = 4.0;
+            app.effects_state.comp_makeup_db = 4.0;
+            app.effects_state.deesser_frequency_hz = 7000.0;
+            app.effects_state.deesser_threshold_db = -22.0;
+            app.effects_state.limiter_threshold_db = -0.8;
+
+            for slot in &mut app.effects_state.slots {
+                slot.bypassed = matches!(
+                    slot.effect_type,
+                    EffectSlotType::Delay | EffectSlotType::Reverb | EffectSlotType::NoiseGate
+                );
+            }
+        }
+        // 2: Clean Speech (NoiseGate + EQ + Limiter)
+        _ => {
+            app.effects_state.gate_threshold_db = -45.0;
+            app.effects_state.bands[0].gain_db = -2.0;
+            app.effects_state.bands[2].gain_db = 2.0;
+            app.effects_state.limiter_threshold_db = -1.0;
+
+            for slot in &mut app.effects_state.slots {
+                slot.bypassed = !matches!(
+                    slot.effect_type,
+                    EffectSlotType::Equalizer | EffectSlotType::NoiseGate | EffectSlotType::Limiter
+                );
+            }
+        }
+    }
+
+    let slots_snapshot: Vec<(usize, EffectSlotType, bool)> = app
+        .effects_state
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (i, s.effect_type, s.bypassed))
+        .collect();
+
+    let comp_idx = slot_index_of(app, EffectSlotType::Compressor);
+    let lim_idx = slot_index_of(app, EffectSlotType::Limiter);
+    let gate_idx = slot_index_of(app, EffectSlotType::NoiseGate);
+    let deesser_idx = slot_index_of(app, EffectSlotType::DeEsser);
+
+    if let Some(ref mut engine) = app.audio_engine {
+        for (i, _ty, bypassed) in &slots_snapshot {
+            engine.set_effect_bypass(target_opt, *i, *bypassed);
+        }
+        if let Some(i) = comp_idx {
+            engine.set_effect_param(target_opt, i, 0, app.effects_state.comp_threshold_db);
+            engine.set_effect_param(target_opt, i, 1, app.effects_state.comp_ratio);
+            engine.set_effect_param(target_opt, i, 4, app.effects_state.comp_makeup_db);
+        }
+        if let Some(i) = lim_idx {
+            engine.set_effect_param(target_opt, i, 0, app.effects_state.limiter_threshold_db);
+        }
+        if let Some(i) = gate_idx {
+            engine.set_effect_param(target_opt, i, 0, app.effects_state.gate_threshold_db);
+        }
+        if let Some(i) = deesser_idx {
+            engine.set_effect_param(target_opt, i, 0, app.effects_state.deesser_frequency_hz);
+            engine.set_effect_param(target_opt, i, 1, app.effects_state.deesser_threshold_db);
+            engine.set_effect_param(target_opt, i, 2, app.effects_state.deesser_ratio);
+        }
+    }
+}
+
+fn render_noise_gate_controls(
+    app: &mut StemApp,
+    ui: &mut egui::Ui,
+    target_opt: Option<usize>,
+    slot_idx: usize,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(app.i18n.t("effect-threshold"));
+        if ui
+            .add(
+                egui::Slider::new(&mut app.effects_state.gate_threshold_db, -80.0..=-10.0)
+                    .suffix(" dB"),
+            )
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(
+                    target_opt,
+                    slot_idx,
+                    0,
+                    app.effects_state.gate_threshold_db,
+                );
+            }
+        }
+
+        ui.label(app.i18n.t("effect-attack"));
+        if ui
+            .add(egui::Slider::new(&mut app.effects_state.gate_attack_ms, 0.2..=50.0).suffix(" ms"))
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(target_opt, slot_idx, 1, app.effects_state.gate_attack_ms);
+            }
+        }
+
+        ui.label(app.i18n.t("effect-hold"));
+        if ui
+            .add(egui::Slider::new(&mut app.effects_state.gate_hold_ms, 0.0..=300.0).suffix(" ms"))
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(target_opt, slot_idx, 2, app.effects_state.gate_hold_ms);
+            }
+        }
+
+        ui.label(app.i18n.t("effect-release"));
+        if ui
+            .add(
+                egui::Slider::new(&mut app.effects_state.gate_release_ms, 10.0..=500.0)
+                    .suffix(" ms"),
+            )
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(target_opt, slot_idx, 3, app.effects_state.gate_release_ms);
+            }
+        }
+
+        ui.label(app.i18n.t("effect-range"));
+        if ui
+            .add(egui::Slider::new(&mut app.effects_state.gate_range_db, -80.0..=0.0).suffix(" dB"))
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(target_opt, slot_idx, 4, app.effects_state.gate_range_db);
+            }
+        }
+    });
+}
+
+fn render_deesser_controls(
+    app: &mut StemApp,
+    ui: &mut egui::Ui,
+    target_opt: Option<usize>,
+    slot_idx: usize,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(app.i18n.t("effect-frequency"));
+        if ui
+            .add(
+                egui::Slider::new(
+                    &mut app.effects_state.deesser_frequency_hz,
+                    3000.0..=12000.0,
+                )
+                .suffix(" Hz"),
+            )
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(
+                    target_opt,
+                    slot_idx,
+                    0,
+                    app.effects_state.deesser_frequency_hz,
+                );
+            }
+        }
+
+        ui.label(app.i18n.t("effect-threshold"));
+        if ui
+            .add(
+                egui::Slider::new(&mut app.effects_state.deesser_threshold_db, -50.0..=-5.0)
+                    .suffix(" dB"),
+            )
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(
+                    target_opt,
+                    slot_idx,
+                    1,
+                    app.effects_state.deesser_threshold_db,
+                );
+            }
+        }
+
+        ui.label(app.i18n.t("effect-ratio"));
+        if ui
+            .add(egui::Slider::new(
+                &mut app.effects_state.deesser_ratio,
+                1.5..=12.0,
+            ))
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(target_opt, slot_idx, 2, app.effects_state.deesser_ratio);
+            }
+        }
+
+        ui.label(app.i18n.t("effect-range"));
+        if ui
+            .add(
+                egui::Slider::new(&mut app.effects_state.deesser_range_db, -24.0..=-1.0)
+                    .suffix(" dB"),
+            )
+            .changed()
+        {
+            if let Some(ref mut engine) = app.audio_engine {
+                engine.set_effect_param(
+                    target_opt,
+                    slot_idx,
+                    3,
+                    app.effects_state.deesser_range_db,
+                );
             }
         }
     });

@@ -434,5 +434,82 @@ recovery-discard = Discard
 recovery-restored = Project session restored from crash recovery
 recovery-discarded = Crash recovery journal discarded
 
+# v0.2.0 Features
+snap-grid-label = Snap
+snap-off = Off
+snap-seconds = 1s
+snap-half-second = 0.5s
+snap-beats = Beat
+snap-bars = Bar
+metronome-toggle = Click
+auto-crossfade-toggle = Auto X-Fade
+drop-audio-hint = Drop audio files onto a track to import
+
+menu-new-from-template = New Project from Template
+template-empty = Empty Project
+template-podcast-two-hosts = 2-Host Podcast
+template-vocal-backing = Vocal + Backing Track
+template-audio-restoration = Audio Restoration
+
+edit-selection-submenu = Time Selection
+action-ripple-delete-selection = Ripple Delete Selection
+action-silence-selection = Silence Selection
+action-split-at-selection = Split Clips at Selection
+action-export-selection = Export Selection...
+
+effect-noise-gate = Noise Gate
+effect-deesser = De-Esser
+effect-hold = Hold (ms)
+effect-range = Range (dB)
+effect-presets-label = Rack Preset:
+effect-preset-select = Choose Preset...
+effect-preset-podcast-vocal = Podcast Vocal
+effect-preset-warm-radio = Warm Radio
+effect-preset-clean-speech = Clean Speech
+
+export-mp3-bitrate = MP3 Bitrate:
+export-ogg-quality = OGG Quality:
+export-lufs-streaming = -14 LUFS (Streaming)
+export-lufs-podcast = -16 LUFS (Podcast)
+export-lufs-ebu = -23 LUFS (EBU R128)
+export-chapter-markers = Export Chapter Markers (.txt)
+export-chapters-completed = Chapter markers exported
+
+timeline-tracks-header = Tracks ({ $count })
+timeline-add-track = + Add Track
+timeline-add-track-tooltip = Add a new audio track
+timeline-track-default-name = Track { $index }
+effect-btn-reset-tooltip = Reset parameters to default
+effect-eq-freq-short = Freq:
+effect-eq-gain-short = Gain (dB):
+dialog-loudness-no-data = No analysis data available. Click Re-analyze to measure.
+dialog-btn-save = Save
+dialog-marker-default-label = Marker
+nr-capture-profile-tooltip = Capture noise profile from current waveform selection
+waveform-back-multitrack-tooltip = Return to Multitrack timeline (Key: 1)
+waveform-undo-tooltip = Undo (Ctrl+Z)
+waveform-redo-tooltip = Redo (Ctrl+Y)
+waveform-cut-tooltip = Cut selection to clipboard (Ctrl+X)
+waveform-copy-tooltip = Copy selection to clipboard (Ctrl+C)
+waveform-paste-tooltip = Paste from clipboard (Ctrl+V)
+waveform-delete-tooltip = Delete selection (Delete)
+waveform-trim-tooltip = Trim to selection (Ctrl+T)
+waveform-silence-tooltip = Insert 1 second of silence at cursor or selection (Ctrl+I)
+waveform-reverse-tooltip = Reverse selected range or entire document
+waveform-invert-tooltip = Invert phase of selected range or entire document
+waveform-normalize-tooltip = Peak normalize audio range to target dBFS
+waveform-effects-tooltip = Open Insert Effects Rack with live preview
+waveform-click-remover-tooltip = Open Click & Pop Remover
+waveform-loudness-tooltip = Open EBU R128 Loudness Report
+waveform-zero-crossing-tooltip = Automatically snap selection boundaries to the nearest zero-crossing
+waveform-loop-sel-tooltip = Loop playback within the active time selection
+waveform-apply-project-tooltip = Save edited waveform back to project clip
+waveform-clear-sel-tooltip = Clear selection
+waveform-zoom-out-tooltip = Zoom Out (Ctrl+Minus)
+waveform-zoom-in-tooltip = Zoom In (Ctrl+Plus)
+waveform-zoom-reset-tooltip = Reset Zoom
+
+
+
 
 

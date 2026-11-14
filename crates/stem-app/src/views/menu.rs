@@ -30,6 +30,31 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 app.action_new_project();
                 ui.close_menu();
             }
+            ui.menu_button(app.i18n.t("menu-new-from-template"), |ui| {
+                use stem_core::project::ProjectTemplate;
+                if ui.button(app.i18n.t("template-empty")).clicked() {
+                    app.action_new_project_from_template(ProjectTemplate::Empty);
+                    ui.close_menu();
+                }
+                if ui
+                    .button(app.i18n.t("template-podcast-two-hosts"))
+                    .clicked()
+                {
+                    app.action_new_project_from_template(ProjectTemplate::PodcastTwoHosts);
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("template-vocal-backing")).clicked() {
+                    app.action_new_project_from_template(ProjectTemplate::VocalAndBacking);
+                    ui.close_menu();
+                }
+                if ui
+                    .button(app.i18n.t("template-audio-restoration"))
+                    .clicked()
+                {
+                    app.action_new_project_from_template(ProjectTemplate::AudioRestoration);
+                    ui.close_menu();
+                }
+            });
             if ui.button(app.i18n.t("menu-file-load-demo")).clicked() {
                 app.action_load_demo();
                 ui.close_menu();
@@ -218,6 +243,56 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     app.action_delete_selected_clip();
                     ui.close_menu();
                 }
+                ui.separator();
+                let has_sel = app.timeline_state.time_selection.is_some();
+                ui.menu_button(app.i18n.t("edit-selection-submenu"), |ui| {
+                    if ui
+                        .add_enabled(
+                            has_sel,
+                            egui::Button::new(app.i18n.t("action-ripple-delete-selection")),
+                        )
+                        .clicked()
+                    {
+                        app.action_ripple_delete_selection();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_sel,
+                            egui::Button::new(app.i18n.t("action-silence-selection")),
+                        )
+                        .clicked()
+                    {
+                        app.action_silence_selection();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_sel,
+                            egui::Button::new(app.i18n.t("action-split-at-selection")),
+                        )
+                        .clicked()
+                    {
+                        app.action_split_at_selection();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .add_enabled(
+                            has_sel,
+                            egui::Button::new(app.i18n.t("action-export-selection")),
+                        )
+                        .clicked()
+                    {
+                        if let Some((s, e)) = app.timeline_state.time_selection {
+                            app.export_settings.range = stem_audio::ExportRange::TimeRange {
+                                start_frame: s.min(e),
+                                end_frame: s.max(e),
+                            };
+                            app.show_export_dialog = true;
+                        }
+                        ui.close_menu();
+                    }
+                });
             }
             ui.separator();
             if ui.button(app.i18n.t("dialog-keybindings-title")).clicked() {

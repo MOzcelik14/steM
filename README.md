@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/Version-0.1.5-blue.svg" alt="Version 0.1.5" /></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/Version-0.5.0-blue.svg" alt="Version 0.5.0" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-green.svg" alt="License: GPL-3.0" /></a>
   <img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey.svg" alt="Platform: Linux | Windows" />
 </p>

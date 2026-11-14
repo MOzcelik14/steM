@@ -292,6 +292,9 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 .changed()
             {
                 app.project.tempo_bpm = tempo;
+                if app.metronome_enabled {
+                    app.action_set_metronome(true);
+                }
             }
 
             ui.label(egui::RichText::new(app.i18n.t("transport-time-signature")).size(11.0));
@@ -313,6 +316,88 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 .clicked()
             {
                 app.show_effects_dialog = !app.show_effects_dialog;
+            }
+
+            // Snap-to-Grid Selector
+            {
+                use stem_core::project::SnapGridMode;
+                let snap_label = match app.timeline_state.snap_mode {
+                    SnapGridMode::Off => app.i18n.t("snap-off"),
+                    SnapGridMode::Seconds => app.i18n.t("snap-seconds"),
+                    SnapGridMode::HalfSecond => app.i18n.t("snap-half-second"),
+                    SnapGridMode::Beats => app.i18n.t("snap-beats"),
+                    SnapGridMode::Bars => app.i18n.t("snap-bars"),
+                };
+                ui.label(egui::RichText::new(app.i18n.t("snap-grid-label")).size(11.0));
+                egui::ComboBox::from_id_salt("transport_snap_grid")
+                    .selected_text(egui::RichText::new(snap_label).size(11.0))
+                    .width(64.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut app.timeline_state.snap_mode,
+                            SnapGridMode::Off,
+                            app.i18n.t("snap-off"),
+                        );
+                        ui.selectable_value(
+                            &mut app.timeline_state.snap_mode,
+                            SnapGridMode::Seconds,
+                            app.i18n.t("snap-seconds"),
+                        );
+                        ui.selectable_value(
+                            &mut app.timeline_state.snap_mode,
+                            SnapGridMode::HalfSecond,
+                            app.i18n.t("snap-half-second"),
+                        );
+                        ui.selectable_value(
+                            &mut app.timeline_state.snap_mode,
+                            SnapGridMode::Beats,
+                            app.i18n.t("snap-beats"),
+                        );
+                        ui.selectable_value(
+                            &mut app.timeline_state.snap_mode,
+                            SnapGridMode::Bars,
+                            app.i18n.t("snap-bars"),
+                        );
+                    });
+            }
+
+            // Metronome Toggle
+            let metro_btn = egui::Button::new(
+                egui::RichText::new(app.i18n.t("metronome-toggle"))
+                    .size(11.0)
+                    .color(if app.metronome_enabled {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_gray(190)
+                    }),
+            )
+            .fill(if app.metronome_enabled {
+                Color32::from_rgb(38, 128, 210)
+            } else {
+                Color32::from_rgb(30, 35, 45)
+            });
+            if ui.add(metro_btn).clicked() {
+                app.action_set_metronome(!app.metronome_enabled);
+            }
+
+            // Auto Crossfade Toggle
+            let xfade_on = app.timeline_state.auto_crossfade;
+            let xfade_btn = egui::Button::new(
+                egui::RichText::new(app.i18n.t("auto-crossfade-toggle"))
+                    .size(11.0)
+                    .color(if xfade_on {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_gray(190)
+                    }),
+            )
+            .fill(if xfade_on {
+                Color32::from_rgb(38, 148, 118)
+            } else {
+                Color32::from_rgb(30, 35, 45)
+            });
+            if ui.add(xfade_btn).clicked() {
+                app.timeline_state.auto_crossfade = !xfade_on;
             }
 
             ui.separator();

@@ -237,6 +237,8 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("WAV Audio", &["wav", "WAV"])
                                     .add_filter("FLAC Audio", &["flac", "FLAC"])
+                                    .add_filter("MP3 Audio", &["mp3", "MP3"])
+                                    .add_filter("OGG Vorbis", &["ogg", "OGG"])
                                     .save_file()
                                 {
                                     app.export_destination_path =
@@ -260,7 +262,50 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                                 ExportFormat::Flac,
                                 app.i18n.t("export-format-flac"),
                             );
+                            ui.radio_value(
+                                &mut app.export_settings.format,
+                                ExportFormat::Mp3,
+                                "MP3",
+                            );
+                            ui.radio_value(
+                                &mut app.export_settings.format,
+                                ExportFormat::Ogg,
+                                "OGG",
+                            );
                         });
+
+                        // MP3 Bitrate or OGG Quality
+                        if app.export_settings.format == ExportFormat::Mp3 {
+                            ui.horizontal(|ui| {
+                                ui.label(app.i18n.t("export-mp3-bitrate"));
+                                ui.radio_value(
+                                    &mut app.export_settings.mp3_bitrate_kbps,
+                                    128,
+                                    "128 kbps",
+                                );
+                                ui.radio_value(
+                                    &mut app.export_settings.mp3_bitrate_kbps,
+                                    192,
+                                    "192 kbps",
+                                );
+                                ui.radio_value(
+                                    &mut app.export_settings.mp3_bitrate_kbps,
+                                    320,
+                                    "320 kbps",
+                                );
+                            });
+                        } else if app.export_settings.format == ExportFormat::Ogg {
+                            ui.horizontal(|ui| {
+                                ui.label(app.i18n.t("export-ogg-quality"));
+                                ui.add(
+                                    egui::Slider::new(
+                                        &mut app.export_settings.ogg_quality,
+                                        0.1..=1.0,
+                                    )
+                                    .fixed_decimals(2),
+                                );
+                            });
+                        }
 
                         // Sample Rate
                         ui.horizontal(|ui| {
@@ -286,27 +331,32 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                                 });
                         });
 
-                        // Bit Depth
-                        ui.horizontal(|ui| {
-                            ui.label(app.i18n.t("export-bit-depth"));
-                            ui.radio_value(
-                                &mut app.export_settings.bit_depth,
-                                BitDepth::Bit16,
-                                app.i18n.t("export-16bit"),
-                            );
-                            ui.radio_value(
-                                &mut app.export_settings.bit_depth,
-                                BitDepth::Bit24,
-                                app.i18n.t("export-24bit"),
-                            );
-                            if app.export_settings.format == ExportFormat::Wav {
+                        // Bit Depth (for lossless formats)
+                        if matches!(
+                            app.export_settings.format,
+                            ExportFormat::Wav | ExportFormat::Flac
+                        ) {
+                            ui.horizontal(|ui| {
+                                ui.label(app.i18n.t("export-bit-depth"));
                                 ui.radio_value(
                                     &mut app.export_settings.bit_depth,
-                                    BitDepth::Float32,
-                                    app.i18n.t("export-32bit-float"),
+                                    BitDepth::Bit16,
+                                    app.i18n.t("export-16bit"),
                                 );
-                            }
-                        });
+                                ui.radio_value(
+                                    &mut app.export_settings.bit_depth,
+                                    BitDepth::Bit24,
+                                    app.i18n.t("export-24bit"),
+                                );
+                                if app.export_settings.format == ExportFormat::Wav {
+                                    ui.radio_value(
+                                        &mut app.export_settings.bit_depth,
+                                        BitDepth::Float32,
+                                        app.i18n.t("export-32bit-float"),
+                                    );
+                                }
+                            });
+                        }
 
                         // Export Range
                         ui.horizontal(|ui| {
@@ -319,10 +369,11 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                             {
                                 app.export_settings.range = ExportRange::EntireProject;
                             }
-                            let has_clip = app.timeline_state.selected_clip_id.is_some();
+                            let has_range_or_clip = app.timeline_state.time_selection.is_some()
+                                || app.timeline_state.selected_clip_id.is_some();
                             if ui
                                 .add_enabled(
-                                    has_clip,
+                                    has_range_or_clip,
                                     egui::SelectableLabel::new(
                                         !is_entire,
                                         app.i18n.t("export-range-selection"),
@@ -330,7 +381,12 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                                 )
                                 .clicked()
                             {
-                                if let Some(clip_id) = app.timeline_state.selected_clip_id {
+                                if let Some((s, e)) = app.timeline_state.time_selection {
+                                    app.export_settings.range = ExportRange::TimeRange {
+                                        start_frame: s,
+                                        end_frame: e,
+                                    };
+                                } else if let Some(clip_id) = app.timeline_state.selected_clip_id {
                                     for track in &app.project.tracks {
                                         if let Some(clip) =
                                             track.clips.iter().find(|c| c.id == clip_id)
@@ -353,7 +409,7 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                             app.i18n.t("export-dither-enabled"),
                         );
 
-                        // Normalize Before Export
+                        // Normalize Before Export + LUFS Presets
                         let mut normalize = app.export_settings.normalize_target_lufs.is_some();
                         if ui
                             .checkbox(&mut normalize, app.i18n.t("export-normalize-before"))
@@ -361,6 +417,24 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                         {
                             app.export_settings.normalize_target_lufs =
                                 if normalize { Some(-14.0) } else { None };
+                        }
+                        if let Some(ref mut lufs) = app.export_settings.normalize_target_lufs {
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    lufs,
+                                    -14.0,
+                                    app.i18n.t("export-lufs-streaming"),
+                                );
+                                ui.selectable_value(lufs, -16.0, app.i18n.t("export-lufs-podcast"));
+                                ui.selectable_value(lufs, -23.0, app.i18n.t("export-lufs-ebu"));
+                            });
+                        }
+
+                        if !app.project.markers.is_empty() {
+                            ui.add_space(4.0);
+                            if ui.button(app.i18n.t("export-chapter-markers")).clicked() {
+                                app.action_export_chapter_markers();
+                            }
                         }
                     });
 
@@ -511,7 +585,7 @@ fn render_noise_reduction_dialog(app: &mut StemApp, ctx: &egui::Context) {
                             has_sel,
                             egui::Button::new(app.i18n.t("cleanup-btn-capture")),
                         )
-                        .on_hover_text("Capture noise profile from current waveform selection")
+                        .on_hover_text(app.i18n.t("nr-capture-profile-tooltip"))
                         .clicked()
                     {
                         app.action_capture_noise_profile();
@@ -769,7 +843,7 @@ fn render_loudness_report_dialog(app: &mut StemApp, ctx: &egui::Context) {
                             ui.end_row();
                         });
                 } else {
-                    ui.label("No analysis data available. Click Re-analyze to measure.");
+                    ui.label(app.i18n.t("dialog-loudness-no-data"));
                 }
 
                 ui.add_space(8.0);
@@ -824,7 +898,7 @@ fn render_named_marker_dialog(app: &mut StemApp, ctx: &egui::Context) {
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if ui.button(app.i18n.t("dialog-btn-save")).clicked() {
                         if let Some(id) = app.named_marker_state.edit_marker_id {
                             if let Some(m) = app.project.markers.iter_mut().find(|m| m.id == id) {
                                 m.name = app.named_marker_state.marker_name.clone();
@@ -902,7 +976,7 @@ fn render_marker_list_dialog(app: &mut StemApp, ctx: &egui::Context) {
                                             "CD Track",
                                         );
                                     } else {
-                                        ui.label("Marker");
+                                        ui.label(app.i18n.t("dialog-marker-default-label"));
                                     }
                                     ui.horizontal(|ui| {
                                         if ui.small_button(app.i18n.t("marker-jump")).clicked() {
@@ -998,6 +1072,8 @@ fn render_batch_export_dialog(app: &mut StemApp, ctx: &egui::Context) {
                         .selected_text(match app.batch_export_state.format {
                             stem_audio::ExportFormat::Wav => "WAV",
                             stem_audio::ExportFormat::Flac => "FLAC",
+                            stem_audio::ExportFormat::Mp3 => "MP3",
+                            stem_audio::ExportFormat::Ogg => "OGG",
                         })
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
@@ -1009,6 +1085,16 @@ fn render_batch_export_dialog(app: &mut StemApp, ctx: &egui::Context) {
                                 &mut app.batch_export_state.format,
                                 stem_audio::ExportFormat::Flac,
                                 "FLAC",
+                            );
+                            ui.selectable_value(
+                                &mut app.batch_export_state.format,
+                                stem_audio::ExportFormat::Mp3,
+                                "MP3",
+                            );
+                            ui.selectable_value(
+                                &mut app.batch_export_state.format,
+                                stem_audio::ExportFormat::Ogg,
+                                "OGG",
                             );
                         });
 

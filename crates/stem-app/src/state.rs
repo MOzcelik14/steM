@@ -120,6 +120,12 @@ pub enum DragOp {
     DragSelectionLeft,
     DragSelectionRight,
     ScrubPlayhead,
+    AdjustClipGain {
+        clip_id: Uuid,
+        track_id: Uuid,
+        orig_gain_db: f32,
+        drag_start_y: f32,
+    },
 }
 
 #[allow(dead_code)]
@@ -147,6 +153,10 @@ pub struct TimelineViewState {
     pub active_automation_target: stem_core::project::AutomationTarget,
     /// Currently dragged automation point (track_id, point_idx).
     pub drag_automation_point: Option<(Uuid, usize)>,
+    /// Snap-to-grid mode for timeline editing.
+    pub snap_mode: stem_core::project::SnapGridMode,
+    /// Automatically create equal-power S-curve crossfades when clips overlap.
+    pub auto_crossfade: bool,
 }
 
 impl Default for TimelineViewState {
@@ -163,6 +173,8 @@ impl Default for TimelineViewState {
             expanded_automation_track_id: None,
             active_automation_target: stem_core::project::AutomationTarget::Volume,
             drag_automation_point: None,
+            snap_mode: stem_core::project::SnapGridMode::Off,
+            auto_crossfade: true,
         }
     }
 }
@@ -188,6 +200,8 @@ pub enum WorkerMessage {
     ImportComplete {
         decoded: Box<DecodedAudio>,
         pyramid: Box<PeakPyramid>,
+        target_track_idx: Option<usize>,
+        target_offset_frames: Option<u64>,
     },
     ImportFailed(String),
     ExportProgress(f32),

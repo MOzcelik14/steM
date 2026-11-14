@@ -6,7 +6,7 @@
 use stem_core::project::{EqBandConfig, FilterType};
 
 use crate::biquad::{BiquadCoeffs, BiquadFilter};
-use crate::dynamics::{Compressor, Limiter};
+use crate::dynamics::{Compressor, DeEsser, Limiter, NoiseGate};
 use crate::spatial::{Delay, Reverb};
 
 /// Exponential one-pole smoothing filter for continuous parameters (gain, mix, frequency).
@@ -582,6 +582,166 @@ impl ReverbEffect {
     }
 }
 
+/// Stereo Noise Gate Insert Effect.
+#[derive(Clone)]
+pub struct NoiseGateEffect {
+    pub bypassed: bool,
+    pub threshold_db: f32,
+    pub attack_ms: f32,
+    pub hold_ms: f32,
+    pub release_ms: f32,
+    pub range_db: f32,
+    gate_l: NoiseGate,
+    gate_r: NoiseGate,
+}
+
+impl NoiseGateEffect {
+    pub fn new(
+        sample_rate: f32,
+        threshold_db: f32,
+        attack_ms: f32,
+        hold_ms: f32,
+        release_ms: f32,
+        range_db: f32,
+    ) -> Self {
+        Self {
+            bypassed: false,
+            threshold_db,
+            attack_ms,
+            hold_ms,
+            release_ms,
+            range_db,
+            gate_l: NoiseGate::new(
+                sample_rate,
+                threshold_db,
+                attack_ms,
+                hold_ms,
+                release_ms,
+                range_db,
+            ),
+            gate_r: NoiseGate::new(
+                sample_rate,
+                threshold_db,
+                attack_ms,
+                hold_ms,
+                release_ms,
+                range_db,
+            ),
+        }
+    }
+
+    pub fn set_param(&mut self, param_id: u8, value: f32) {
+        match param_id {
+            0 => self.threshold_db = value.clamp(-80.0, 0.0),
+            1 => self.attack_ms = value.clamp(0.1, 100.0),
+            2 => self.hold_ms = value.clamp(0.0, 1000.0),
+            3 => self.release_ms = value.clamp(5.0, 2000.0),
+            4 => self.range_db = value.clamp(-96.0, 0.0),
+            _ => return,
+        }
+        self.gate_l.set_params(
+            self.threshold_db,
+            self.attack_ms,
+            self.hold_ms,
+            self.release_ms,
+            self.range_db,
+        );
+        self.gate_r.set_params(
+            self.threshold_db,
+            self.attack_ms,
+            self.hold_ms,
+            self.release_ms,
+            self.range_db,
+        );
+    }
+
+    pub fn reset(&mut self) {
+        self.gate_l.reset();
+        self.gate_r.reset();
+    }
+
+    #[inline]
+    pub fn process_stereo(&mut self, left: f32, right: f32) -> (f32, f32) {
+        if self.bypassed {
+            return (left, right);
+        }
+        (
+            self.gate_l.process_sample(left),
+            self.gate_r.process_sample(right),
+        )
+    }
+}
+
+/// Stereo Split-Band De-Esser Insert Effect.
+#[derive(Clone)]
+pub struct DeEsserEffect {
+    pub bypassed: bool,
+    pub frequency_hz: f32,
+    pub threshold_db: f32,
+    pub ratio: f32,
+    pub range_db: f32,
+    deesser_l: DeEsser,
+    deesser_r: DeEsser,
+}
+
+impl DeEsserEffect {
+    pub fn new(
+        sample_rate: f32,
+        frequency_hz: f32,
+        threshold_db: f32,
+        ratio: f32,
+        range_db: f32,
+    ) -> Self {
+        Self {
+            bypassed: false,
+            frequency_hz,
+            threshold_db,
+            ratio,
+            range_db,
+            deesser_l: DeEsser::new(sample_rate, frequency_hz, threshold_db, ratio, range_db),
+            deesser_r: DeEsser::new(sample_rate, frequency_hz, threshold_db, ratio, range_db),
+        }
+    }
+
+    pub fn set_param(&mut self, param_id: u8, value: f32) {
+        match param_id {
+            0 => self.frequency_hz = value.clamp(2500.0, 12000.0),
+            1 => self.threshold_db = value.clamp(-50.0, 0.0),
+            2 => self.ratio = value.clamp(1.0, 10.0),
+            3 => self.range_db = value.clamp(-24.0, 0.0),
+            _ => return,
+        }
+        self.deesser_l.set_params(
+            self.frequency_hz,
+            self.threshold_db,
+            self.ratio,
+            self.range_db,
+        );
+        self.deesser_r.set_params(
+            self.frequency_hz,
+            self.threshold_db,
+            self.ratio,
+            self.range_db,
+        );
+    }
+
+    pub fn reset(&mut self) {
+        self.deesser_l.reset();
+        self.deesser_r.reset();
+    }
+
+    #[inline]
+    pub fn process_stereo(&mut self, left: f32, right: f32) -> (f32, f32) {
+        if self.bypassed {
+            return (left, right);
+        }
+        (
+            self.deesser_l.process_sample(left),
+            self.deesser_r.process_sample(right),
+        )
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Unified Insert Effect Enum & Chain
 // -----------------------------------------------------------------------------
@@ -593,6 +753,8 @@ pub enum InsertEffect {
     Limiter(LimiterEffect),
     Delay(DelayEffect),
     Reverb(ReverbEffect),
+    NoiseGate(NoiseGateEffect),
+    DeEsser(DeEsserEffect),
 }
 
 impl InsertEffect {
@@ -603,6 +765,8 @@ impl InsertEffect {
             InsertEffect::Limiter(_) => "Limiter",
             InsertEffect::Delay(_) => "Delay",
             InsertEffect::Reverb(_) => "Reverb",
+            InsertEffect::NoiseGate(_) => "Noise Gate",
+            InsertEffect::DeEsser(_) => "De-Esser",
         }
     }
 
@@ -613,6 +777,8 @@ impl InsertEffect {
             InsertEffect::Limiter(e) => e.bypassed,
             InsertEffect::Delay(e) => e.bypassed,
             InsertEffect::Reverb(e) => e.bypassed,
+            InsertEffect::NoiseGate(e) => e.bypassed,
+            InsertEffect::DeEsser(e) => e.bypassed,
         }
     }
 
@@ -623,6 +789,8 @@ impl InsertEffect {
             InsertEffect::Limiter(e) => e.bypassed = bypassed,
             InsertEffect::Delay(e) => e.bypassed = bypassed,
             InsertEffect::Reverb(e) => e.bypassed = bypassed,
+            InsertEffect::NoiseGate(e) => e.bypassed = bypassed,
+            InsertEffect::DeEsser(e) => e.bypassed = bypassed,
         }
     }
 
@@ -633,6 +801,8 @@ impl InsertEffect {
             InsertEffect::Limiter(e) => e.set_param(param_id, value),
             InsertEffect::Delay(e) => e.set_param(param_id, value),
             InsertEffect::Reverb(e) => e.set_param(param_id, value),
+            InsertEffect::NoiseGate(e) => e.set_param(param_id, value),
+            InsertEffect::DeEsser(e) => e.set_param(param_id, value),
         }
     }
 
@@ -643,6 +813,8 @@ impl InsertEffect {
             InsertEffect::Limiter(e) => e.reset(),
             InsertEffect::Delay(e) => e.reset(),
             InsertEffect::Reverb(e) => e.reset(),
+            InsertEffect::NoiseGate(e) => e.reset(),
+            InsertEffect::DeEsser(e) => e.reset(),
         }
     }
 
@@ -654,6 +826,8 @@ impl InsertEffect {
             InsertEffect::Limiter(e) => e.process_stereo(left, right),
             InsertEffect::Delay(e) => e.process_stereo(left, right),
             InsertEffect::Reverb(e) => e.process_stereo(left, right),
+            InsertEffect::NoiseGate(e) => e.process_stereo(left, right),
+            InsertEffect::DeEsser(e) => e.process_stereo(left, right),
         }
     }
 }
@@ -672,7 +846,7 @@ impl EffectChain {
         }
     }
 
-    /// Creates a default insert chain with all 5 core effects (EQ, Compressor, Limiter, Delay, Reverb).
+    /// Creates a default insert chain with all core effects (EQ, Compressor, Limiter, Delay, Reverb, NoiseGate, DeEsser).
     pub fn default_chain(sample_rate: f32) -> Self {
         let mut chain = Self::new();
         // EQ is active by default with flat bands
@@ -697,6 +871,16 @@ impl EffectChain {
         let mut reverb = ReverbEffect::new(sample_rate, 0.65, 0.3, 0.2);
         reverb.bypassed = true;
         chain.add_effect(InsertEffect::Reverb(reverb));
+
+        // Noise Gate bypassed by default
+        let mut gate = NoiseGateEffect::new(sample_rate, -45.0, 2.0, 60.0, 120.0, -40.0);
+        gate.bypassed = true;
+        chain.add_effect(InsertEffect::NoiseGate(gate));
+
+        // De-Esser bypassed by default
+        let mut deesser = DeEsserEffect::new(sample_rate, 6500.0, -22.0, 4.0, -9.0);
+        deesser.bypassed = true;
+        chain.add_effect(InsertEffect::DeEsser(deesser));
 
         chain
     }

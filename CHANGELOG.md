@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-11-14
+
+### Added
+- **Workflow & Ergonomics**:
+  - **Drag & Drop Audio Import**: Drop `.wav`, `.mp3`, `.flac`, `.ogg`, `.aac`, `.m4a` files directly onto timeline tracks at the cursor position.
+  - **Time Selection Actions**: Direct Ripple Delete, Split at Selection, Silence Selection, and Export Selected Range from the timeline context and export dialog.
+  - **Snap to Grid & Auto-Crossfade**: Transport `Snap` toggle with Second / Beat / Bar grid modes, plus automatic equal-power crossfades when overlapping clips on the same track.
+- **Podcast & Creator Audio Tools**:
+  - **Noise Gate & De-Esser DSP Modules**: Real-time zero-allocation Noise Gate (threshold, attack, hold, release, range) and sidechain band-pass De-Esser in `stem-dsp`.
+  - **Effect Rack Presets**: One-click chains for *Podcast Vocal*, *Warm Radio*, and *Clean Speech*.
+  - **MP3 & OGG Vorbis Export**: Lossy export support via `mp3lame-encoder` (128 / 192 / 320 kbps CBR) and `vorbis_rs` (quality presets).
+  - **Platform Loudness Targets**: EBU R128 normalization presets for Spotify/YouTube (`-14.0 LUFS`), Podcasts (`-16.0 LUFS`), and Broadcast (`-23.0 LUFS`).
+- **Recording & Mixer Experience**:
+  - **Audible Metronome (Click Track)**: Zero-allocation oscillator click synthesis in the audio callback with transport toggle, BPM sync, and count-in/recording support.
+  - **Per-Track Live VU Meters**: Lock-free `track_peaks` telemetry rendered live on timeline track headers and mixer channel strips.
+  - **Clip Gain Line**: Drag the horizontal clip gain handle directly on clip bodies (`-24 dB` to `+12 dB`) with live dB feedback.
+- **Project & Batch Export**:
+  - **Project Templates**: *Empty Project*, *2-Person Podcast*, *Vocal + Backing Track*, and *Audio Cleanup Studio* under *File -> New from Template*.
+  - **Chapter Marker Batch Export**: Export marker-delimited segments into numbered audio files automatically.
+- **Complete EN/TR Localization**:
+  - Added full English and Turkish translations across timeline, effects rack, waveform editor, and dialogs with strict key-parity tests.
+
+### Fixed
+- **Add Track Index-Out-Of-Bounds Panic**: Fixed panic in `render_timeline_view` when adding or deleting tracks dynamically during UI rendering by recomputing `track_heights` and `track_y_offsets` before drawing waveform lanes.
+- **Metronome Playback on Empty Timeline**: Fixed `process_interleaved` so metronome clicks synthesize even when no audio clips are loaded or past the end of existing clips, and synced BPM changes immediately while playing.
+
+---
+
 ## [0.1.5] - 2026-11-07
 
 ### Added

@@ -434,4 +434,81 @@ recovery-discard = Yoksay ve Sil
 recovery-restored = Proje oturumu çökme kaydından kurtarıldı
 recovery-discarded = Çökme kurtarma kaydı silindi
 
+# v0.2.0 Özellikleri
+snap-grid-label = Hizala
+snap-off = Kapalı
+snap-seconds = 1 sn
+snap-half-second = 0.5 sn
+snap-beats = Vuruş
+snap-bars = Ölçü
+metronome-toggle = Metronom
+auto-crossfade-toggle = Oto Geçiş
+drop-audio-hint = İçe aktarmak için ses dosyalarını bir ize bırakın
+
+menu-new-from-template = Şablondan Yeni Proje
+template-empty = Boş Proje
+template-podcast-two-hosts = 2 Kişilik Podcast
+template-vocal-backing = Vokal + Altyapı
+template-audio-restoration = Ses Temizleme
+
+edit-selection-submenu = Zaman Seçimi
+action-ripple-delete-selection = Seçimi Kaydırarak Sil (Ripple)
+action-silence-selection = Seçimi Sustur
+action-split-at-selection = Seçim Sınırlarından Böl
+action-export-selection = Seçimi Dışa Aktar...
+
+effect-noise-gate = Gürültü Kapısı (Gate)
+effect-deesser = De-Esser (Sibilans)
+effect-hold = Tutma (ms)
+effect-range = Aralık (dB)
+effect-presets-label = Hazır Zincir:
+effect-preset-select = Şablon Seç...
+effect-preset-podcast-vocal = Podcast Vokal
+effect-preset-warm-radio = Sıcak Radyo
+effect-preset-clean-speech = Temiz Konuşma
+
+export-mp3-bitrate = MP3 Bit Hızı:
+export-ogg-quality = OGG Kalitesi:
+export-lufs-streaming = -14 LUFS (Yayın)
+export-lufs-podcast = -16 LUFS (Podcast)
+export-lufs-ebu = -23 LUFS (EBU R128)
+export-chapter-markers = Bölüm İşaretçilerini Dışa Aktar (.txt)
+export-chapters-completed = Bölüm işaretçileri dışa aktarıldı
+
+timeline-tracks-header = İzler ({ $count })
+timeline-add-track = + İz Ekle
+timeline-add-track-tooltip = Yeni ses izi ekle
+timeline-track-default-name = İz { $index }
+effect-btn-reset-tooltip = Parametreleri varsayılana sıfırla
+effect-eq-freq-short = Frek:
+effect-eq-gain-short = Kazanç (dB):
+dialog-loudness-no-data = Analiz verisi yok. Ölçmek için Yeniden Analiz Et'e tıklayın.
+dialog-btn-save = Kaydet
+dialog-marker-default-label = İşaretçi
+nr-capture-profile-tooltip = Mevcut dalga formu seçiminden gürültü profilini yakala
+waveform-back-multitrack-tooltip = Çok kanallı zaman çizelgesine dön (Tuş: 1)
+waveform-undo-tooltip = Geri Al (Ctrl+Z)
+waveform-redo-tooltip = Yinele (Ctrl+Y)
+waveform-cut-tooltip = Seçimi panoya kes (Ctrl+X)
+waveform-copy-tooltip = Seçimi panoya kopyala (Ctrl+C)
+waveform-paste-tooltip = Panodan yapıştır (Ctrl+V)
+waveform-delete-tooltip = Seçimi sil (Delete)
+waveform-trim-tooltip = Seçime kırp (Ctrl+T)
+waveform-silence-tooltip = İmlece veya seçime 1 saniye sessizlik ekle (Ctrl+I)
+waveform-reverse-tooltip = Seçili aralığı veya tüm dosyayı ters çevir
+waveform-invert-tooltip = Seçili aralığın veya tüm dosyanın fazını ters çevir
+waveform-normalize-tooltip = Ses aralığını hedef dBFS seviyesine normalize et
+waveform-effects-tooltip = Canlı önizlemeli Efekt Rafını aç
+waveform-click-remover-tooltip = Çıtırtı & Patlama Gidericiyi aç
+waveform-loudness-tooltip = EBU R128 Ses Yüksekliği Raporunu aç
+waveform-zero-crossing-tooltip = Seçim sınırlarını en yakın sıfır geçişine otomatik hizala
+waveform-loop-sel-tooltip = Aktif zaman seçimi içinde döngü oynat
+waveform-apply-project-tooltip = Düzenlenen dalga formunu proje klibine kaydet
+waveform-clear-sel-tooltip = Seçimi temizle
+waveform-zoom-out-tooltip = Uzaklaştır (Ctrl+Eksi)
+waveform-zoom-in-tooltip = Yakınlaştır (Ctrl+Artı)
+waveform-zoom-reset-tooltip = Yakınlaştırmayı Sıfırla
+
+
+
 

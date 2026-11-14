@@ -79,16 +79,47 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                     };
                     ui.label(egui::RichText::new(pan_str).size(10.0));
 
-                    // Vertical Gain Fader
+                    // Vertical Gain Fader + Live Peak VU Meter
+                    let peak = app.telemetry.track_peaks.get(t_idx).copied().unwrap_or(0.0);
                     let mut gain_db = app.project.tracks[t_idx].gain_db;
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut gain_db, -60.0..=12.0)
-                                .vertical()
-                                .show_value(false),
-                        )
-                        .changed()
-                    {
+                    let mut gain_changed = false;
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut gain_db, -60.0..=12.0)
+                                    .vertical()
+                                    .show_value(false),
+                            )
+                            .changed()
+                        {
+                            gain_changed = true;
+                        }
+                        let (m_rect, _) =
+                            ui.allocate_exact_size(Vec2::new(8.0, 90.0), egui::Sense::hover());
+                        let p = ui.painter();
+                        p.rect_filled(m_rect, 2.0, Color32::from_rgb(18, 22, 30));
+                        let norm = if peak > 1e-5 {
+                            ((20.0 * peak.log10() + 60.0) / 60.0).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                        if norm > 0.0 {
+                            let h = m_rect.height() * norm;
+                            let fill_rect = egui::Rect::from_min_max(
+                                egui::pos2(m_rect.min.x + 1.0, m_rect.max.y - h),
+                                egui::pos2(m_rect.max.x - 1.0, m_rect.max.y),
+                            );
+                            let col = if norm > 0.92 {
+                                Color32::from_rgb(235, 70, 70)
+                            } else if norm > 0.72 {
+                                Color32::from_rgb(235, 195, 65)
+                            } else {
+                                Color32::from_rgb(70, 210, 125)
+                            };
+                            p.rect_filled(fill_rect, 1.0, col);
+                        }
+                    });
+                    if gain_changed {
                         app.action_set_track_gain(t_idx, gain_db);
                     }
                     ui.label(

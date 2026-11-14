@@ -20,7 +20,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         if ui
             .button(format!("← {}", app.i18n.t("view-mode-multitrack")))
-            .on_hover_text("Return to Multitrack timeline (Key: 1)")
+            .on_hover_text(app.i18n.t("waveform-back-multitrack-tooltip"))
             .clicked()
         {
             app.action_switch_to_multitrack();
@@ -386,7 +386,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
 
             if ui
                 .small_button("✕")
-                .on_hover_text("Clear selection")
+                .on_hover_text(app.i18n.t("waveform-clear-sel-tooltip"))
                 .clicked()
             {
                 app.waveform_state.selection = None;
@@ -405,7 +405,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui
                 .button("🔍-")
-                .on_hover_text("Zoom Out (Ctrl+Minus)")
+                .on_hover_text(app.i18n.t("waveform-zoom-out-tooltip"))
                 .clicked()
             {
                 app.waveform_state.pixels_per_second =
@@ -413,13 +413,17 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
             }
             if ui
                 .button("🔍+")
-                .on_hover_text("Zoom In (Ctrl+Plus)")
+                .on_hover_text(app.i18n.t("waveform-zoom-in-tooltip"))
                 .clicked()
             {
                 app.waveform_state.pixels_per_second =
                     (app.waveform_state.pixels_per_second * 1.33).min(5000.0);
             }
-            if ui.button("1:1").on_hover_text("Reset Zoom").clicked() {
+            if ui
+                .button("1:1")
+                .on_hover_text(app.i18n.t("waveform-zoom-reset-tooltip"))
+                .clicked()
+            {
                 app.waveform_state.pixels_per_second = 120.0;
                 app.waveform_state.scroll_x = 0.0;
             }

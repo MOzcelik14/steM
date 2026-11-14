@@ -55,6 +55,7 @@ fn test_export_and_decode_wav_and_flac_roundtrip() {
         apply_dither: true,
         normalize_target_lufs: None,
         range: stem_audio::ExportRange::EntireProject,
+        ..ExportSettings::default()
     };
 
     export_project_to_file(&proj, &source_buffers, &wav_path, &wav_settings, None, None)
@@ -76,6 +77,7 @@ fn test_export_and_decode_wav_and_flac_roundtrip() {
         apply_dither: true,
         normalize_target_lufs: None,
         range: stem_audio::ExportRange::EntireProject,
+        ..ExportSettings::default()
     };
 
     export_project_to_file(
@@ -97,6 +99,36 @@ fn test_export_and_decode_wav_and_flac_roundtrip() {
     // FLAC fixed block encoding may pad the last block up to block boundary
     assert!(decoded_flac.source.duration_frames >= num_frames as u64);
 
+    // 5b. Test MP3 export & decode round-trip
+    let mp3_path = temp_dir.join("test_output.mp3");
+    let mp3_settings = ExportSettings {
+        format: ExportFormat::Mp3,
+        sample_rate,
+        mp3_bitrate_kbps: 192,
+        ..ExportSettings::default()
+    };
+    export_project_to_file(&proj, &source_buffers, &mp3_path, &mp3_settings, None, None)
+        .expect("MP3 export should succeed");
+    assert!(mp3_path.exists());
+    let decoded_mp3 = decode_file(&mp3_path).expect("Decode exported MP3");
+    assert_eq!(decoded_mp3.source.sample_rate, sample_rate);
+    assert_eq!(decoded_mp3.channels.len(), 2);
+
+    // 5c. Test OGG Vorbis export & decode round-trip
+    let ogg_path = temp_dir.join("test_output.ogg");
+    let ogg_settings = ExportSettings {
+        format: ExportFormat::Ogg,
+        sample_rate,
+        ogg_quality: 0.6,
+        ..ExportSettings::default()
+    };
+    export_project_to_file(&proj, &source_buffers, &ogg_path, &ogg_settings, None, None)
+        .expect("OGG export should succeed");
+    assert!(ogg_path.exists());
+    let decoded_ogg = decode_file(&ogg_path).expect("Decode exported OGG");
+    assert_eq!(decoded_ogg.source.sample_rate, sample_rate);
+    assert_eq!(decoded_ogg.channels.len(), 2);
+
     // 6. Test TimeRange Selection export (frames 1000..21000 => 20000 frames)
     let range_wav_path = temp_dir.join("selection_output.wav");
     let range_settings = ExportSettings {
@@ -109,6 +141,7 @@ fn test_export_and_decode_wav_and_flac_roundtrip() {
             start_frame: 1000,
             end_frame: 21000,
         },
+        ..ExportSettings::default()
     };
     export_project_to_file(
         &proj,
