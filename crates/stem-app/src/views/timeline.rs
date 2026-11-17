@@ -859,7 +859,8 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     continue;
                 }
 
-                let is_clip_selected = app.timeline_state.selected_clip_id == Some(clip.id);
+                let is_clip_selected = app.timeline_state.selected_clip_id == Some(clip.id)
+                    || app.timeline_state.selected_clip_ids.contains(&clip.id);
 
                 // Clip box background
                 let clip_bg = if is_clip_selected {
@@ -1149,20 +1150,17 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                         } else if primary_double {
                             open_clip_in_waveform = Some(clip.id);
                         } else if primary_pressed {
-                            app.timeline_state.selected_clip_id = Some(clip.id);
-                            app.timeline_state.selected_track_id = Some(track_id);
                             if ui.input(|i| i.modifiers.shift) {
-                                let frame_at_mouse =
-                                    ((mp.x - canvas_rect.min.x + scroll_x).max(0.0) / pps
-                                        * sample_rate as f32)
-                                        .round() as u64;
-                                app.timeline_state.drag_op = Some(DragOp::SelectTimeRange {
-                                    anchor_frame: frame_at_mouse,
+                                app.timeline_state.selected_clip_ids.clear();
+                                app.timeline_state.selected_clip_id = None;
+                                app.timeline_state.drag_op = Some(DragOp::BoxSelect {
+                                    start_pos: mp,
+                                    current_pos: mp,
                                 });
-                                app.timeline_state.time_selection =
-                                    Some((frame_at_mouse, frame_at_mouse));
-                                app.action_seek(frame_at_mouse);
                             } else {
+                                app.timeline_state.selected_clip_ids.clear();
+                                app.timeline_state.selected_clip_id = Some(clip.id);
+                                app.timeline_state.selected_track_id = Some(track_id);
                                 // Start Move Clip drag operation
                                 app.timeline_state.drag_op = Some(DragOp::MoveClip {
                                     clip_id: clip.id,
@@ -1256,14 +1254,22 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     }
                 }
 
-                // 2. Click on empty space: start time range selection & seek playhead
+                // 2. Click on empty space: Shift+Drag 2D BoxSelect or time range selection & seek playhead
                 if primary_pressed && app.timeline_state.drag_op.is_none() {
+                    app.timeline_state.selected_clip_ids.clear();
                     app.timeline_state.selected_clip_id = None;
-                    app.timeline_state.drag_op = Some(DragOp::SelectTimeRange {
-                        anchor_frame: frame_at_mouse,
-                    });
-                    app.timeline_state.time_selection = Some((frame_at_mouse, frame_at_mouse));
-                    app.action_seek(frame_at_mouse);
+                    if ui.input(|i| i.modifiers.shift) {
+                        app.timeline_state.drag_op = Some(DragOp::BoxSelect {
+                            start_pos: mp,
+                            current_pos: mp,
+                        });
+                    } else {
+                        app.timeline_state.drag_op = Some(DragOp::SelectTimeRange {
+                            anchor_frame: frame_at_mouse,
+                        });
+                        app.timeline_state.time_selection = Some((frame_at_mouse, frame_at_mouse));
+                        app.action_seek(frame_at_mouse);
+                    }
                 }
             }
         }
@@ -1808,6 +1814,58 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                                     clip.gain_db = new_gain;
                                 }
                             }
+                        }
+                        DragOp::BoxSelect {
+                            start_pos,
+                            current_pos: _,
+                        } => {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                            let marquee = Rect::from_two_pos(start_pos, mp);
+                            painter.rect(
+                                marquee,
+                                Rounding::same(2.0),
+                                Color32::from_rgba_premultiplied(59, 130, 246, 45),
+                                Stroke::new(1.5_f32, Color32::from_rgb(96, 165, 250)),
+                            );
+                            let f_start = ((marquee.min.x - canvas_rect.min.x + scroll_x).max(0.0)
+                                / pps
+                                * sample_rate as f32)
+                                .round() as u64;
+                            let f_end = ((marquee.max.x - canvas_rect.min.x + scroll_x).max(0.0)
+                                / pps
+                                * sample_rate as f32)
+                                .round() as u64;
+                            app.timeline_state.time_selection = None;
+
+                            app.timeline_state.selected_clip_ids.clear();
+                            app.timeline_state.selected_clip_id = None;
+                            let mut cur_y = tracks_top - app.timeline_state.scroll_y;
+                            let lane_h = app.timeline_state.track_height;
+                            for track in &app.project.tracks {
+                                let t_bot = cur_y + lane_h;
+                                let y_overlaps = t_bot >= marquee.min.y && cur_y <= marquee.max.y;
+                                if y_overlaps {
+                                    for clip in &track.clips {
+                                        let c_start = clip.track_offset_frames;
+                                        let c_end = clip.timeline_end_frame();
+                                        if c_end > f_start && c_start < f_end {
+                                            app.timeline_state.selected_clip_ids.insert(clip.id);
+                                            if app.timeline_state.selected_clip_id.is_none() {
+                                                app.timeline_state.selected_clip_id = Some(clip.id);
+                                                app.timeline_state.selected_track_id =
+                                                    Some(track.id);
+                                            }
+                                        }
+                                    }
+                                }
+                                let is_exp = app.timeline_state.expanded_automation_track_id
+                                    == Some(track.id);
+                                cur_y += lane_h + if is_exp { 50.0 } else { 0.0 } + 4.0;
+                            }
+                            app.timeline_state.drag_op = Some(DragOp::BoxSelect {
+                                start_pos,
+                                current_pos: mp,
+                            });
                         }
                         _ => {}
                     }

@@ -126,6 +126,10 @@ pub enum DragOp {
         orig_gain_db: f32,
         drag_start_y: f32,
     },
+    BoxSelect {
+        start_pos: eframe::egui::Pos2,
+        current_pos: eframe::egui::Pos2,
+    },
 }
 
 #[allow(dead_code)]
@@ -147,6 +151,8 @@ pub struct TimelineViewState {
     pub selected_track_id: Option<Uuid>,
     /// Selected clip ID.
     pub selected_clip_id: Option<Uuid>,
+    /// Multi-selected clip IDs (from Shift+Drag 2D marquee box selection).
+    pub selected_clip_ids: std::collections::HashSet<Uuid>,
     /// Track whose automation lane is expanded.
     pub expanded_automation_track_id: Option<Uuid>,
     /// Active target parameter for expanded automation lane.
@@ -176,6 +182,7 @@ impl Default for TimelineViewState {
             time_selection: None,
             selected_track_id: None,
             selected_clip_id: None,
+            selected_clip_ids: std::collections::HashSet::new(),
             expanded_automation_track_id: None,
             active_automation_target: stem_core::project::AutomationTarget::Volume,
             drag_automation_point: None,

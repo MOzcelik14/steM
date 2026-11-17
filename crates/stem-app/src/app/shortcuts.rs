@@ -135,6 +135,7 @@ impl StemApp {
         if input.key_pressed(egui::Key::Escape) {
             self.timeline_state.time_selection = None;
             self.timeline_state.selected_clip_id = None;
+            self.timeline_state.selected_clip_ids.clear();
             self.waveform_state.selection = None;
         }
 

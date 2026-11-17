@@ -725,6 +725,23 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
                         // Click in ruler -> Scrub Playhead
                         app.waveform_state.drag_op = Some(WaveformDragOp::ScrubPlayhead);
                         app.action_seek_waveform(snapped_frame);
+                    } else if ui.input(|i| i.modifiers.shift) {
+                        let anchor = if let Some((s, e)) = app.waveform_state.selection {
+                            if (snapped_frame as i64 - s as i64).abs()
+                                >= (snapped_frame as i64 - e as i64).abs()
+                            {
+                                s
+                            } else {
+                                e
+                            }
+                        } else {
+                            app.waveform_state.playhead_frame
+                        };
+                        app.waveform_state.drag_op = Some(WaveformDragOp::Selecting {
+                            anchor_frame: anchor,
+                        });
+                        app.waveform_state.selection =
+                            Some((anchor.min(snapped_frame), anchor.max(snapped_frame)));
                     } else if let Some((s_frame, e_frame)) = app.waveform_state.selection {
                         let s_x = canvas_rect.min.x + (s_frame as f32 / sample_rate as f32 * pps)
                             - scroll_x;
