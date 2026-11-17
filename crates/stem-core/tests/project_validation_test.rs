@@ -114,3 +114,45 @@ fn test_rejects_malicious_ron_string() {
     let res = Project::from_ron(malicious_ron);
     assert!(res.is_err(), "Must reject RON with path traversal");
 }
+
+#[test]
+fn test_malformed_project_files_rejected() {
+    let malformed_cases = [
+        "",
+        "not valid ron at all {{{",
+        "Project(name: \"Truncated\"",
+        "Project(id: \"invalid-uuid\", name: \"Bad\", sample_rate: 48000)",
+    ];
+    for case in malformed_cases {
+        assert!(
+            Project::from_ron(case).is_err(),
+            "Malformed RON should be rejected: {case}"
+        );
+    }
+}
+
+#[test]
+fn test_large_track_count_and_serialization_perf() {
+    let mut proj = Project::new("Stress 100+ Tracks", 48000);
+    while proj.tracks.len() < stem_core::MAX_PROJECT_TRACKS {
+        proj.add_track(format!("Track {}", proj.tracks.len() + 1));
+    }
+    assert!(proj.validate().is_ok());
+
+    let start = std::time::Instant::now();
+    let ron = proj.to_ron().expect("serialize MAX_PROJECT_TRACKS");
+    let restored = Project::from_ron(&ron).expect("deserialize MAX_PROJECT_TRACKS");
+    let elapsed = start.elapsed();
+    assert_eq!(restored.tracks.len(), stem_core::MAX_PROJECT_TRACKS);
+    assert!(
+        elapsed.as_secs_f32() < 2.0,
+        "Serialization roundtrip took too long: {elapsed:?}"
+    );
+
+    // 100+ tracks (120) must be cleanly rejected by validation
+    while proj.tracks.len() < 120 {
+        proj.add_track(format!("Overflow {}", proj.tracks.len() + 1));
+    }
+    assert_eq!(proj.tracks.len(), 120);
+    assert!(proj.validate().is_err());
+}

@@ -98,6 +98,21 @@ impl AudioRecorder {
         preferred_sample_rate: Option<u32>,
         monitor_producer: Option<Producer<f32>>,
     ) -> Result<Self, RecordError> {
+        Self::with_full_config(
+            preferred_device,
+            preferred_sample_rate,
+            None,
+            monitor_producer,
+        )
+    }
+
+    /// Initialize the audio recorder with full device, sample rate, buffer size, and monitoring configuration.
+    pub fn with_full_config(
+        preferred_device: Option<&str>,
+        preferred_sample_rate: Option<u32>,
+        buffer_size_frames: Option<u32>,
+        monitor_producer: Option<Producer<f32>>,
+    ) -> Result<Self, RecordError> {
         let host = cpal::default_host();
 
         let device = if let Some(target_name) = preferred_device {
@@ -123,13 +138,46 @@ impl AudioRecorder {
             .unwrap_or_else(|_| "Default Input Device".to_string());
 
         let default_config = device.default_input_config()?;
-        let sample_rate = preferred_sample_rate.unwrap_or_else(|| default_config.sample_rate().0);
-        let channels = default_config.channels().min(2); // Support mono (1) or stereo (2)
+        let channels = default_config.channels().clamp(1, 2); // Support mono (1) or stereo (2)
+        let mut sample_rate = default_config.sample_rate().0;
+        let mut buffer_size = cpal::BufferSize::Default;
+
+        if let Ok(ranges) = device.supported_input_configs() {
+            let ranges: Vec<_> = ranges.collect();
+            if let Some(req_sr) = preferred_sample_rate {
+                if let Some(best) = ranges
+                    .iter()
+                    .filter(|r| r.channels() == channels)
+                    .min_by_key(|r| {
+                        let clamped = req_sr.clamp(r.min_sample_rate().0, r.max_sample_rate().0);
+                        clamped.abs_diff(req_sr)
+                    })
+                {
+                    sample_rate = req_sr.clamp(best.min_sample_rate().0, best.max_sample_rate().0);
+                }
+            }
+            if let Some(req_buf) = buffer_size_frames {
+                if let Some(r) = ranges
+                    .iter()
+                    .find(|r| r.channels() == channels)
+                    .or_else(|| ranges.first())
+                {
+                    match r.buffer_size() {
+                        cpal::SupportedBufferSize::Range { min, max } => {
+                            buffer_size = cpal::BufferSize::Fixed(req_buf.clamp(*min, *max));
+                        }
+                        cpal::SupportedBufferSize::Unknown => {
+                            buffer_size = cpal::BufferSize::Fixed(req_buf);
+                        }
+                    }
+                }
+            }
+        }
 
         let config = StreamConfig {
             channels,
             sample_rate: cpal::SampleRate(sample_rate),
-            buffer_size: cpal::BufferSize::Default,
+            buffer_size,
         };
 
         // Lock-free ringbuffers
@@ -264,11 +312,11 @@ impl AudioRecorder {
             return None;
         }
 
-        let num_channels = self.channels as usize;
+        let num_channels = (self.channels as usize).max(1);
         let num_frames = interleaved.len() / num_channels;
 
         let mut planar = vec![Vec::with_capacity(num_frames); num_channels];
-        for chunk in interleaved.chunks(num_channels) {
+        for chunk in interleaved.chunks_exact(num_channels) {
             for (ch_idx, &sample) in chunk.iter().enumerate() {
                 planar[ch_idx].push(sample);
             }
@@ -385,17 +433,25 @@ impl RealtimeRecordCallback {
             }
         }
 
-        // 3. Software input monitoring
+        // 3. Software input monitoring (push atomic L/R pairs so overrun never swaps channels)
         if self.monitoring_enabled.load(Ordering::Relaxed) {
             if let Some(ref mut mon) = self.monitor_producer {
                 if self.channels == 1 {
                     for &sample in data {
+                        if mon.slots() < 2 {
+                            break;
+                        }
                         let _ = mon.push(sample);
                         let _ = mon.push(sample);
                     }
                 } else {
-                    for &sample in data {
-                        let _ = mon.push(sample);
+                    let ch_count = (self.channels as usize).max(2);
+                    for frame in data.chunks_exact(ch_count) {
+                        if mon.slots() < 2 {
+                            break;
+                        }
+                        let _ = mon.push(frame[0]);
+                        let _ = mon.push(frame[1]);
                     }
                 }
             }

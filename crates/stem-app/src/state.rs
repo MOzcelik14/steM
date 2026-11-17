@@ -157,6 +157,12 @@ pub struct TimelineViewState {
     pub snap_mode: stem_core::project::SnapGridMode,
     /// Automatically create equal-power S-curve crossfades when clips overlap.
     pub auto_crossfade: bool,
+    /// Default curve type used when creating new automation breakpoints.
+    pub automation_default_curve: stem_core::project::AutomationCurve,
+    /// Clipboard holding copied automation points (frames relative to selection start).
+    pub automation_clipboard: Vec<stem_core::project::AutomationPoint>,
+    /// Clipboard holding a copied timeline clip for Multitrack Copy/Cut/Paste.
+    pub timeline_clip_clipboard: Option<stem_core::project::Clip>,
 }
 
 impl Default for TimelineViewState {
@@ -175,6 +181,9 @@ impl Default for TimelineViewState {
             drag_automation_point: None,
             snap_mode: stem_core::project::SnapGridMode::Off,
             auto_crossfade: true,
+            automation_default_curve: stem_core::project::AutomationCurve::Linear,
+            automation_clipboard: Vec::new(),
+            timeline_clip_clipboard: None,
         }
     }
 }
@@ -203,9 +212,21 @@ pub enum WorkerMessage {
         target_track_idx: Option<usize>,
         target_offset_frames: Option<u64>,
     },
+    SourceReloaded {
+        source_id: uuid::Uuid,
+        channels: Vec<Vec<f32>>,
+        pyramid: Box<PeakPyramid>,
+    },
     ImportFailed(String),
     ExportProgress(f32),
     ExportFinished(Result<String, String>),
+    BatchExportProgress(f32),
+    BatchExportFinished(BatchExportSummary),
+    StemSeparationProgress(f32),
+    StemSeparationFinished {
+        offset_frames: u64,
+        result: Result<Vec<(stem_audio::StemKind, DecodedAudio, PeakPyramid)>, String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +308,10 @@ pub struct LoudnessReportDialogState {
     pub standard: LoudnessStandard,
     pub result: Option<LoudnessResult>,
     pub true_peak_dbfs: f32,
+    pub mastering_report: Option<stem_dsp::MasteringReport>,
+    pub ab_reference_active: bool,
+    pub reference_audio_path: Option<std::path::PathBuf>,
+    pub reference_comparison: Option<stem_dsp::ReferenceComparison>,
 }
 
 impl Default for LoudnessReportDialogState {
@@ -296,6 +321,10 @@ impl Default for LoudnessReportDialogState {
             standard: LoudnessStandard::default(),
             result: None,
             true_peak_dbfs: -90.0,
+            mastering_report: None,
+            ab_reference_active: false,
+            reference_audio_path: None,
+            reference_comparison: None,
         }
     }
 }
@@ -310,7 +339,10 @@ pub struct RecordingState {
     pub is_punching: bool,
     pub available_input_devices: Vec<String>,
     pub selected_input_device: Option<String>,
+    pub available_output_devices: Vec<String>,
+    pub selected_output_device: Option<String>,
     pub selected_sample_rate: u32,
+    pub buffer_size_frames: Option<u32>,
     pub device_lost_warning: bool,
 }
 
@@ -325,7 +357,10 @@ impl Default for RecordingState {
             is_punching: false,
             available_input_devices: Vec::new(),
             selected_input_device: None,
+            available_output_devices: Vec::new(),
+            selected_output_device: None,
             selected_sample_rate: 48000,
+            buffer_size_frames: None,
             device_lost_warning: false,
         }
     }
@@ -627,17 +662,43 @@ pub struct MarkerListDialogState {
     pub show: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchItemStatus {
+    Succeeded,
+    Skipped(String),
+    Failed(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct BatchExportItemOutcome {
+    pub filename: String,
+    pub status: BatchItemStatus,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BatchExportSummary {
+    pub succeeded: usize,
+    pub failed: usize,
+    pub skipped: usize,
+    pub cancelled: bool,
+    pub items: Vec<BatchExportItemOutcome>,
+}
+
 #[derive(Debug, Clone)]
 pub struct BatchExportDialogState {
     pub show: bool,
     pub export_stems: bool,
     pub export_marker_regions: bool,
+    pub overwrite_existing: bool,
     pub filename_pattern: String,
     pub output_dir: std::path::PathBuf,
     pub format: stem_audio::ExportFormat,
     pub bit_depth: stem_audio::BitDepth,
     pub in_progress: bool,
+    pub progress: f32,
+    pub cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     pub status_msg: Option<String>,
+    pub summary: Option<BatchExportSummary>,
 }
 
 impl Default for BatchExportDialogState {
@@ -646,12 +707,16 @@ impl Default for BatchExportDialogState {
             show: false,
             export_stems: true,
             export_marker_regions: false,
+            overwrite_existing: false,
             filename_pattern: "{project}_{track}_{index}".to_string(),
             output_dir: std::env::current_dir().unwrap_or_default(),
             format: stem_audio::ExportFormat::Wav,
             bit_depth: stem_audio::BitDepth::Bit24,
             in_progress: false,
+            progress: 0.0,
+            cancel_token: None,
             status_msg: None,
+            summary: None,
         }
     }
 }
@@ -667,6 +732,58 @@ pub struct RecoveryDialogState {
     pub show: bool,
     pub recovery_path: Option<std::path::PathBuf>,
     pub recovery_time_str: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PluginFormatFilter {
+    #[default]
+    All,
+    Vst3,
+    Lv2,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PluginBrowserDialogState {
+    pub show: bool,
+    pub search_query: String,
+    pub format_filter: PluginFormatFilter,
+    pub discovered: Vec<stem_audio::PluginDescriptor>,
+    pub scanned_once: bool,
+    pub target_track_idx: usize,
+    pub status_msg: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StemSeparationDialogState {
+    pub show: bool,
+    pub model: stem_audio::DemucsModel,
+    pub quality: stem_audio::SeparationQuality,
+    pub prefer_gpu: bool,
+    pub replace_existing_stems: bool,
+    pub source_idx: usize,
+    pub in_progress: bool,
+    pub progress: f32,
+    pub cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    pub demucs_available: Option<bool>,
+    pub status_msg: Option<String>,
+}
+
+impl Default for StemSeparationDialogState {
+    fn default() -> Self {
+        Self {
+            show: false,
+            model: stem_audio::DemucsModel::Htdemucs,
+            quality: stem_audio::SeparationQuality::Balanced,
+            prefer_gpu: true,
+            replace_existing_stems: true,
+            source_idx: 0,
+            in_progress: false,
+            progress: 0.0,
+            cancel_token: None,
+            demucs_available: None,
+            status_msg: None,
+        }
+    }
 }
 
 #[cfg(test)]

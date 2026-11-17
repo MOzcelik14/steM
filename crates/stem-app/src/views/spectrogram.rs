@@ -24,6 +24,9 @@ pub struct SpectrogramState {
     pub max_waterfall_columns: usize,
     pub min_db: f32,
     pub max_db: f32,
+    pub freq_min_hz: f32,
+    pub freq_max_hz: f32,
+    pub repair_attenuation_db: f32,
 }
 
 impl Default for SpectrogramState {
@@ -40,6 +43,9 @@ impl Default for SpectrogramState {
             max_waterfall_columns: 120,
             min_db: -90.0,
             max_db: 0.0,
+            freq_min_hz: 1000.0,
+            freq_max_hz: 4000.0,
+            repair_attenuation_db: -24.0,
         }
     }
 }
@@ -58,6 +64,74 @@ impl SpectrogramState {
 
 pub fn render_spectrogram_panel(app: &mut StemApp, ui: &mut egui::Ui) {
     ui.vertical(|ui| {
+        if app.view_mode == crate::state::AppViewMode::Waveform
+            && app.waveform_state.document.is_some()
+        {
+            let mut do_attenuate = false;
+            let mut do_heal = false;
+            let mut do_dehum = false;
+            let mut do_declip = false;
+            let mut do_dereverb = false;
+
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Spectral Repair:").strong().size(11.0));
+                ui.label("Freq:");
+                ui.add(
+                    egui::DragValue::new(&mut app.spectrogram_state.freq_min_hz)
+                        .range(20.0..=20000.0)
+                        .speed(25.0)
+                        .suffix(" Hz"),
+                );
+                ui.label("–");
+                ui.add(
+                    egui::DragValue::new(&mut app.spectrogram_state.freq_max_hz)
+                        .range(20.0..=22000.0)
+                        .speed(25.0)
+                        .suffix(" Hz"),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut app.spectrogram_state.repair_attenuation_db)
+                        .range(-60.0..=0.0)
+                        .speed(0.5)
+                        .suffix(" dB"),
+                );
+                if ui.small_button("Attenuate").clicked() {
+                    do_attenuate = true;
+                }
+                if ui.small_button("Heal").clicked() {
+                    do_heal = true;
+                }
+                ui.separator();
+                if ui.small_button("De-Hum 50Hz").clicked() {
+                    do_dehum = true;
+                }
+                if ui.small_button("De-Clip").clicked() {
+                    do_declip = true;
+                }
+                if ui.small_button("De-Reverb").clicked() {
+                    do_dereverb = true;
+                }
+            });
+
+            let fmin = app.spectrogram_state.freq_min_hz;
+            let fmax = app.spectrogram_state.freq_max_hz;
+            let atten = app.spectrogram_state.repair_attenuation_db;
+            if do_attenuate {
+                app.action_spectral_attenuate(fmin, fmax, atten);
+            }
+            if do_heal {
+                app.action_spectral_heal(fmin, fmax);
+            }
+            if do_dehum {
+                app.action_apply_dehum(50.0);
+            }
+            if do_declip {
+                app.action_apply_declip();
+            }
+            if do_dereverb {
+                app.action_apply_dereverb();
+            }
+        }
         // ----------------- Header Controls Bar -----------------
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(app.i18n.t("view-spectrogram")).strong());
@@ -189,64 +263,64 @@ pub fn render_spectrogram_panel(app: &mut StemApp, ui: &mut egui::Ui) {
         });
 
         // ----------------- Extract Audio Slice for FFT -----------------
-        let fft_size = app.spectrogram_state.fft_size;
-        let mut audio_slice = vec![0.0f32; fft_size];
+        if app.is_playing || app.is_recording || app.spectrogram_state.waterfall.is_empty() {
+            let fft_size = app.spectrogram_state.fft_size;
+            let mut audio_slice = vec![0.0f32; fft_size];
 
-        let playhead = if app.view_mode == crate::state::AppViewMode::Waveform {
-            app.waveform_state.playhead_frame as usize
-        } else {
-            app.telemetry.playhead_frame as usize
-        };
+            let playhead = if app.view_mode == crate::state::AppViewMode::Waveform {
+                app.waveform_state.playhead_frame as usize
+            } else {
+                app.telemetry.playhead_frame as usize
+            };
 
-        if app.view_mode == crate::state::AppViewMode::Waveform {
-            if let Some(ref doc) = app.waveform_state.document {
-                let planar = app
-                    .waveform_state
-                    .cached_planar
-                    .get_or_insert_with(|| doc.render_planar(&app.source_buffers));
-                if let Some(ch) = planar.first() {
-                    let total = ch.len();
+            if app.view_mode == crate::state::AppViewMode::Waveform {
+                if let Some(ref doc) = app.waveform_state.document {
+                    let planar = app
+                        .waveform_state
+                        .cached_planar
+                        .get_or_insert_with(|| doc.render_planar(&app.source_buffers));
+                    if let Some(ch) = planar.first() {
+                        let total = ch.len();
+                        for (i, sample) in audio_slice.iter_mut().enumerate().take(fft_size) {
+                            let frame = playhead + i;
+                            if frame < total {
+                                *sample = ch[frame];
+                            }
+                        }
+                    }
+                }
+            } else if let Some(ref timeline) = app.active_timeline {
+                let total = timeline.total_frames as usize;
+                if let Some(ch) = timeline.channels.first() {
                     for (i, sample) in audio_slice.iter_mut().enumerate().take(fft_size) {
                         let frame = playhead + i;
-                        if frame < total {
+                        if frame < total && frame < ch.len() {
                             *sample = ch[frame];
                         }
                     }
                 }
             }
-        } else if let Some(ref timeline) = app.active_timeline {
-            let total = timeline.total_frames as usize;
-            if let Some(ch) = timeline.channels.first() {
-                for (i, sample) in audio_slice.iter_mut().enumerate().take(fft_size) {
-                    let frame = playhead + i;
-                    if frame < total && frame < ch.len() {
-                        *sample = ch[frame];
-                    }
+
+            let mag_db = app
+                .spectrogram_state
+                .analyzer
+                .compute_magnitude_db(&audio_slice);
+
+            // Update spectrum history with smoothing
+            for (hist, &curr) in app
+                .spectrogram_state
+                .spectrum_history
+                .iter_mut()
+                .zip(mag_db.iter())
+            {
+                if curr > *hist {
+                    *hist = curr;
+                } else {
+                    *hist = *hist * 0.82 + curr * 0.18;
                 }
             }
-        }
 
-        let mag_db = app
-            .spectrogram_state
-            .analyzer
-            .compute_magnitude_db(&audio_slice);
-
-        // Update spectrum history with smoothing
-        for (hist, &curr) in app
-            .spectrogram_state
-            .spectrum_history
-            .iter_mut()
-            .zip(mag_db.iter())
-        {
-            if curr > *hist {
-                *hist = curr;
-            } else {
-                *hist = *hist * 0.82 + curr * 0.18;
-            }
-        }
-
-        // Push column into rolling 2D waterfall buffer during playback or updates
-        if app.is_playing || app.spectrogram_state.waterfall.is_empty() {
+            // Push column into rolling 2D waterfall buffer
             if app.spectrogram_state.waterfall.len() >= app.spectrogram_state.max_waterfall_columns
             {
                 app.spectrogram_state.waterfall.remove(0);

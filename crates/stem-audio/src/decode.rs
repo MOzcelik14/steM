@@ -78,7 +78,7 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
     let check_len = (file_len as usize).min(65536);
     let mut header_buf = vec![0u8; check_len];
     file.read_exact(&mut header_buf)?;
-    validate_audio_bytes(&header_buf)?;
+    validate_audio_bytes_with_len(&header_buf, file_len)?;
     file.seek(SeekFrom::Start(0))?;
     let safe_source = SafeSource {
         inner: file,
@@ -156,16 +156,21 @@ impl<R: std::io::Read + std::io::Seek + Send + Sync + 'static> symphonia::core::
 /// Pre-validates audio byte containers before delegating to third-party decoders.
 /// Protects against known memory-exhaustion and OOM attacks in container metadata parsers.
 pub fn validate_audio_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
+    validate_audio_bytes_with_len(bytes, bytes.len() as u64)
+}
+
+fn validate_audio_bytes_with_len(bytes: &[u8], stream_len: u64) -> Result<(), DecodeError> {
     if let Some(pos) = bytes.windows(4).position(|w| w == b"fLaC") {
-        validate_flac_bytes(&bytes[pos..])?;
+        let remaining_stream_len = stream_len.saturating_sub(pos as u64);
+        validate_flac_bytes(&bytes[pos..], remaining_stream_len)?;
     }
     Ok(())
 }
 
-fn validate_flac_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
-    let total_len = bytes.len();
+fn validate_flac_bytes(bytes: &[u8], stream_len: u64) -> Result<(), DecodeError> {
+    let buf_len = bytes.len();
     // FLAC marker (4) + STREAMINFO header (4) + STREAMINFO block (34) = 42 bytes minimum
-    if total_len < 42 {
+    if buf_len < 42 {
         return Err(DecodeError::CorruptedHeader(
             "FLAC truncated before STREAMINFO block".to_string(),
         ));
@@ -179,12 +184,10 @@ fn validate_flac_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
         )));
     }
 
-    let mut offset = 4;
-    while offset < total_len {
-        if offset + 4 > total_len {
-            return Err(DecodeError::CorruptedHeader(
-                "Truncated FLAC metadata block header".to_string(),
-            ));
+    let mut offset = 4usize;
+    while offset < buf_len {
+        if offset + 4 > buf_len {
+            break;
         }
         let is_last = (bytes[offset] & 0x80) != 0;
         let block_type = bytes[offset] & 0x7F;
@@ -193,9 +196,9 @@ fn validate_flac_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
                 as usize;
 
         // Block length must not claim more bytes than available in the input stream
-        if offset + 4 + block_len > total_len {
+        if (offset as u64) + 4 + (block_len as u64) > stream_len {
             return Err(DecodeError::CorruptedHeader(format!(
-                "FLAC metadata block type {block_type} claims {block_len} bytes, exceeding stream length {total_len}"
+                "FLAC metadata block type {block_type} claims {block_len} bytes, exceeding stream length {stream_len}"
             )));
         }
 
@@ -204,6 +207,11 @@ fn validate_flac_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
             return Err(DecodeError::CorruptedHeader(format!(
                 "FLAC STREAMINFO block must be exactly 34 bytes, found {block_len}"
             )));
+        }
+
+        // If the block extends beyond our 64KB header probe buffer (e.g. large PICTURE), stop probing
+        if offset + 4 + block_len > buf_len {
+            break;
         }
 
         // Validate PICTURE block fields to prevent unchecked allocations in upstream demuxer

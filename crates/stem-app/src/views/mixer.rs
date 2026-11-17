@@ -96,28 +96,7 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                         }
                         let (m_rect, _) =
                             ui.allocate_exact_size(Vec2::new(8.0, 90.0), egui::Sense::hover());
-                        let p = ui.painter();
-                        p.rect_filled(m_rect, 2.0, Color32::from_rgb(18, 22, 30));
-                        let norm = if peak > 1e-5 {
-                            ((20.0 * peak.log10() + 60.0) / 60.0).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        if norm > 0.0 {
-                            let h = m_rect.height() * norm;
-                            let fill_rect = egui::Rect::from_min_max(
-                                egui::pos2(m_rect.min.x + 1.0, m_rect.max.y - h),
-                                egui::pos2(m_rect.max.x - 1.0, m_rect.max.y),
-                            );
-                            let col = if norm > 0.92 {
-                                Color32::from_rgb(235, 70, 70)
-                            } else if norm > 0.72 {
-                                Color32::from_rgb(235, 195, 65)
-                            } else {
-                                Color32::from_rgb(70, 210, 125)
-                            };
-                            p.rect_filled(fill_rect, 1.0, col);
-                        }
+                        crate::views::render_vu_meter_bar(ui.painter(), m_rect, peak, 1.0, 2.0);
                     });
                     if gain_changed {
                         app.action_set_track_gain(t_idx, gain_db);
@@ -199,6 +178,159 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                     });
                     if current_gid != app.project.tracks[t_idx].group_id {
                         app.project.tracks[t_idx].group_id = current_gid;
+                    }
+
+                    // Phase Inversion (ØL / ØR) & Freeze
+                    let mut mixer_sync_needed = false;
+                    ui.horizontal(|ui| {
+                        let trk = &mut app.project.tracks[t_idx];
+                        if ui
+                            .selectable_label(
+                                trk.phase_invert_left,
+                                egui::RichText::new("ØL").size(9.0),
+                            )
+                            .on_hover_text("Invert Left Phase")
+                            .clicked()
+                        {
+                            trk.phase_invert_left = !trk.phase_invert_left;
+                            mixer_sync_needed = true;
+                        }
+                        if ui
+                            .selectable_label(
+                                trk.phase_invert_right,
+                                egui::RichText::new("ØR").size(9.0),
+                            )
+                            .on_hover_text("Invert Right Phase")
+                            .clicked()
+                        {
+                            trk.phase_invert_right = !trk.phase_invert_right;
+                            mixer_sync_needed = true;
+                        }
+                        if ui
+                            .selectable_label(
+                                trk.frozen,
+                                egui::RichText::new(if trk.frozen { "Frz*" } else { "Frz" })
+                                    .size(9.0),
+                            )
+                            .on_hover_text("Toggle Track Freeze")
+                            .clicked()
+                        {
+                            trk.frozen = !trk.frozen;
+                        }
+                    });
+
+                    // Stereo Width & Mid/Side
+                    let mut width = app.project.tracks[t_idx].stereo_width;
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut width, 0.0..=2.0)
+                                .prefix("W:")
+                                .fixed_decimals(2)
+                                .show_value(true),
+                        )
+                        .changed()
+                    {
+                        app.project.tracks[t_idx].stereo_width = width;
+                        mixer_sync_needed = true;
+                    }
+                    let mut mid_db = app.project.tracks[t_idx].mid_gain_db;
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut mid_db, -12.0..=12.0)
+                                .prefix("M:")
+                                .fixed_decimals(1),
+                        )
+                        .changed()
+                    {
+                        app.project.tracks[t_idx].mid_gain_db = mid_db;
+                        mixer_sync_needed = true;
+                    }
+                    let mut side_db = app.project.tracks[t_idx].side_gain_db;
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut side_db, -12.0..=12.0)
+                                .prefix("S:")
+                                .fixed_decimals(1),
+                        )
+                        .changed()
+                    {
+                        app.project.tracks[t_idx].side_gain_db = side_db;
+                        mixer_sync_needed = true;
+                    }
+
+                    // Sidechain Source Selector
+                    let track_id_self = app.project.tracks[t_idx].id;
+                    let mut sc_id = app.project.tracks[t_idx].sidechain_source_track_id;
+                    let sc_label = sc_id
+                        .and_then(|id| app.project.tracks.iter().find(|t| t.id == id))
+                        .map(|t| format!("SC: {}", t.name))
+                        .unwrap_or_else(|| "SC: Off".to_string());
+                    let other_tracks: Vec<(uuid::Uuid, String)> = app
+                        .project
+                        .tracks
+                        .iter()
+                        .filter(|t| t.id != track_id_self)
+                        .map(|t| (t.id, t.name.clone()))
+                        .collect();
+                    egui::ComboBox::from_id_salt(format!("trk_sc_{}", track_id_self))
+                        .selected_text(egui::RichText::new(sc_label).size(9.0))
+                        .width(72.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut sc_id, None, "SC: Off");
+                            for (oid, oname) in &other_tracks {
+                                ui.selectable_value(
+                                    &mut sc_id,
+                                    Some(*oid),
+                                    format!("SC: {}", oname),
+                                );
+                            }
+                        });
+                    if sc_id != app.project.tracks[t_idx].sidechain_source_track_id {
+                        app.project.tracks[t_idx].sidechain_source_track_id = sc_id;
+                        mixer_sync_needed = true;
+                    }
+
+                    // Auxiliary Sends
+                    if !app.project.busses.is_empty() && app.project.tracks[t_idx].sends.is_empty()
+                    {
+                        if ui
+                            .small_button(egui::RichText::new("+ Send").size(9.0))
+                            .clicked()
+                        {
+                            let first_bus_id = app.project.busses[0].id;
+                            app.project.tracks[t_idx]
+                                .sends
+                                .push(stem_core::project::TrackSend::new(first_bus_id));
+                            mixer_sync_needed = true;
+                        }
+                    } else if let Some(send) = app.project.tracks[t_idx].sends.get_mut(0) {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(
+                                    send.pre_fader,
+                                    egui::RichText::new("Pre").size(8.5),
+                                )
+                                .on_hover_text("Pre-Fader Send")
+                                .clicked()
+                            {
+                                send.pre_fader = !send.pre_fader;
+                                mixer_sync_needed = true;
+                            }
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut send.gain_db, -60.0..=6.0)
+                                        .prefix("Snd:")
+                                        .fixed_decimals(0),
+                                )
+                                .changed()
+                            {
+                                mixer_sync_needed = true;
+                            }
+                        });
+                    }
+
+                    if mixer_sync_needed {
+                        app.sync_timeline_to_audio_engine();
                     }
                 });
             });
@@ -312,6 +444,47 @@ pub fn render_mixer_panel(app: &mut StemApp, ui: &mut egui::Ui) {
                             .monospace()
                             .size(11.0),
                     );
+
+                    // Bus Output Routing
+                    let mut bus_out = app.project.busses[b_idx].output_routing;
+                    let bus_out_label = match bus_out {
+                        stem_core::project::TrackOutputRouting::Master => {
+                            app.i18n.t("routing-master")
+                        }
+                        stem_core::project::TrackOutputRouting::Bus(bid) => app
+                            .project
+                            .get_bus(bid)
+                            .map(|b| format!("-> {}", b.name))
+                            .unwrap_or_else(|| app.i18n.t("routing-master")),
+                    };
+                    let other_busses: Vec<(uuid::Uuid, String)> = app
+                        .project
+                        .busses
+                        .iter()
+                        .filter(|b| b.id != bus_id)
+                        .map(|b| (b.id, b.name.clone()))
+                        .collect();
+                    egui::ComboBox::from_id_salt(format!("bus_out_{}", bus_id))
+                        .selected_text(egui::RichText::new(bus_out_label).size(9.0))
+                        .width(72.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut bus_out,
+                                stem_core::project::TrackOutputRouting::Master,
+                                app.i18n.t("routing-master"),
+                            );
+                            for (ob_id, ob_name) in &other_busses {
+                                ui.selectable_value(
+                                    &mut bus_out,
+                                    stem_core::project::TrackOutputRouting::Bus(*ob_id),
+                                    format!("-> {}", ob_name),
+                                );
+                            }
+                        });
+                    if bus_out != app.project.busses[b_idx].output_routing {
+                        app.project.busses[b_idx].output_routing = bus_out;
+                        app.sync_timeline_to_audio_engine();
+                    }
                 });
             });
         }

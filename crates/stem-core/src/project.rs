@@ -304,7 +304,26 @@ impl TrackInputRouting {
     }
 }
 
-/// Output destination routing for a track.
+/// Supported project/export channel layouts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum ChannelLayout {
+    Mono,
+    #[default]
+    Stereo,
+    Surround51,
+}
+
+impl ChannelLayout {
+    pub fn channel_count(self) -> usize {
+        match self {
+            Self::Mono => 1,
+            Self::Stereo => 2,
+            Self::Surround51 => 6,
+        }
+    }
+}
+
+/// Output destination routing for a track or bus.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum TrackOutputRouting {
     #[default]
@@ -345,6 +364,8 @@ pub struct SubmixBus {
     pub pan: f32,
     pub muted: bool,
     pub soloed: bool,
+    #[serde(default)]
+    pub output_routing: TrackOutputRouting,
     pub effects: Vec<EffectConfig>,
 }
 
@@ -357,6 +378,7 @@ impl SubmixBus {
             pan: 0.0,
             muted: false,
             soloed: false,
+            output_routing: TrackOutputRouting::Master,
             effects: Vec::new(),
         }
     }
@@ -419,11 +441,69 @@ impl AutomationCurve {
     }
 }
 
+/// External audio plugin standard supported by steM.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum PluginFormat {
+    Vst3,
+    Lv2,
+}
+
+/// Persisted parameter state for an external plugin slot.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginParamValue {
+    pub id: String,
+    pub name: String,
+    pub value: f32,
+    pub default_value: f32,
+}
+
+/// Persisted external plugin insert slot on a track.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PluginSlotConfig {
+    pub id: Uuid,
+    pub descriptor_id: String,
+    pub name: String,
+    pub vendor: String,
+    pub format: PluginFormat,
+    pub bundle_path: PathBuf,
+    #[serde(default)]
+    pub bypassed: bool,
+    #[serde(default)]
+    pub parameters: Vec<PluginParamValue>,
+    #[serde(default)]
+    pub state_blob: Option<Vec<u8>>,
+}
+
 /// Target parameter controlled by an automation lane.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AutomationTarget {
     Volume, // decibels (-60.0 to +12.0)
     Pan,    // -1.0 to +1.0
+    PluginParam { plugin_id: Uuid, param_index: u32 },
+    SendLevel(usize),    // decibels (-60.0 to +12.0) for track send index
+    EqFreq(usize),       // Hz (20.0 to 20000.0) for EQ band index
+    EqGain(usize),       // dB (-24.0 to +24.0) for EQ band index
+    EqQ(usize),          // Q factor (0.1 to 16.0) for EQ band index
+    CompressorThreshold, // dB (-60.0 to 0.0)
+    CompressorRatio,     // ratio (1.0 to 20.0)
+    ReverbMix,           // 0.0 to 1.0
+    ReverbRoomSize,      // 0.0 to 1.0
+}
+
+impl AutomationTarget {
+    /// Returns `(min, max, zero_or_default)` range for visualization and clamping.
+    pub fn value_range(&self) -> (f32, f32, f32) {
+        match self {
+            Self::Volume | Self::SendLevel(_) => (-60.0, 12.0, 0.0),
+            Self::Pan => (-1.0, 1.0, 0.0),
+            Self::PluginParam { .. } | Self::ReverbMix | Self::ReverbRoomSize => (0.0, 1.0, 0.5),
+            Self::EqFreq(_) => (20.0, 20_000.0, 1_000.0),
+            Self::EqGain(_) => (-24.0, 24.0, 0.0),
+            Self::EqQ(_) => (0.1, 16.0, 1.0),
+            Self::CompressorThreshold => (-60.0, 0.0, -18.0),
+            Self::CompressorRatio => (1.0, 20.0, 4.0),
+        }
+    }
 }
 
 /// A single keyframe breakpoint in an automation lane.
@@ -480,6 +560,33 @@ impl AutomationLane {
         }
     }
 
+    /// Copies automation points in `[start_frame, end_frame]` with frames normalized
+    /// relative to `start_frame`.
+    pub fn copy_range(&self, start_frame: u64, end_frame: u64) -> Vec<AutomationPoint> {
+        let (lo, hi) = if start_frame <= end_frame {
+            (start_frame, end_frame)
+        } else {
+            (end_frame, start_frame)
+        };
+        self.points
+            .iter()
+            .filter(|p| p.frame >= lo && p.frame <= hi)
+            .map(|p| AutomationPoint::new(p.frame - lo, p.value, p.curve))
+            .collect()
+    }
+
+    /// Pastes relative automation points starting at `target_frame`, generating fresh point IDs
+    /// and replacing any existing points at the exact target frames.
+    pub fn paste_at(&mut self, target_frame: u64, points: &[AutomationPoint]) {
+        for pt in points {
+            let abs_frame = target_frame.saturating_add(pt.frame);
+            self.points.retain(|existing| existing.frame != abs_frame);
+            self.points
+                .push(AutomationPoint::new(abs_frame, pt.value, pt.curve));
+        }
+        self.points.sort_by_key(|p| p.frame);
+    }
+
     /// Piecewise evaluation at timeline frame.
     pub fn evaluate(&self, frame: u64, default_val: f32) -> f32 {
         if !self.enabled || self.points.is_empty() {
@@ -534,6 +641,42 @@ pub struct Track {
     pub automation_lanes: Vec<AutomationLane>,
     pub clips: Vec<Clip>,
     pub effects: Vec<EffectConfig>,
+    #[serde(default)]
+    pub plugins: Vec<PluginSlotConfig>,
+    #[serde(default)]
+    pub phase_invert_left: bool,
+    #[serde(default)]
+    pub phase_invert_right: bool,
+    #[serde(default = "default_stereo_width")]
+    pub stereo_width: f32,
+    #[serde(default)]
+    pub mid_gain_db: f32,
+    #[serde(default)]
+    pub side_gain_db: f32,
+    #[serde(default)]
+    pub sidechain_source_track_id: Option<Uuid>,
+    #[serde(default)]
+    pub frozen: bool,
+    #[serde(default)]
+    pub frozen_audio_path: Option<PathBuf>,
+    #[serde(default)]
+    pub surround_rear_mix: f32,
+    #[serde(default = "default_surround_center")]
+    pub surround_center_mix: f32,
+    #[serde(default = "default_surround_lfe")]
+    pub surround_lfe_mix: f32,
+}
+
+fn default_stereo_width() -> f32 {
+    1.0
+}
+
+fn default_surround_center() -> f32 {
+    0.5
+}
+
+fn default_surround_lfe() -> f32 {
+    0.25
 }
 
 impl Track {
@@ -556,6 +699,18 @@ impl Track {
             ],
             clips: Vec::new(),
             effects: Vec::new(),
+            plugins: Vec::new(),
+            phase_invert_left: false,
+            phase_invert_right: false,
+            stereo_width: 1.0,
+            mid_gain_db: 0.0,
+            side_gain_db: 0.0,
+            sidechain_source_track_id: None,
+            frozen: false,
+            frozen_audio_path: None,
+            surround_rear_mix: 0.0,
+            surround_center_mix: 0.5,
+            surround_lfe_mix: 0.25,
         }
     }
 
@@ -632,6 +787,39 @@ impl Track {
             .map(|l| l.evaluate(frame, self.pan))
             .unwrap_or(self.pan)
     }
+
+    /// Evaluated send gain in dB for `send_idx` at given timeline frame, taking automation into account.
+    pub fn evaluated_send_gain_db(&self, send_idx: usize, frame: u64) -> f32 {
+        let base_gain = self.sends.get(send_idx).map(|s| s.gain_db).unwrap_or(-60.0);
+        self.automation_lanes
+            .iter()
+            .find(|l| l.target == AutomationTarget::SendLevel(send_idx) && l.enabled)
+            .map(|l| l.evaluate(frame, base_gain))
+            .unwrap_or(base_gain)
+    }
+
+    /// Evaluates any automation target on this track at `frame`, falling back to `default_val`.
+    pub fn evaluated_param(&self, target: AutomationTarget, default_val: f32, frame: u64) -> f32 {
+        self.automation_lanes
+            .iter()
+            .find(|l| l.target == target && l.enabled)
+            .map(|l| l.evaluate(frame, default_val))
+            .unwrap_or(default_val)
+    }
+
+    /// Returns the automation lane for `target`, creating and inserting it if missing.
+    pub fn ensure_automation_lane(&mut self, target: AutomationTarget) -> &mut AutomationLane {
+        if let Some(pos) = self
+            .automation_lanes
+            .iter()
+            .position(|l| l.target == target)
+        {
+            return &mut self.automation_lanes[pos];
+        }
+        self.automation_lanes.push(AutomationLane::new(target));
+        let last = self.automation_lanes.len() - 1;
+        &mut self.automation_lanes[last]
+    }
 }
 
 /// A timeline marker or CD track cue point.
@@ -656,9 +844,48 @@ impl Marker {
     }
 }
 
+/// Maximum number of tracks supported consistently across project validation and real-time audio engine.
+pub const MAX_PROJECT_TRACKS: usize = 64;
+
+fn default_schema_version() -> u32 {
+    1
+}
+
+/// User-defined reusable insert effect chain preset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EffectChainPreset {
+    pub id: Uuid,
+    pub name: String,
+    pub effects: Vec<EffectConfig>,
+}
+
+impl EffectChainPreset {
+    pub fn new(name: impl Into<String>, effects: Vec<EffectConfig>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            effects,
+        }
+    }
+
+    pub fn to_ron(&self) -> Result<String, ProjectError> {
+        let pretty_config = ron::ser::PrettyConfig::new()
+            .depth_limit(6)
+            .separate_tuple_members(true)
+            .enumerate_arrays(true);
+        Ok(ron::ser::to_string_pretty(self, pretty_config)?)
+    }
+
+    pub fn from_ron(s: &str) -> Result<Self, ProjectError> {
+        Ok(ron::from_str(s)?)
+    }
+}
+
 /// The complete non-destructive project representation in steM.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Project {
+    #[serde(default = "default_schema_version")]
+    pub schema_version: u32,
     pub id: Uuid,
     pub name: String,
     pub sample_rate: u32,
@@ -673,6 +900,10 @@ pub struct Project {
     #[serde(default)]
     pub markers: Vec<Marker>,
     pub master_gain_db: f32,
+    #[serde(default)]
+    pub master_effects: Vec<EffectConfig>,
+    #[serde(default)]
+    pub user_presets: Vec<EffectChainPreset>,
     pub loop_enabled: bool,
     pub loop_region: Option<(u64, u64)>,
     pub playhead_frame: u64,
@@ -699,6 +930,7 @@ impl Default for Project {
 impl Project {
     pub fn new(name: impl Into<String>, sample_rate: u32) -> Self {
         let mut proj = Self {
+            schema_version: 1,
             id: Uuid::new_v4(),
             name: name.into(),
             sample_rate,
@@ -710,6 +942,8 @@ impl Project {
             groups: Vec::new(),
             markers: Vec::new(),
             master_gain_db: 0.0,
+            master_effects: Vec::new(),
+            user_presets: Vec::new(),
             loop_enabled: false,
             loop_region: None,
             playhead_frame: 0,
@@ -1085,10 +1319,11 @@ impl Project {
         }
 
         // Validate Tracks
-        if self.tracks.len() > 256 {
+        if self.tracks.len() > MAX_PROJECT_TRACKS {
             return Err(ProjectError::Validation(format!(
-                "Too many tracks: {} (max 256)",
-                self.tracks.len()
+                "Too many tracks: {} (max {})",
+                self.tracks.len(),
+                MAX_PROJECT_TRACKS
             )));
         }
 
@@ -1208,6 +1443,67 @@ impl Project {
         let proj: Self = ron::from_str(s)?;
         proj.validate()?;
         Ok(proj)
+    }
+
+    /// Saves the project atomically via a temporary sibling file and rename.
+    pub fn save_atomic(&self, dest: &std::path::Path) -> Result<(), ProjectError> {
+        let ron_data = self.to_ron()?;
+        if let Some(parent) = dest.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+        let tmp_path = dest.with_extension("stem.tmp");
+        std::fs::write(&tmp_path, ron_data.as_bytes())?;
+        std::fs::rename(&tmp_path, dest)?;
+        Ok(())
+    }
+
+    /// Creates a `.bak` backup copy of an existing project file if it exists.
+    pub fn create_backup(project_path: &std::path::Path) -> Result<Option<PathBuf>, ProjectError> {
+        if !project_path.exists() {
+            return Ok(None);
+        }
+        let bak_path = project_path.with_extension("stem.bak");
+        std::fs::copy(project_path, &bak_path)?;
+        Ok(Some(bak_path))
+    }
+
+    /// Collect All and Save: copies all existing external audio sources into `<project_dir>/Audio/`,
+    /// updates source paths, creates a backup if an existing file is present, and saves atomically.
+    /// Returns the number of media files copied.
+    pub fn collect_all_and_save(
+        &mut self,
+        dest_project_path: &std::path::Path,
+    ) -> Result<usize, ProjectError> {
+        let project_dir = dest_project_path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let audio_dir = project_dir.join("Audio");
+        std::fs::create_dir_all(&audio_dir)?;
+
+        let mut copied_count = 0usize;
+        for src in self.sources.values_mut() {
+            if !src.path.exists() {
+                continue;
+            }
+            let file_name = src
+                .path
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_else(|| std::ffi::OsString::from(format!("{}.wav", src.id)));
+            let target_path = audio_dir.join(&file_name);
+            if src.path != target_path {
+                std::fs::copy(&src.path, &target_path)?;
+                src.path = target_path;
+                copied_count += 1;
+            }
+        }
+
+        let _ = Self::create_backup(dest_project_path)?;
+        self.save_atomic(dest_project_path)?;
+        Ok(copied_count)
     }
 
     /// Creates a new project initialized from a built-in workflow template.

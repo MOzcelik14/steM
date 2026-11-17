@@ -24,7 +24,7 @@ impl Compressor {
         makeup_gain_db: f32,
     ) -> Self {
         let mut comp = Self {
-            sample_rate,
+            sample_rate: sample_rate.max(1.0),
             threshold_db,
             ratio: ratio.max(1.0),
             attack_ms,
@@ -39,10 +39,11 @@ impl Compressor {
     }
 
     fn update_coefficients(&mut self) {
+        let sr = self.sample_rate.max(1.0);
         let attack_s = (self.attack_ms * 0.001).max(0.0001);
         let release_s = (self.release_ms * 0.001).max(0.001);
-        self.attack_coeff = (-1.0 / (self.sample_rate * attack_s)).exp();
-        self.release_coeff = (-1.0 / (self.sample_rate * release_s)).exp();
+        self.attack_coeff = (-1.0 / (sr * attack_s)).exp();
+        self.release_coeff = (-1.0 / (sr * release_s)).exp();
     }
 
     pub fn set_params(
@@ -81,17 +82,18 @@ impl Compressor {
         }
     }
 
-    /// Process a single audio sample and return (output_sample, gain_reduction_db).
+    /// Process a single audio sample using an external sidechain key signal,
+    /// returning `(output_sample, gain_reduction_db)`.
     #[inline]
-    pub fn process_sample(&mut self, input: f32) -> (f32, f32) {
-        let abs_in = input.abs();
+    pub fn process_sample_sidechain(&mut self, input: f32, key: f32) -> (f32, f32) {
+        let abs_key = key.abs();
 
-        // Envelope detection
-        if abs_in > self.envelope {
-            self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * abs_in;
+        // Envelope detection on sidechain key
+        if abs_key > self.envelope {
+            self.envelope = self.attack_coeff * self.envelope + (1.0 - self.attack_coeff) * abs_key;
         } else {
             self.envelope =
-                self.release_coeff * self.envelope + (1.0 - self.release_coeff) * abs_in;
+                self.release_coeff * self.envelope + (1.0 - self.release_coeff) * abs_key;
         }
 
         // Convert envelope to dBFS (clamped at -120 dB)
@@ -114,10 +116,24 @@ impl Compressor {
         (input * gain_linear, -gain_reduction_db)
     }
 
+    /// Process a single audio sample and return (output_sample, gain_reduction_db).
+    #[inline]
+    pub fn process_sample(&mut self, input: f32) -> (f32, f32) {
+        self.process_sample_sidechain(input, input)
+    }
+
     /// Process an interleaved stereo or mono buffer.
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {
         for sample in buffer.iter_mut() {
             let (out, _) = self.process_sample(*sample);
+            *sample = out;
+        }
+    }
+
+    /// Process a buffer using an external sidechain key buffer of matching length.
+    pub fn process_buffer_sidechain(&mut self, buffer: &mut [f32], sidechain_key: &[f32]) {
+        for (sample, &key) in buffer.iter_mut().zip(sidechain_key.iter()) {
+            let (out, _) = self.process_sample_sidechain(*sample, key);
             *sample = out;
         }
     }
@@ -184,6 +200,9 @@ impl Limiter {
 pub struct NoiseGate {
     sample_rate: f32,
     threshold_linear: f32,
+    attack_ms: f32,
+    hold_ms: f32,
+    release_ms: f32,
     attack_coeff: f32,
     release_coeff: f32,
     hold_samples: u32,
@@ -205,6 +224,9 @@ impl NoiseGate {
         let mut gate = Self {
             sample_rate: sample_rate.max(1.0),
             threshold_linear: 10.0f32.powf(threshold_db / 20.0),
+            attack_ms,
+            hold_ms,
+            release_ms,
             attack_coeff: 0.0,
             release_coeff: 0.0,
             hold_samples: 0,
@@ -226,16 +248,24 @@ impl NoiseGate {
         range_db: f32,
     ) {
         self.threshold_linear = 10.0f32.powf(threshold_db / 20.0);
-        let attack_s = (attack_ms * 0.001).max(0.0001);
-        let release_s = (release_ms * 0.001).max(0.001);
+        self.attack_ms = attack_ms;
+        self.hold_ms = hold_ms;
+        self.release_ms = release_ms;
+        self.range_linear = 10.0f32.powf(range_db.clamp(-96.0, 0.0) / 20.0);
+        self.update_coefficients();
+    }
+
+    fn update_coefficients(&mut self) {
+        let attack_s = (self.attack_ms * 0.001).max(0.0001);
+        let release_s = (self.release_ms * 0.001).max(0.001);
         self.attack_coeff = (-1.0 / (self.sample_rate * attack_s)).exp();
         self.release_coeff = (-1.0 / (self.sample_rate * release_s)).exp();
-        self.hold_samples = ((hold_ms.max(0.0) * 0.001) * self.sample_rate) as u32;
-        self.range_linear = 10.0f32.powf(range_db.clamp(-96.0, 0.0) / 20.0);
+        self.hold_samples = ((self.hold_ms.max(0.0) * 0.001) * self.sample_rate) as u32;
     }
 
     pub fn set_sample_rate(&mut self, sample_rate: f32) {
         self.sample_rate = sample_rate.max(1.0);
+        self.update_coefficients();
     }
 
     pub fn reset(&mut self) {

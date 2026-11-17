@@ -43,25 +43,113 @@ pub struct AudioEngine {
     is_playing: bool,
 }
 
+/// Configuration options for opening an `AudioEngine` output stream.
+#[derive(Debug, Clone, Default)]
+pub struct AudioEngineConfig {
+    pub preferred_device: Option<String>,
+    pub preferred_sample_rate: Option<u32>,
+    pub buffer_size_frames: Option<u32>,
+}
+
 impl AudioEngine {
+    /// Lists all available output device names on the host.
+    pub fn available_output_devices() -> Vec<String> {
+        let host = cpal::default_host();
+        let mut names = Vec::new();
+        if let Ok(devs) = host.output_devices() {
+            for d in devs {
+                if let Ok(name) = d.name() {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+
     /// Initialize audio engine with the default system output device.
     pub fn new() -> Result<Self, AudioEngineError> {
+        Self::with_config(AudioEngineConfig::default())
+    }
+
+    /// Initialize audio engine with negotiated device, sample rate, channel layout, and buffer size.
+    pub fn with_config(cfg: AudioEngineConfig) -> Result<Self, AudioEngineError> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or(AudioEngineError::NoDevice)?;
+        let device = if let Some(ref target_name) = cfg.preferred_device {
+            let mut found = None;
+            if let Ok(devs) = host.output_devices() {
+                for d in devs {
+                    if let Ok(name) = d.name() {
+                        if name == *target_name {
+                            found = Some(d);
+                            break;
+                        }
+                    }
+                }
+            }
+            found.or_else(|| host.default_output_device())
+        } else {
+            host.default_output_device()
+        }
+        .ok_or(AudioEngineError::NoDevice)?;
+
         let device_name = device
             .name()
             .unwrap_or_else(|_| "Default Audio Device".to_string());
 
         let default_config = device.default_output_config()?;
-        let sample_rate = default_config.sample_rate().0;
-        let channels = default_config.channels();
+        let default_sr = default_config.sample_rate().0;
+        let default_ch = default_config.channels().max(1);
+
+        let mut negotiated_channels = default_ch.clamp(1, 2);
+        let mut negotiated_sr = default_sr;
+        let mut negotiated_buf = cpal::BufferSize::Default;
+
+        if let Ok(ranges) = device.supported_output_configs() {
+            let ranges: Vec<_> = ranges.collect();
+            // Prefer stereo (2ch) if any supported range offers it; otherwise keep default_ch
+            if ranges.iter().any(|r| r.channels() == 2) {
+                negotiated_channels = 2;
+            } else if let Some(r) = ranges.first() {
+                negotiated_channels = r.channels().max(1);
+            }
+
+            if let Some(req_sr) = cfg.preferred_sample_rate {
+                if let Some(best) = ranges
+                    .iter()
+                    .filter(|r| r.channels() == negotiated_channels)
+                    .min_by_key(|r| {
+                        let clamped = req_sr.clamp(r.min_sample_rate().0, r.max_sample_rate().0);
+                        clamped.abs_diff(req_sr)
+                    })
+                {
+                    negotiated_sr =
+                        req_sr.clamp(best.min_sample_rate().0, best.max_sample_rate().0);
+                }
+            }
+
+            if let Some(req_buf) = cfg.buffer_size_frames {
+                if let Some(r) = ranges
+                    .iter()
+                    .find(|r| r.channels() == negotiated_channels)
+                    .or_else(|| ranges.first())
+                {
+                    match r.buffer_size() {
+                        cpal::SupportedBufferSize::Range { min, max } => {
+                            let clamped = req_buf.clamp(*min, *max);
+                            negotiated_buf = cpal::BufferSize::Fixed(clamped);
+                        }
+                        cpal::SupportedBufferSize::Unknown => {
+                            negotiated_buf = cpal::BufferSize::Fixed(req_buf);
+                        }
+                    }
+                }
+            }
+        }
 
         let config = StreamConfig {
-            channels: 2, // Standard stereo output
-            sample_rate: cpal::SampleRate(sample_rate),
-            buffer_size: cpal::BufferSize::Default,
+            channels: negotiated_channels,
+            sample_rate: cpal::SampleRate(negotiated_sr),
+            buffer_size: negotiated_buf,
         };
 
         // Ring buffers for lock-free communication
@@ -73,7 +161,13 @@ impl AudioEngine {
         let (timeline_tx, timeline_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(64);
         let (retired_tx, retired_rx) = crossbeam_channel::bounded::<Arc<SharedAudioTimeline>>(64);
 
-        let processor = AudioProcessor::new(cmd_rx, telem_tx, Some(mon_rx));
+        let processor = AudioProcessor::with_config(
+            cmd_rx,
+            telem_tx,
+            Some(mon_rx),
+            negotiated_sr,
+            negotiated_channels,
+        );
         let mut audio_callback = RealtimeAudioCallback::new(processor, timeline_rx, retired_tx);
 
         let device_lost = Arc::new(AtomicBool::new(false));
@@ -102,8 +196,8 @@ impl AudioEngine {
             device_lost,
             is_input_monitoring: false,
             device_name,
-            sample_rate,
-            _channels: channels,
+            sample_rate: negotiated_sr,
+            _channels: negotiated_channels,
             latest_telemetry: AudioTelemetry::default(),
             is_playing: false,
         })
@@ -117,6 +211,11 @@ impl AudioEngine {
     /// Retrieve the output sample rate.
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
+    }
+
+    /// Retrieve the negotiated output channel count.
+    pub fn channels(&self) -> u16 {
+        self._channels
     }
 
     /// Query available audio output devices.

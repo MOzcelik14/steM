@@ -289,4 +289,53 @@ impl UndoRedoStack {
     pub fn history(&self) -> &[Action] {
         &self.undo_stack
     }
+
+    /// Undoes up to `count` actions in reverse chronological order, returning how many were undone.
+    pub fn undo_n(&mut self, count: usize, project: &mut Project) -> Result<usize, ProjectError> {
+        let mut undone = 0;
+        for _ in 0..count {
+            if self.undo(project)?.is_some() {
+                undone += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(undone)
+    }
+
+    /// Redoes up to `count` actions, returning how many were redone.
+    pub fn redo_n(&mut self, count: usize, project: &mut Project) -> Result<usize, ProjectError> {
+        let mut redone = 0;
+        for _ in 0..count {
+            if self.redo(project)?.is_some() {
+                redone += 1;
+            } else {
+                break;
+            }
+        }
+        Ok(redone)
+    }
+
+    /// Returns human-readable descriptions for the undo stack (most recent first).
+    pub fn undo_descriptions(&self) -> Vec<&'static str> {
+        self.undo_stack
+            .iter()
+            .rev()
+            .map(|a| a.description())
+            .collect()
+    }
+
+    /// Returns human-readable descriptions for the redo stack (next to redo first).
+    pub fn redo_descriptions(&self) -> Vec<&'static str> {
+        self.redo_stack
+            .iter()
+            .rev()
+            .map(|a| a.description())
+            .collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+    }
 }

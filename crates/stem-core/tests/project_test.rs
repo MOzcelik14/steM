@@ -731,3 +731,126 @@ fn test_recovery_journal_roundtrip() {
     assert_eq!(restored.tracks[0].automation_lanes.len(), 2);
     assert_eq!(restored.tracks[0].evaluated_gain_db(12000), -3.0);
 }
+
+#[test]
+fn test_advanced_automation_copy_paste_and_targets() {
+    use stem_core::project::{AutomationCurve, AutomationLane, AutomationTarget, TrackSend};
+
+    // 1. Bezier S-curve interpolation properties
+    let mut lane = AutomationLane::new(AutomationTarget::EqFreq(0));
+    lane.enabled = true;
+    lane.add_point(0, 200.0, AutomationCurve::Bezier);
+    lane.add_point(1000, 2000.0, AutomationCurve::Linear);
+
+    let mid = lane.evaluate(500, 1000.0);
+    assert!((mid - 1100.0).abs() < 1e-3);
+    // At quarter progress, smoothstep(0.25) = 0.0625 * (3 - 0.5) = 0.15625 (< 0.25 linear)
+    let q1 = lane.evaluate(250, 1000.0);
+    let expected_q1 = 200.0 + (2000.0 - 200.0) * 0.15625;
+    assert!((q1 - expected_q1).abs() < 1e-2);
+
+    // 2. Copy & paste range
+    let copied = lane.copy_range(0, 1000);
+    assert_eq!(copied.len(), 2);
+    assert_eq!(copied[0].frame, 0);
+    assert_eq!(copied[1].frame, 1000);
+
+    lane.paste_at(2000, &copied);
+    assert_eq!(lane.points.len(), 4);
+    assert!((lane.evaluate(2000, 0.0) - 200.0).abs() < 1e-3);
+    assert!((lane.evaluate(3000, 0.0) - 2000.0).abs() < 1e-3);
+
+    // 3. Track send-level & effect parameter automation
+    let mut track = stem_core::project::Track::new("Synth");
+    let bus_id = uuid::Uuid::new_v4();
+    track.sends.push(TrackSend::new(bus_id));
+    {
+        let send_lane = track.ensure_automation_lane(AutomationTarget::SendLevel(0));
+        send_lane.enabled = true;
+        send_lane.add_point(0, -12.0, AutomationCurve::Linear);
+        send_lane.add_point(1000, 0.0, AutomationCurve::Linear);
+    }
+    assert!((track.evaluated_send_gain_db(0, 500) - (-6.0)).abs() < 1e-3);
+    assert_eq!(
+        track.evaluated_param(AutomationTarget::ReverbMix, 0.25, 500),
+        0.25
+    );
+}
+
+#[test]
+fn test_workflow_presets_collect_save_backup_and_history() {
+    use stem_core::history::{Action, UndoRedoStack};
+    use stem_core::project::{AudioSource, EffectChainPreset, EffectConfig, Project};
+
+    // 1. User effect chain preset RON round-trip
+    let preset = EffectChainPreset::new(
+        "Vocal Polish",
+        vec![EffectConfig::Limiter {
+            threshold_db: -1.0,
+            release_ms: 50.0,
+        }],
+    );
+    let ron_str = preset.to_ron().expect("preset RON serialize");
+    let decoded = EffectChainPreset::from_ron(&ron_str).expect("preset RON deserialize");
+    assert_eq!(decoded.name, "Vocal Polish");
+    assert_eq!(decoded.effects.len(), 1);
+
+    // 2. Collect All and Save + backup
+    let tmp_base = std::env::temp_dir().join(format!("stem_collect_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp_base).unwrap();
+    let ext_audio = tmp_base.join("external_sample.wav");
+    std::fs::write(&ext_audio, b"RIFF0000WAVE").unwrap();
+
+    let mut proj = Project::new("Collect Test", 48000);
+    proj.user_presets.push(preset);
+    let src = AudioSource {
+        id: uuid::Uuid::new_v4(),
+        path: ext_audio.clone(),
+        filename: "external_sample.wav".to_string(),
+        sample_rate: 48000,
+        channels: 2,
+        duration_frames: 1000,
+        file_hash: None,
+    };
+    proj.add_source(src);
+
+    let proj_dir = tmp_base.join("CollectedProj");
+    let proj_file = proj_dir.join("CollectTest.stem");
+    let copied = proj
+        .collect_all_and_save(&proj_file)
+        .expect("collect_all_and_save should succeed");
+    assert_eq!(copied, 1);
+    assert!(proj_dir.join("Audio").join("external_sample.wav").exists());
+    assert!(proj_file.exists());
+
+    // Saving a second time creates .bak
+    let bak = Project::create_backup(&proj_file).expect("backup should succeed");
+    assert!(bak.is_some() && bak.unwrap().exists());
+    let _ = std::fs::remove_dir_all(&tmp_base);
+
+    // 3. Batch undo/redo & history descriptions
+    let mut stack = UndoRedoStack::new();
+    stack
+        .push_and_execute(
+            Action::SetMasterGain {
+                old_gain: 0.0,
+                new_gain: -3.0,
+            },
+            &mut proj,
+        )
+        .unwrap();
+    stack
+        .push_and_execute(
+            Action::SetMasterGain {
+                old_gain: -3.0,
+                new_gain: -6.0,
+            },
+            &mut proj,
+        )
+        .unwrap();
+    assert_eq!(stack.undo_descriptions().len(), 2);
+    assert_eq!(stack.undo_n(2, &mut proj).unwrap(), 2);
+    assert_eq!(proj.master_gain_db, 0.0);
+    assert_eq!(stack.redo_n(2, &mut proj).unwrap(), 2);
+    assert_eq!(proj.master_gain_db, -6.0);
+}

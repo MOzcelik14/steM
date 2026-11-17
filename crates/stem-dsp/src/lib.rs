@@ -15,7 +15,9 @@ pub mod restoration;
 pub mod spatial;
 
 pub use analysis::{
-    analyze_loudness, compute_true_peak_dbfs, LoudnessResult, SpectrogramPalette, SpectrumAnalyzer,
+    analyze_full_dynamics, analyze_loudness, compute_true_peak_dbfs, DynamicsAnalysisResult,
+    LoudnessResult, MasteringAssistant, MasteringReport, ReferenceComparison, SpectrogramPalette,
+    SpectrumAnalyzer, TonalBalance,
 };
 pub use biquad::{BiquadCoeffs, BiquadFilter};
 pub use chain::{
@@ -26,5 +28,8 @@ pub use dither::TpdfDither;
 pub use dynamics::{Compressor, Limiter};
 pub use peaks::build_peak_pyramid;
 pub use resample::resample_audio;
-pub use restoration::{ClickRemover, NoiseProfile, SpectralGate};
-pub use spatial::{Delay, Reverb};
+pub use restoration::{
+    ClickRemover, DeClipper, DeReverberator, HumRemover, NoiseProfile, SpectralGate,
+    SpectralRegion, SpectralRepair,
+};
+pub use spatial::{Delay, Reverb, StereoProcessor, Surround51Pan};

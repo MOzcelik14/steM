@@ -749,3 +749,272 @@ fn test_spectrogram_color_palette_and_true_peak() {
         "True peak calculation returned invalid value: {tp}"
     );
 }
+
+#[test]
+fn test_spatial_delay_and_reverb_stereo_decorrelation() {
+    let mut delay = stem_dsp::Delay::new(48000.0, 500.0);
+    delay.set_params(10.0, 0.5, 0.5);
+    let mut impulse_echo_peak = 0.0f32;
+    for i in 0..1000 {
+        let inp = if i == 0 { 1.0 } else { 0.0 };
+        let out = delay.process_sample(inp);
+        if i > 400 {
+            impulse_echo_peak = impulse_echo_peak.max(out.abs());
+        }
+    }
+    assert!(
+        impulse_echo_peak > 0.1,
+        "Delay did not produce expected echo"
+    );
+
+    let mut rev_l = stem_dsp::Reverb::new(48000.0);
+    let mut rev_r = stem_dsp::Reverb::new_with_spread(48000.0, 23);
+    rev_l.set_params(0.7, 0.3, 1.0);
+    rev_r.set_params(0.7, 0.3, 1.0);
+    let mut diff_energy = 0.0f32;
+    for i in 0..4000 {
+        let inp = if i == 0 { 1.0 } else { 0.0 };
+        let ol = rev_l.process_sample(inp);
+        let or = rev_r.process_sample(inp);
+        diff_energy += (ol - or).abs();
+    }
+    assert!(
+        diff_energy > 0.01,
+        "Stereo spread reverb should decorrelate L/R channels"
+    );
+}
+
+#[test]
+fn test_ebur128_momentary_max_captures_peak_before_silence() {
+    let sr = 48000u32;
+    // 1 second loud 1 kHz tone followed by 2 seconds of silence
+    let mut samples = Vec::with_capacity(sr as usize * 3 * 2);
+    for i in 0..(sr as usize * 3) {
+        let val = if i < sr as usize {
+            (2.0 * std::f32::consts::PI * 1000.0 * (i as f32 / sr as f32)).sin() * 0.5
+        } else {
+            0.0
+        };
+        samples.push(val);
+        samples.push(val);
+    }
+
+    let res = stem_dsp::analyze_loudness(&samples, 2, sr).unwrap();
+    assert!(
+        res.momentary_max_lufs > -20.0,
+        "Expected momentary max > -20 LUFS even with trailing silence, got {}",
+        res.momentary_max_lufs
+    );
+}
+
+#[test]
+fn test_effect_chain_from_configs_applies_effects() {
+    let configs = vec![stem_core::EffectConfig::Limiter {
+        threshold_db: -12.0,
+        release_ms: 50.0,
+    }];
+    let mut chain = stem_dsp::chain::EffectChain::from_configs(&configs, 48000.0);
+    assert_eq!(chain.effects.len(), 1);
+    let (l, r) = chain.process_stereo(0.95, -0.95);
+    assert!(
+        l.abs() < 0.3 && r.abs() < 0.3,
+        "Limiter built via from_configs should attenuate 0.95 input below -12 dBFS: l={l}, r={r}"
+    );
+}
+
+#[test]
+fn test_spectral_repair_and_restoration_tools() {
+    let sr = 48000.0f32;
+    let n = 8192usize;
+
+    // 1. SpectralRepair::attenuate_region should suppress 2500 Hz while leaving 200 Hz intact
+    let mut sig = vec![0.0f32; n];
+    for (i, s) in sig.iter_mut().enumerate() {
+        let t = i as f32 / sr;
+        *s = (2.0 * std::f32::consts::PI * 200.0 * t).sin() * 0.4
+            + (2.0 * std::f32::consts::PI * 2500.0 * t).sin() * 0.4;
+    }
+    let region = stem_dsp::SpectralRegion {
+        start_frame: 2048,
+        end_frame: 6144,
+        min_freq_hz: 2200.0,
+        max_freq_hz: 2800.0,
+    };
+    let mut attenuated = sig.clone();
+    stem_dsp::SpectralRepair::attenuate_region(&mut attenuated, sr, &region, -40.0);
+    let rms_before: f32 = sig[3000..5000].iter().map(|x| x * x).sum();
+    let rms_after: f32 = attenuated[3000..5000].iter().map(|x| x * x).sum();
+    assert!(
+        rms_after < rms_before * 0.65,
+        "Spectral attenuation should reduce 2.5 kHz component energy: before={rms_before}, after={rms_after}"
+    );
+
+    // 2. SpectralRepair::interpolate_region should heal a burst in the middle
+    let mut burst = sig.clone();
+    for s in &mut burst[3500..4500] {
+        *s += 0.5;
+    }
+    stem_dsp::SpectralRepair::interpolate_region(&mut burst, sr, &region);
+    assert!(burst[3500..4500].iter().all(|x| x.is_finite()));
+
+    // 3. HumRemover should attenuate 50 Hz hum
+    let mut hum_sig: Vec<f32> = (0..n)
+        .map(|i| (2.0 * std::f32::consts::PI * 50.0 * (i as f32 / sr)).sin() * 0.5)
+        .collect();
+    let mut hum = stem_dsp::HumRemover::new(sr, 50.0, 6.0);
+    hum.process_channel(&mut hum_sig);
+    let tail_peak = hum_sig[n - 1024..]
+        .iter()
+        .fold(0.0f32, |m, &s| m.max(s.abs()));
+    assert!(
+        tail_peak < 0.1,
+        "HumRemover should attenuate 50 Hz mains hum, got tail_peak={tail_peak}"
+    );
+
+    // 4. DeClipper should repair flat-topped clipped samples
+    let mut clipped: Vec<f32> = (0..1024)
+        .map(|i| {
+            ((2.0 * std::f32::consts::PI * 440.0 * (i as f32 / sr)).sin() * 1.25).clamp(-0.98, 0.98)
+        })
+        .collect();
+    let declip = stem_dsp::DeClipper::new(0.97);
+    let fixed = declip.process_channel(&mut clipped);
+    assert!(
+        fixed > 0,
+        "DeClipper should detect and repair clipped peaks"
+    );
+
+    // 5. DeReverberator should attenuate decaying tail
+    let mut reverb_sig = vec![0.0f32; sr as usize];
+    for (i, s) in reverb_sig.iter_mut().enumerate() {
+        let t = i as f32 / sr;
+        *s = if i < 2000 {
+            0.8
+        } else {
+            (-t * 6.0).exp() * 0.4
+        };
+    }
+    let dereverb = stem_dsp::DeReverberator::new(sr, 0.7);
+    let mut out = reverb_sig.clone();
+    dereverb.process_channel(&mut out);
+    assert!(out[8000].abs() <= reverb_sig[8000].abs());
+}
+
+#[test]
+fn test_full_dynamics_and_mastering_assistant() {
+    let sr = 48000u32;
+    let mut interleaved = Vec::with_capacity(sr as usize * 2);
+    for i in 0..sr as usize {
+        let t = i as f32 / sr as f32;
+        let s = (2.0 * std::f32::consts::PI * 500.0 * t).sin() * 0.5;
+        interleaved.push(s);
+        interleaved.push(s);
+    }
+
+    let report = stem_dsp::MasteringAssistant::analyze_mix(&interleaved, 2, sr, -14.0)
+        .expect("Mastering analysis should succeed");
+    assert!(report.dynamics.rms_dbfs < 0.0 && report.dynamics.rms_dbfs > -20.0);
+    assert!(report.dynamics.crest_factor_db > 2.0 && report.dynamics.crest_factor_db < 5.0);
+    assert_eq!(report.dynamics.clipped_samples, 0);
+    assert!(report.tonal_balance.mid_pct > 70.0);
+}
+
+#[test]
+fn test_sidechain_stereo_width_and_surround_51() {
+    // 1. Sidechain compression ducks input when key exceeds threshold
+    let mut comp = stem_dsp::Compressor::new(48000.0, -20.0, 4.0, 1.0, 50.0, 0.0);
+    let mut ducked = 0.0f32;
+    for _ in 0..500 {
+        let (out, gr) = comp.process_sample_sidechain(0.2, 0.9);
+        ducked = out;
+        assert!(gr >= 0.0);
+    }
+    assert!(ducked < 0.15, "Sidechain key should duck signal: {ducked}");
+
+    // 2. StereoProcessor width=0.0 collapses stereo to mono
+    let mono_proc = stem_dsp::StereoProcessor::new(0.0, 0.0, 0.0);
+    let (ml, mr) = mono_proc.process_stereo(0.8, 0.2);
+    assert!((ml - 0.5).abs() < 1e-5 && (mr - 0.5).abs() < 1e-5);
+
+    // StereoProcessor width=2.0 widens stereo difference
+    let wide_proc = stem_dsp::StereoProcessor::new(2.0, 0.0, 0.0);
+    let (wl, wr) = wide_proc.process_stereo(0.8, 0.2);
+    assert!((wl - 1.1).abs() < 1e-5 && (wr - (-0.1)).abs() < 1e-5);
+
+    // 3. Surround 5.1 encode + ITU downmix
+    let pan51 = stem_dsp::Surround51Pan {
+        rear_mix: 0.5,
+        center_mix: 0.5,
+        lfe_mix: 0.25,
+    };
+    let ch = pan51.encode_stereo(0.6, 0.4);
+    assert!(ch[2] > 0.0 && ch[3] > 0.0 && ch[4] > 0.0 && ch[5] > 0.0);
+    let (dl, dr) = stem_dsp::Surround51Pan::downmix_to_stereo(ch);
+    assert!(dl > 0.5 && dr > 0.3);
+}
+
+#[test]
+fn test_reference_loudness_and_spectrum_comparison() {
+    let sr = 48000u32;
+    let mut mix = Vec::with_capacity(sr as usize * 2);
+    let mut reference = Vec::with_capacity(sr as usize * 2);
+    for i in 0..sr as usize {
+        let t = i as f32 / sr as f32;
+        // Mix: quiet 100 Hz bass
+        let m = (2.0 * std::f32::consts::PI * 100.0 * t).sin() * 0.2;
+        mix.push(m);
+        mix.push(m);
+        // Reference: louder 6000 Hz bright tone
+        let r = (2.0 * std::f32::consts::PI * 6000.0 * t).sin() * 0.5;
+        reference.push(r);
+        reference.push(r);
+    }
+
+    let cmp = stem_dsp::MasteringAssistant::compare_with_reference(&mix, &reference, 2, sr, -14.0)
+        .expect("Reference comparison should succeed");
+    assert!(
+        cmp.lufs_delta_db < 0.0,
+        "Mix should be quieter than reference"
+    );
+    assert!(cmp.low_delta_pct > 50.0, "Mix should have more low energy");
+    assert!(
+        cmp.high_delta_pct < -50.0,
+        "Reference should have more high energy"
+    );
+}
+
+#[test]
+fn test_dsp_regression_and_throughput_benchmark() {
+    let sr = 48000.0f32;
+    let mut chain = stem_dsp::EffectChain::default_chain(sr);
+    let num_samples = 48000usize; // 1 second stereo
+    let mut left = vec![0.0f32; num_samples];
+    let mut right = vec![0.0f32; num_samples];
+    for i in 0..num_samples {
+        let t = i as f32 / sr;
+        let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
+        left[i] = s;
+        right[i] = s;
+    }
+
+    let t0 = std::time::Instant::now();
+    for i in 0..num_samples {
+        let (ol, or) = chain.process_stereo(left[i], right[i]);
+        assert!(ol.is_finite() && or.is_finite());
+        left[i] = ol;
+        right[i] = or;
+    }
+    let elapsed = t0.elapsed();
+    assert!(
+        elapsed.as_secs_f32() < 1.0,
+        "DSP regression: 1s stereo default_chain took {elapsed:?}"
+    );
+
+    // Multi-rate resample regression (44100 -> 48000 -> 96000)
+    let in_ch = vec![left[..4410].to_vec()];
+    let resampled_48 = stem_dsp::resample_audio(&in_ch, 44100, 48000).expect("44.1k->48k resample");
+    let resampled_96 =
+        stem_dsp::resample_audio(&resampled_48, 48000, 96000).expect("48k->96k resample");
+    assert!(!resampled_96.is_empty() && !resampled_96[0].is_empty());
+    assert!(resampled_96[0].iter().all(|s| s.is_finite()));
+}

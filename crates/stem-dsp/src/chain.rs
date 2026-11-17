@@ -522,7 +522,7 @@ impl Clone for ReverbEffect {
 impl ReverbEffect {
     pub fn new(sample_rate: f32, room_size: f32, damping: f32, mix: f32) -> Self {
         let mut rl = Reverb::new(sample_rate);
-        let mut rr = Reverb::new(sample_rate);
+        let mut rr = Reverb::new_with_spread(sample_rate, 23);
         rl.set_params(room_size, damping, 1.0);
         rr.set_params(room_size, damping, 1.0);
 
@@ -844,6 +844,99 @@ impl EffectChain {
         Self {
             effects: Vec::with_capacity(8),
         }
+    }
+
+    /// Builds an `EffectChain` from serialized `stem_core::EffectConfig` definitions.
+    pub fn from_configs(configs: &[stem_core::EffectConfig], sample_rate: f32) -> Self {
+        use stem_core::EffectConfig;
+        let sr = sample_rate.max(1.0);
+        let mut chain = Self::new();
+        for cfg in configs {
+            match cfg {
+                EffectConfig::Equalizer { bands } => {
+                    let mut eq = EqEffect::new(sr);
+                    for (idx, band) in bands.iter().take(4).enumerate() {
+                        eq.set_band(idx, band.clone());
+                    }
+                    chain.add_effect(InsertEffect::Equalizer(eq));
+                }
+                EffectConfig::Compressor {
+                    threshold_db,
+                    ratio,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                } => {
+                    chain.add_effect(InsertEffect::Compressor(CompressorEffect::new(
+                        sr,
+                        *threshold_db,
+                        *ratio,
+                        *attack_ms,
+                        *release_ms,
+                        *makeup_gain_db,
+                    )));
+                }
+                EffectConfig::Limiter {
+                    threshold_db,
+                    release_ms,
+                } => {
+                    chain.add_effect(InsertEffect::Limiter(LimiterEffect::new(
+                        sr,
+                        *threshold_db,
+                        *release_ms,
+                    )));
+                }
+                EffectConfig::Delay {
+                    time_ms,
+                    feedback,
+                    mix,
+                } => {
+                    chain.add_effect(InsertEffect::Delay(DelayEffect::new(
+                        sr, *time_ms, *feedback, *mix,
+                    )));
+                }
+                EffectConfig::Reverb {
+                    room_size,
+                    damping,
+                    mix,
+                } => {
+                    chain.add_effect(InsertEffect::Reverb(ReverbEffect::new(
+                        sr, *room_size, *damping, *mix,
+                    )));
+                }
+                EffectConfig::NoiseGate {
+                    threshold_db,
+                    attack_ms,
+                    hold_ms,
+                    release_ms,
+                    range_db,
+                } => {
+                    chain.add_effect(InsertEffect::NoiseGate(NoiseGateEffect::new(
+                        sr,
+                        *threshold_db,
+                        *attack_ms,
+                        *hold_ms,
+                        *release_ms,
+                        *range_db,
+                    )));
+                }
+                EffectConfig::DeEsser {
+                    frequency_hz,
+                    threshold_db,
+                    ratio,
+                    range_db,
+                } => {
+                    chain.add_effect(InsertEffect::DeEsser(DeEsserEffect::new(
+                        sr,
+                        *frequency_hz,
+                        *threshold_db,
+                        *ratio,
+                        *range_db,
+                    )));
+                }
+            }
+        }
+        chain
     }
 
     /// Creates a default insert chain with all core effects (EQ, Compressor, Limiter, Delay, Reverb, NoiseGate, DeEsser).

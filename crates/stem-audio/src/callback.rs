@@ -68,10 +68,10 @@ pub enum AudioCommand {
     },
 }
 
-pub const MAX_TRACKS: usize = 32;
+pub const MAX_TRACKS: usize = stem_core::MAX_PROJECT_TRACKS;
 
 /// Telemetry metrics returned from the audio thread back to the UI.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct AudioTelemetry {
     pub playhead_frame: u64,
     pub peak_left: f32,
@@ -79,6 +79,19 @@ pub struct AudioTelemetry {
     pub rms_left: f32,
     pub rms_right: f32,
     pub track_peaks: [f32; MAX_TRACKS],
+}
+
+impl Default for AudioTelemetry {
+    fn default() -> Self {
+        Self {
+            playhead_frame: 0,
+            peak_left: 0.0,
+            peak_right: 0.0,
+            rms_left: 0.0,
+            rms_right: 0.0,
+            track_peaks: [0.0; MAX_TRACKS],
+        }
+    }
 }
 
 /// Static per-track state kept in the audio callback.
@@ -140,6 +153,7 @@ pub struct AudioProcessor {
     metronome_env: f32,
     metronome_freq_hz: f32,
     metronome_last_beat_idx: i64,
+    output_channels: u16,
 }
 
 impl AudioProcessor {
@@ -148,8 +162,39 @@ impl AudioProcessor {
         telemetry_producer: Producer<AudioTelemetry>,
         monitor_consumer: Option<Consumer<f32>>,
     ) -> Self {
+        Self::with_sample_rate(
+            command_consumer,
+            telemetry_producer,
+            monitor_consumer,
+            48000,
+        )
+    }
+
+    pub fn with_sample_rate(
+        command_consumer: Consumer<AudioCommand>,
+        telemetry_producer: Producer<AudioTelemetry>,
+        monitor_consumer: Option<Consumer<f32>>,
+        sample_rate: u32,
+    ) -> Self {
+        Self::with_config(
+            command_consumer,
+            telemetry_producer,
+            monitor_consumer,
+            sample_rate,
+            2,
+        )
+    }
+
+    pub fn with_config(
+        command_consumer: Consumer<AudioCommand>,
+        telemetry_producer: Producer<AudioTelemetry>,
+        monitor_consumer: Option<Consumer<f32>>,
+        sample_rate: u32,
+        output_channels: u16,
+    ) -> Self {
+        let sr = sample_rate.max(1);
         let default_track_effects: [EffectChain; MAX_TRACKS] =
-            std::array::from_fn(|_| EffectChain::default_chain(48000.0));
+            std::array::from_fn(|_| EffectChain::default_chain(sr as f32));
         Self {
             command_consumer,
             telemetry_producer,
@@ -158,7 +203,7 @@ impl AudioProcessor {
             master_gain: 1.0,
             tracks: [TrackMixerState::default(); MAX_TRACKS],
             track_effects: default_track_effects,
-            master_effects: EffectChain::default_chain(48000.0),
+            master_effects: EffectChain::default_chain(sr as f32),
             loop_enabled: false,
             loop_start_frame: 0,
             loop_end_frame: 0,
@@ -168,11 +213,12 @@ impl AudioProcessor {
             metronome_enabled: false,
             metronome_bpm: 120.0,
             metronome_beats_per_bar: 4,
-            metronome_sample_rate: 48000,
+            metronome_sample_rate: sr,
             metronome_phase: 0.0,
             metronome_env: 0.0,
             metronome_freq_hz: 1000.0,
             metronome_last_beat_idx: -1,
+            output_channels: output_channels.max(1),
         }
     }
 
@@ -317,8 +363,9 @@ impl AudioProcessor {
     pub fn process_interleaved(&mut self, output: &mut [f32]) {
         self.process_commands();
 
+        let out_ch = (self.output_channels as usize).max(1);
         let num_samples = output.len();
-        let num_frames = num_samples / 2;
+        let num_frames = num_samples / out_ch;
 
         let mut peak_l = 0.0f32;
         let mut peak_r = 0.0f32;
@@ -394,13 +441,8 @@ impl AudioProcessor {
                                 mr * self.master_gain,
                                 Some(total_frames),
                             )
-                        } else {
-                            let left_ch = &timeline.channels[0];
-                            let right_ch = if timeline.channels.len() > 1 {
-                                &timeline.channels[1]
-                            } else {
-                                &timeline.channels[0]
-                            };
+                        } else if let Some(left_ch) = timeline.channels.first() {
+                            let right_ch = timeline.channels.get(1).unwrap_or(left_ch);
                             let raw_l = left_ch.get(current_frame).copied().unwrap_or(0.0);
                             let raw_r = right_ch.get(current_frame).copied().unwrap_or(0.0);
                             let (ml, mr) = self.master_effects.process_stereo(raw_l, raw_r);
@@ -409,6 +451,8 @@ impl AudioProcessor {
                                 mr * self.master_gain,
                                 Some(total_frames),
                             )
+                        } else {
+                            (0.0, 0.0, Some(total_frames))
                         }
                     } else {
                         (0.0, 0.0, Some(total_frames))
@@ -440,9 +484,16 @@ impl AudioProcessor {
                     }
                 }
 
-                let out_idx = f * 2;
-                output[out_idx] = l_sample;
-                output[out_idx + 1] = r_sample;
+                let out_idx = f * out_ch;
+                if out_ch == 1 {
+                    output[out_idx] = 0.5 * (l_sample + r_sample);
+                } else {
+                    output[out_idx] = l_sample;
+                    output[out_idx + 1] = r_sample;
+                    for extra in 2..out_ch {
+                        output[out_idx + extra] = 0.0;
+                    }
+                }
 
                 let abs_l = l_sample.abs();
                 let abs_r = r_sample.abs();
@@ -467,8 +518,10 @@ impl AudioProcessor {
                     {
                         self.is_playing = false;
                         for rem in (f + 1)..num_frames {
-                            output[rem * 2] = 0.0;
-                            output[rem * 2 + 1] = 0.0;
+                            let rem_idx = rem * out_ch;
+                            for ch in 0..out_ch {
+                                output[rem_idx + ch] = 0.0;
+                            }
                         }
                         break;
                     }
@@ -480,22 +533,29 @@ impl AudioProcessor {
         if self.monitoring_enabled {
             if let Some(ref mut mon) = self.monitor_consumer {
                 for f in 0..num_frames {
-                    if let Ok(l_mon) = mon.pop() {
-                        let r_mon = mon.pop().unwrap_or(l_mon);
-                        output[f * 2] += l_mon;
-                        output[f * 2 + 1] += r_mon;
+                    if mon.slots() < 2 {
+                        break;
+                    }
+                    if let (Ok(l_mon), Ok(r_mon)) = (mon.pop(), mon.pop()) {
+                        let out_idx = f * out_ch;
+                        if out_ch == 1 {
+                            output[out_idx] += 0.5 * (l_mon + r_mon);
+                        } else {
+                            output[out_idx] += l_mon;
+                            output[out_idx + 1] += r_mon;
+                        }
 
                         if !self.is_playing {
-                            let abs_l = output[f * 2].abs();
-                            let abs_r = output[f * 2 + 1].abs();
+                            let abs_l = l_mon.abs();
+                            let abs_r = r_mon.abs();
                             if abs_l > peak_l {
                                 peak_l = abs_l;
                             }
                             if abs_r > peak_r {
                                 peak_r = abs_r;
                             }
-                            sum_sq_l += output[f * 2] * output[f * 2];
-                            sum_sq_r += output[f * 2 + 1] * output[f * 2 + 1];
+                            sum_sq_l += l_mon * l_mon;
+                            sum_sq_r += r_mon * r_mon;
                             frames_counted += 1;
                         }
                     } else {

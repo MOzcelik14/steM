@@ -120,6 +120,65 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                                 });
                         });
 
+                        // Output Device Selection
+                        ui.horizontal(|ui| {
+                            ui.label("Output Device:");
+                            let selected_out = app
+                                .recording_state
+                                .selected_output_device
+                                .clone()
+                                .unwrap_or_else(|| app.i18n.t("recording-no-device"));
+                            egui::ComboBox::from_id_salt("pref_output_device")
+                                .selected_text(selected_out)
+                                .show_ui(ui, |ui| {
+                                    for dev in app.recording_state.available_output_devices.clone()
+                                    {
+                                        let is_sel =
+                                            app.recording_state.selected_output_device.as_ref()
+                                                == Some(&dev);
+                                        if ui.selectable_label(is_sel, &dev).clicked() {
+                                            app.recording_state.selected_output_device =
+                                                Some(dev.clone());
+                                            app.action_reconfigure_audio_devices();
+                                        }
+                                    }
+                                });
+                        });
+
+                        // Audio Buffer Size / Latency Preset
+                        ui.horizontal(|ui| {
+                            ui.label("Buffer Size:");
+                            let cur_buf = app.recording_state.buffer_size_frames;
+                            let cur_label = match cur_buf {
+                                None => "Auto".to_string(),
+                                Some(n) => format!("{n} samples"),
+                            };
+                            egui::ComboBox::from_id_salt("pref_buffer_size")
+                                .selected_text(cur_label)
+                                .show_ui(ui, |ui| {
+                                    for opt in [
+                                        None,
+                                        Some(128),
+                                        Some(256),
+                                        Some(512),
+                                        Some(1024),
+                                        Some(2048),
+                                    ] {
+                                        let lbl = match opt {
+                                            None => "Auto".to_string(),
+                                            Some(n) => format!("{n} samples"),
+                                        };
+                                        if ui.selectable_label(cur_buf == opt, lbl).clicked() {
+                                            app.recording_state.buffer_size_frames = opt;
+                                            app.action_reconfigure_audio_devices();
+                                        }
+                                    }
+                                });
+                            if ui.button("Reconnect").clicked() {
+                                app.action_reconfigure_audio_devices();
+                            }
+                        });
+
                         // Latency Compensation
                         ui.horizontal(|ui| {
                             ui.label(app.i18n.t("recording-latency-compensation"));
@@ -139,7 +198,11 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                         // Sample Rate
                         ui.horizontal(|ui| {
                             ui.label(app.i18n.t("dialog-preferences-sample-rate"));
-                            let sr = app.project.sample_rate;
+                            let sr = app
+                                .audio_engine
+                                .as_ref()
+                                .map(|e| e.sample_rate())
+                                .unwrap_or(app.project.sample_rate);
                             ui.label(format!("{sr} Hz"));
                         });
 
@@ -197,10 +260,13 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
                 ui.label(app.i18n.t("recording-device-warning-msg"));
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
+                    if ui.button("Reconnect").clicked() {
+                        app.action_reconfigure_audio_devices();
+                    }
                     if ui.button(app.i18n.t("dialog-close")).clicked() {
                         app.recording_state.device_lost_warning = false;
                     }
-                    if ui.button(app.i18n.t("menu-edit-preferences")).clicked() {
+                    if ui.button(app.i18n.t("menu-file-preferences")).clicked() {
                         app.recording_state.device_lost_warning = false;
                         app.show_preferences_dialog = true;
                     }
@@ -619,12 +685,21 @@ fn render_noise_reduction_dialog(app: &mut StemApp, ctx: &egui::Context) {
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    let has_prof = app.noise_reduction_state.noise_profile.is_some();
-                    let has_sel = app.waveform_state.selection.is_some();
+                    let has_sel = app.waveform_state.selection.is_some()
+                        || app.timeline_state.time_selection.is_some();
+                    let has_target = app.waveform_state.document.is_some()
+                        || app.timeline_state.selected_clip_id.is_some();
+
+                    if ui
+                        .add_enabled(has_target, egui::Button::new("Capture Profile"))
+                        .clicked()
+                    {
+                        app.action_capture_noise_profile();
+                    }
 
                     if ui
                         .add_enabled(
-                            has_prof && has_sel,
+                            has_target && has_sel,
                             egui::Button::new(app.i18n.t("cleanup-btn-apply")),
                         )
                         .clicked()
@@ -635,7 +710,7 @@ fn render_noise_reduction_dialog(app: &mut StemApp, ctx: &egui::Context) {
 
                     if ui
                         .add_enabled(
-                            has_prof,
+                            has_target,
                             egui::Button::new(app.i18n.t("cleanup-btn-apply-all")),
                         )
                         .clicked()
@@ -842,6 +917,154 @@ fn render_loudness_report_dialog(app: &mut StemApp, ctx: &egui::Context) {
                             );
                             ui.end_row();
                         });
+
+                    if let Some(ref report) = app.loudness_report_state.mastering_report.clone() {
+                        ui.separator();
+                        ui.label(egui::RichText::new("Mastering Assistant").strong());
+                        egui::Grid::new("mastering_dyn_grid")
+                            .num_columns(2)
+                            .spacing([18.0, 4.0])
+                            .show(ui, |ui| {
+                                ui.label("RMS Level:");
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.2} dBFS",
+                                        report.dynamics.rms_dbfs
+                                    ))
+                                    .monospace(),
+                                );
+                                ui.end_row();
+
+                                ui.label("Crest Factor:");
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.1} dB",
+                                        report.dynamics.crest_factor_db
+                                    ))
+                                    .monospace(),
+                                );
+                                ui.end_row();
+
+                                ui.label("Dynamic Range (PLR):");
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.1} dB",
+                                        report.dynamics.dynamic_range_db
+                                    ))
+                                    .monospace(),
+                                );
+                                ui.end_row();
+
+                                ui.label("Clipped Samples:");
+                                let clip_col = if report.dynamics.clipped_samples > 0 {
+                                    egui::Color32::from_rgb(245, 90, 90)
+                                } else {
+                                    egui::Color32::from_rgb(80, 220, 120)
+                                };
+                                ui.colored_label(
+                                    clip_col,
+                                    format!("{}", report.dynamics.clipped_samples),
+                                );
+                                ui.end_row();
+
+                                ui.label("Tonal Balance (L/M/H):");
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{:.0}% / {:.0}% / {:.0}%",
+                                        report.tonal_balance.low_pct,
+                                        report.tonal_balance.mid_pct,
+                                        report.tonal_balance.high_pct
+                                    ))
+                                    .monospace(),
+                                );
+                                ui.end_row();
+                            });
+
+                        for w in &report.warnings {
+                            ui.colored_label(egui::Color32::from_rgb(245, 180, 80), w);
+                        }
+
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(format!(
+                                    "Apply Safe Gain ({:+.1} dB)",
+                                    report.suggested_gain_db
+                                ))
+                                .clicked()
+                            {
+                                app.action_set_master_gain(report.suggested_gain_db);
+                            }
+                            let mut ab = app.loudness_report_state.ab_reference_active;
+                            if ui.toggle_value(&mut ab, "A/B Unity (0 dB)").changed() {
+                                app.loudness_report_state.ab_reference_active = ab;
+                                let g = if ab { 0.0 } else { report.suggested_gain_db };
+                                app.action_set_master_gain(g);
+                            }
+                            if ui.button("Import Reference...").clicked() {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Audio", &["wav", "flac", "mp3", "ogg"])
+                                    .pick_file()
+                                {
+                                    app.action_compare_reference_audio(&path);
+                                }
+                            }
+                        });
+
+                        if let Some(ref cmp) =
+                            app.loudness_report_state.reference_comparison.clone()
+                        {
+                            ui.separator();
+                            let ref_name = app
+                                .loudness_report_state
+                                .reference_audio_path
+                                .as_ref()
+                                .and_then(|p| p.file_name())
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "Reference".to_string());
+                            ui.label(
+                                egui::RichText::new(format!("Reference Comparison ({})", ref_name))
+                                    .strong(),
+                            );
+                            egui::Grid::new("ref_cmp_grid")
+                                .num_columns(2)
+                                .spacing([18.0, 4.0])
+                                .show(ui, |ui| {
+                                    ui.label("Loudness Delta:");
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:+.1} LUFS (Ref: {:.1} LUFS)",
+                                            cmp.lufs_delta_db,
+                                            cmp.reference.dynamics.integrated_lufs
+                                        ))
+                                        .monospace(),
+                                    );
+                                    ui.end_row();
+
+                                    ui.label("True Peak Delta:");
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:+.2} dBTP (Ref: {:.2} dBTP)",
+                                            cmp.true_peak_delta_db,
+                                            cmp.reference.dynamics.true_peak_dbfs
+                                        ))
+                                        .monospace(),
+                                    );
+                                    ui.end_row();
+
+                                    ui.label("Spectrum Delta (L/M/H):");
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "{:+.0}% / {:+.0}% / {:+.0}%",
+                                            cmp.low_delta_pct,
+                                            cmp.mid_delta_pct,
+                                            cmp.high_delta_pct
+                                        ))
+                                        .monospace(),
+                                    );
+                                    ui.end_row();
+                                });
+                        }
+                    }
                 } else {
                     ui.label(app.i18n.t("dialog-loudness-no-data"));
                 }
@@ -1124,14 +1347,74 @@ fn render_batch_export_dialog(app: &mut StemApp, ctx: &egui::Context) {
                         });
                 });
 
-                if let Some(ref msg) = app.batch_export_state.status_msg {
+                ui.checkbox(
+                    &mut app.batch_export_state.overwrite_existing,
+                    "Overwrite existing files",
+                );
+
+                if app.batch_export_state.in_progress {
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new(msg).color(egui::Color32::from_rgb(80, 220, 120)));
+                    ui.add(
+                        egui::ProgressBar::new(app.batch_export_state.progress).show_percentage(),
+                    );
+                } else if let Some(ref msg) = app.batch_export_state.status_msg {
+                    ui.add_space(6.0);
+                    let color = app
+                        .batch_export_state
+                        .summary
+                        .as_ref()
+                        .map(|s| {
+                            if s.failed > 0 {
+                                egui::Color32::from_rgb(245, 160, 80)
+                            } else {
+                                egui::Color32::from_rgb(80, 220, 120)
+                            }
+                        })
+                        .unwrap_or_else(|| egui::Color32::from_rgb(80, 220, 120));
+                    ui.label(egui::RichText::new(msg).color(color));
+                }
+
+                if let Some(ref summary) = app.batch_export_state.summary {
+                    if !summary.items.is_empty() {
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(130.0)
+                            .show(ui, |ui| {
+                                for item in &summary.items {
+                                    match &item.status {
+                                        crate::state::BatchItemStatus::Succeeded => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(80, 220, 120),
+                                                format!("[OK] {}", item.filename),
+                                            );
+                                        }
+                                        crate::state::BatchItemStatus::Skipped(reason) => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(220, 190, 90),
+                                                format!("[SKIP] {} — {}", item.filename, reason),
+                                            );
+                                        }
+                                        crate::state::BatchItemStatus::Failed(err) => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(245, 100, 100),
+                                                format!("[ERR] {} — {}", item.filename, err),
+                                            );
+                                        }
+                                    }
+                                }
+                            });
+                    }
                 }
 
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
-                    if ui
+                    if app.batch_export_state.in_progress {
+                        if ui.button(app.i18n.t("dialog-cancel")).clicked() {
+                            if let Some(ref tok) = app.batch_export_state.cancel_token {
+                                tok.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    } else if ui
                         .button(egui::RichText::new(app.i18n.t("batch-export-btn")).strong())
                         .clicked()
                     {
@@ -1328,5 +1611,403 @@ fn render_recovery_dialog(app: &mut StemApp, ctx: &egui::Context) {
     }
     if !open {
         app.recovery_state.show = false;
+    }
+
+    render_plugin_browser_dialog(app, ctx);
+    render_stem_separation_dialog(app, ctx);
+}
+
+fn render_plugin_browser_dialog(app: &mut StemApp, ctx: &egui::Context) {
+    if !app.plugin_browser_state.show {
+        return;
+    }
+
+    if !app.plugin_browser_state.scanned_once {
+        app.plugin_browser_state.discovered = stem_audio::PluginScanner::scan_default_paths();
+        app.plugin_browser_state.scanned_once = true;
+    }
+
+    let mut open = true;
+    let mut close_dialog = false;
+
+    egui::Window::new("Plugin Browser (VST3 / LV2)")
+        .open(&mut open)
+        .resizable(true)
+        .default_size(egui::vec2(620.0, 480.0))
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Scan Plugins").clicked() {
+                    app.plugin_browser_state.discovered =
+                        stem_audio::PluginScanner::scan_default_paths();
+                    app.plugin_browser_state.status_msg = Some(format!(
+                        "Found {} plugin(s)",
+                        app.plugin_browser_state.discovered.len()
+                    ));
+                }
+                ui.add(
+                    egui::TextEdit::singleline(&mut app.plugin_browser_state.search_query)
+                        .hint_text("Search plugins..."),
+                );
+                egui::ComboBox::from_id_salt("plugin_fmt_filter")
+                    .selected_text(match app.plugin_browser_state.format_filter {
+                        crate::state::PluginFormatFilter::All => "All",
+                        crate::state::PluginFormatFilter::Vst3 => "VST3",
+                        crate::state::PluginFormatFilter::Lv2 => "LV2",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut app.plugin_browser_state.format_filter,
+                            crate::state::PluginFormatFilter::All,
+                            "All",
+                        );
+                        ui.selectable_value(
+                            &mut app.plugin_browser_state.format_filter,
+                            crate::state::PluginFormatFilter::Vst3,
+                            "VST3",
+                        );
+                        ui.selectable_value(
+                            &mut app.plugin_browser_state.format_filter,
+                            crate::state::PluginFormatFilter::Lv2,
+                            "LV2",
+                        );
+                    });
+            });
+
+            // Target track selector
+            if !app.project.tracks.is_empty() {
+                if app.plugin_browser_state.target_track_idx >= app.project.tracks.len() {
+                    app.plugin_browser_state.target_track_idx = 0;
+                }
+                let t_idx = app.plugin_browser_state.target_track_idx;
+                ui.horizontal(|ui| {
+                    ui.label("Target Track:");
+                    egui::ComboBox::from_id_salt("plugin_target_track")
+                        .selected_text(&app.project.tracks[t_idx].name)
+                        .show_ui(ui, |ui| {
+                            for (i, tr) in app.project.tracks.iter().enumerate() {
+                                ui.selectable_value(
+                                    &mut app.plugin_browser_state.target_track_idx,
+                                    i,
+                                    &tr.name,
+                                );
+                            }
+                        });
+                });
+            }
+
+            if let Some(ref msg) = app.plugin_browser_state.status_msg {
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 255), msg);
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("Discovered System Plugins").strong());
+            let q = app.plugin_browser_state.search_query.to_lowercase();
+            let filter = app.plugin_browser_state.format_filter;
+            let mut insert_idx: Option<usize> = None;
+
+            egui::ScrollArea::vertical()
+                .id_salt("plugin_discovered_scroll")
+                .max_height(170.0)
+                .show(ui, |ui| {
+                    if app.plugin_browser_state.discovered.is_empty() {
+                        ui.label(
+                            egui::RichText::new(
+                                "No VST3 or LV2 bundles found in default system directories.",
+                            )
+                            .weak(),
+                        );
+                    }
+                    for (i, desc) in app.plugin_browser_state.discovered.iter().enumerate() {
+                        match filter {
+                            crate::state::PluginFormatFilter::Vst3
+                                if desc.format != stem_core::PluginFormat::Vst3 =>
+                            {
+                                continue;
+                            }
+                            crate::state::PluginFormatFilter::Lv2
+                                if desc.format != stem_core::PluginFormat::Lv2 =>
+                            {
+                                continue;
+                            }
+                            _ => {}
+                        }
+                        if !q.is_empty()
+                            && !desc.name.to_lowercase().contains(&q)
+                            && !desc.vendor.to_lowercase().contains(&q)
+                        {
+                            continue;
+                        }
+                        ui.horizontal(|ui| {
+                            let fmt_tag = match desc.format {
+                                stem_core::PluginFormat::Vst3 => "[VST3]",
+                                stem_core::PluginFormat::Lv2 => "[LV2]",
+                            };
+                            ui.label(
+                                egui::RichText::new(fmt_tag)
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(56, 189, 248)),
+                            );
+                            ui.label(egui::RichText::new(&desc.name).strong());
+                            ui.label(egui::RichText::new(&desc.vendor).weak());
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if !app.project.tracks.is_empty()
+                                        && ui.button("Insert").clicked()
+                                    {
+                                        insert_idx = Some(i);
+                                    }
+                                },
+                            );
+                        });
+                    }
+                });
+
+            if let Some(i) = insert_idx {
+                if let Some(desc) = app.plugin_browser_state.discovered.get(i).cloned() {
+                    let t_idx = app.plugin_browser_state.target_track_idx;
+                    if let Some(track) = app.project.tracks.get_mut(t_idx) {
+                        let slot = desc.to_slot_config();
+                        let msg = match stem_audio::PluginHostInstance::load(&slot) {
+                            Ok(_) => format!("Inserted '{}' on {}", slot.name, track.name),
+                            Err(err) => format!("Inserted '{}' (warning: {err})", slot.name),
+                        };
+                        track.plugins.push(slot);
+                        app.plugin_browser_state.status_msg = Some(msg);
+                    }
+                }
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("Track Plugin Inserts").strong());
+            let mut remove_slot: Option<usize> = None;
+            let mut add_auto_plugin: Option<uuid::Uuid> = None;
+            let t_idx = app.plugin_browser_state.target_track_idx;
+            if let Some(track) = app.project.tracks.get_mut(t_idx) {
+                if track.plugins.is_empty() {
+                    ui.label(egui::RichText::new("No external plugins on this track.").weak());
+                } else {
+                    egui::ScrollArea::vertical()
+                        .id_salt("plugin_track_inserts_scroll")
+                        .max_height(130.0)
+                        .show(ui, |ui| {
+                            for (s_idx, slot) in track.plugins.iter_mut().enumerate() {
+                                let status =
+                                    stem_audio::PluginHostInstance::validate_slot_status(slot);
+                                ui.horizontal(|ui| {
+                                    ui.checkbox(&mut slot.bypassed, "Bypass");
+                                    ui.label(egui::RichText::new(&slot.name).strong());
+                                    match status {
+                                        stem_audio::PluginStatus::Loaded
+                                        | stem_audio::PluginStatus::Available => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(80, 220, 120),
+                                                "Loaded",
+                                            );
+                                        }
+                                        stem_audio::PluginStatus::Missing => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(245, 100, 100),
+                                                "Missing",
+                                            );
+                                        }
+                                        stem_audio::PluginStatus::Incompatible(ref r) => {
+                                            ui.colored_label(
+                                                egui::Color32::from_rgb(245, 170, 80),
+                                                format!("Incompatible: {r}"),
+                                            );
+                                        }
+                                    }
+                                    if ui.button("Automate").clicked() {
+                                        add_auto_plugin = Some(slot.id);
+                                    }
+                                    if ui.button("Remove").clicked() {
+                                        remove_slot = Some(s_idx);
+                                    }
+                                });
+                            }
+                        });
+                }
+                if let Some(pid) = add_auto_plugin {
+                    let target = stem_core::project::AutomationTarget::PluginParam {
+                        plugin_id: pid,
+                        param_index: 0,
+                    };
+                    if !track.automation_lanes.iter().any(|l| l.target == target) {
+                        track
+                            .automation_lanes
+                            .push(stem_core::project::AutomationLane::new(target));
+                    }
+                    app.timeline_state.expanded_automation_track_id = Some(track.id);
+                    app.timeline_state.active_automation_target = target;
+                }
+                if let Some(s_idx) = remove_slot {
+                    if s_idx < track.plugins.len() {
+                        track.plugins.remove(s_idx);
+                    }
+                }
+            }
+
+            ui.add_space(8.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(app.i18n.t("dialog-close")).clicked() {
+                    close_dialog = true;
+                }
+            });
+        });
+
+    if !open || close_dialog {
+        app.plugin_browser_state.show = false;
+    }
+}
+
+fn render_stem_separation_dialog(app: &mut StemApp, ctx: &egui::Context) {
+    if !app.stem_separation_state.show {
+        return;
+    }
+
+    if app.stem_separation_state.demucs_available.is_none() {
+        app.stem_separation_state.demucs_available = Some(stem_audio::DemucsRunner::is_available());
+    }
+
+    let mut open = true;
+    let mut close_dialog = false;
+    let mut start_sep = false;
+
+    egui::Window::new("AI Stem Separation (Demucs)")
+        .open(&mut open)
+        .resizable(false)
+        .default_width(440.0)
+        .show(ctx, |ui| {
+            let available = app.stem_separation_state.demucs_available.unwrap_or(false);
+            if available {
+                ui.colored_label(
+                    egui::Color32::from_rgb(80, 220, 120),
+                    "Demucs CLI detected on system PATH.",
+                );
+            } else {
+                ui.colored_label(
+                    egui::Color32::from_rgb(245, 170, 80),
+                    "Demucs CLI not found. Install with: pip install demucs",
+                );
+            }
+
+            ui.separator();
+
+            let sources: Vec<_> = app.project.sources.values().collect();
+            if sources.is_empty() {
+                ui.label("Import or load an audio source first.");
+            } else {
+                if app.stem_separation_state.source_idx >= sources.len() {
+                    app.stem_separation_state.source_idx = 0;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Source Audio:");
+                    let cur_name = &sources[app.stem_separation_state.source_idx].filename;
+                    egui::ComboBox::from_id_salt("demucs_source_combo")
+                        .selected_text(cur_name)
+                        .show_ui(ui, |ui| {
+                            for (i, s) in sources.iter().enumerate() {
+                                ui.selectable_value(
+                                    &mut app.stem_separation_state.source_idx,
+                                    i,
+                                    &s.filename,
+                                );
+                            }
+                        });
+                });
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("Model:");
+                egui::ComboBox::from_id_salt("demucs_model_combo")
+                    .selected_text(app.stem_separation_state.model.display_name())
+                    .show_ui(ui, |ui| {
+                        for m in [
+                            stem_audio::DemucsModel::Htdemucs,
+                            stem_audio::DemucsModel::HtdemucsFt,
+                            stem_audio::DemucsModel::MdxExtra,
+                            stem_audio::DemucsModel::Htdemucs6s,
+                        ] {
+                            ui.selectable_value(
+                                &mut app.stem_separation_state.model,
+                                m,
+                                m.display_name(),
+                            );
+                        }
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Quality:");
+                egui::ComboBox::from_id_salt("demucs_quality_combo")
+                    .selected_text(match app.stem_separation_state.quality {
+                        stem_audio::SeparationQuality::Fast => "Fast (0 shifts)",
+                        stem_audio::SeparationQuality::Balanced => "Balanced (1 shift)",
+                        stem_audio::SeparationQuality::HighQuality => "High Quality (2 shifts)",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut app.stem_separation_state.quality,
+                            stem_audio::SeparationQuality::Fast,
+                            "Fast (0 shifts)",
+                        );
+                        ui.selectable_value(
+                            &mut app.stem_separation_state.quality,
+                            stem_audio::SeparationQuality::Balanced,
+                            "Balanced (1 shift)",
+                        );
+                        ui.selectable_value(
+                            &mut app.stem_separation_state.quality,
+                            stem_audio::SeparationQuality::HighQuality,
+                            "High Quality (2 shifts)",
+                        );
+                    });
+            });
+
+            ui.checkbox(
+                &mut app.stem_separation_state.prefer_gpu,
+                "Prefer GPU acceleration (CUDA if available)",
+            );
+            ui.checkbox(
+                &mut app.stem_separation_state.replace_existing_stems,
+                "Replace existing Vocals/Drums/Bass/Other tracks",
+            );
+
+            if app.stem_separation_state.in_progress {
+                ui.add_space(6.0);
+                ui.add(
+                    egui::ProgressBar::new(app.stem_separation_state.progress).show_percentage(),
+                );
+            } else if let Some(ref msg) = app.stem_separation_state.status_msg {
+                ui.add_space(6.0);
+                ui.colored_label(egui::Color32::from_rgb(80, 200, 255), msg);
+            }
+
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if app.stem_separation_state.in_progress {
+                    if ui.button(app.i18n.t("dialog-cancel")).clicked() {
+                        if let Some(ref tok) = app.stem_separation_state.cancel_token {
+                            tok.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                } else if ui
+                    .add_enabled(!sources.is_empty(), egui::Button::new("Separate Stems"))
+                    .clicked()
+                {
+                    start_sep = true;
+                }
+                if ui.button(app.i18n.t("dialog-close")).clicked() {
+                    close_dialog = true;
+                }
+            });
+        });
+
+    if start_sep {
+        app.action_start_stem_separation();
+    }
+    if !open || close_dialog {
+        app.stem_separation_state.show = false;
     }
 }

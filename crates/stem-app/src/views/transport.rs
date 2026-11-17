@@ -522,29 +522,26 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
             }
 
-            // Right-aligned Master controls
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // ----------------- Master VU Meter -----------------
-                render_master_vu_meter(app, ui);
+            ui.separator();
 
-                // Master Volume Slider
-                ui.label(
-                    egui::RichText::new(format_db(app.project.master_gain_db))
-                        .size(11.0)
-                        .monospace(),
-                );
-                let mut master_db = app.project.master_gain_db;
-                if ui
-                    .add(
-                        egui::Slider::new(&mut master_db, -60.0..=12.0)
-                            .show_value(false)
-                            .text(app.i18n.t("transport-master-volume")),
-                    )
-                    .changed()
-                {
-                    app.action_set_master_gain(master_db);
-                }
-            });
+            // Master controls (left-aligned after separator to prevent overlap on narrow windows)
+            let mut master_db = app.project.master_gain_db;
+            if ui
+                .add(
+                    egui::Slider::new(&mut master_db, -60.0..=12.0)
+                        .show_value(false)
+                        .text(app.i18n.t("transport-master-volume")),
+                )
+                .changed()
+            {
+                app.action_set_master_gain(master_db);
+            }
+            ui.label(
+                egui::RichText::new(format_db(app.project.master_gain_db))
+                    .size(11.0)
+                    .monospace(),
+            );
+            render_master_vu_meter(app, ui);
         });
     });
 }

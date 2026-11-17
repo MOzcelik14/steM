@@ -78,6 +78,7 @@ pub struct ExportSettings {
     pub bit_depth: BitDepth,
     pub apply_dither: bool,
     pub normalize_target_lufs: Option<f32>,
+    pub true_peak_limit_db: Option<f32>,
     pub range: ExportRange,
     pub mp3_bitrate_kbps: u16,
     pub ogg_quality: f32,
@@ -91,6 +92,7 @@ impl Default for ExportSettings {
             bit_depth: BitDepth::Bit24,
             apply_dither: true,
             normalize_target_lufs: None,
+            true_peak_limit_db: None,
             range: ExportRange::EntireProject,
             mp3_bitrate_kbps: 192,
             ogg_quality: 0.6,
@@ -218,6 +220,120 @@ pub fn render_project_mixdown_range(
             }
         }
 
+        // Apply phase inversion before inserts
+        if track.phase_invert_left {
+            for s in &mut track_left {
+                *s = -*s;
+            }
+        }
+        if track.phase_invert_right {
+            for s in &mut track_right {
+                *s = -*s;
+            }
+        }
+
+        // Apply per-track insert effects before fader/pan/sends (matching real-time signal flow)
+        if !track.effects.is_empty() {
+            let mut chain = stem_dsp::chain::EffectChain::from_configs(
+                &track.effects,
+                project.sample_rate as f32,
+            );
+            for out_idx in 0..(total_frames as usize) {
+                let (el, er) = chain.process_stereo(track_left[out_idx], track_right[out_idx]);
+                track_left[out_idx] = el;
+                track_right[out_idx] = er;
+            }
+        }
+
+        // Apply optional external sidechain ducking from another track's clips
+        if let Some(sc_track_id) = track.sidechain_source_track_id {
+            if sc_track_id != track.id {
+                if let Some(sc_track) = project.tracks.iter().find(|t| t.id == sc_track_id) {
+                    if let Some((thresh, ratio, atk, rel, makeup)) =
+                        track.effects.iter().find_map(|eff| match eff {
+                            stem_core::project::EffectConfig::Compressor {
+                                threshold_db,
+                                ratio,
+                                attack_ms,
+                                release_ms,
+                                makeup_gain_db,
+                            } => Some((
+                                *threshold_db,
+                                *ratio,
+                                *attack_ms,
+                                *release_ms,
+                                *makeup_gain_db,
+                            )),
+                            _ => None,
+                        })
+                    {
+                        let mut sc_key = vec![0.0f32; total_frames as usize];
+                        for sc_clip in &sc_track.clips {
+                            if let Some(src_data) = source_buffers.get(&sc_clip.source_id) {
+                                if src_data.is_empty() {
+                                    continue;
+                                }
+                                let sl = &src_data[0];
+                                let sr = if src_data.len() > 1 {
+                                    &src_data[1]
+                                } else {
+                                    &src_data[0]
+                                };
+                                let c_gain = 10.0f32.powf(sc_clip.gain_db / 20.0);
+                                let start = sc_clip.track_offset_frames;
+                                let src_s = sc_clip.source_start_frame as usize;
+                                for i in 0..(sc_clip.length_frames as usize) {
+                                    let tf = start + i as u64;
+                                    if tf >= export_start && tf < export_end {
+                                        let oi = (tf - export_start) as usize;
+                                        let si = src_s + i;
+                                        let ml = sl.get(si).copied().unwrap_or(0.0);
+                                        let mr = sr.get(si).copied().unwrap_or(0.0);
+                                        sc_key[oi] += 0.5 * (ml + mr) * c_gain;
+                                    }
+                                }
+                            }
+                        }
+                        let mut sc_comp = stem_dsp::Compressor::new(
+                            project.sample_rate as f32,
+                            thresh,
+                            ratio,
+                            atk,
+                            rel,
+                            makeup,
+                        );
+                        for out_idx in 0..(total_frames as usize) {
+                            let key = sc_key[out_idx];
+                            let (ol, _) =
+                                sc_comp.process_sample_sidechain(track_left[out_idx], key);
+                            let (or, _) =
+                                sc_comp.process_sample_sidechain(track_right[out_idx], key);
+                            track_left[out_idx] = ol;
+                            track_right[out_idx] = or;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Apply stereo width & Mid/Side processing
+        if (track.stereo_width - 1.0).abs() > 1e-4
+            || track.mid_gain_db.abs() > 1e-4
+            || track.side_gain_db.abs() > 1e-4
+        {
+            let stereo_proc = stem_dsp::StereoProcessor::new(
+                track.stereo_width,
+                track.mid_gain_db,
+                track.side_gain_db,
+            );
+            for out_idx in 0..(total_frames as usize) {
+                let (wl, wr) =
+                    stereo_proc.process_stereo(track_left[out_idx], track_right[out_idx]);
+                track_left[out_idx] = wl;
+                track_right[out_idx] = wr;
+            }
+        }
+
         // Now process track routing, sends, and automation
         for out_idx in 0..(total_frames as usize) {
             let in_l = track_left[out_idx];
@@ -238,12 +354,13 @@ pub fn render_project_mixdown_range(
             let post_r = in_r * gain_right;
 
             // Sends
-            for send in &track.sends {
+            for (send_idx, send) in track.sends.iter().enumerate() {
                 if send.muted {
                     continue;
                 }
                 if let Some((b_left, b_right)) = bus_buffers.get_mut(&send.target_bus_id) {
-                    let send_gain = 10.0f32.powf(send.gain_db / 20.0);
+                    let evaluated_send_db = track.evaluated_send_gain_db(send_idx, t_frame);
+                    let send_gain = 10.0f32.powf(evaluated_send_db / 20.0);
                     let s_pan = send.pan.clamp(-1.0, 1.0);
                     let s_pan_rad = (s_pan + 1.0) * (std::f32::consts::PI / 4.0);
                     let sg_l = send_gain * s_pan_rad.cos();
@@ -278,23 +395,75 @@ pub fn render_project_mixdown_range(
         }
     }
 
-    // Now sum Submix Busses into Master
+    // Now process Submix Busses (bus-to-bus first, then busses routing to Master)
     let has_bus_solos = project.busses.iter().any(|b| b.soloed);
-    for bus in &project.busses {
-        if bus.muted || (has_bus_solos && !bus.soloed) {
-            continue;
-        }
-        if let Some((b_left, b_right)) = bus_buffers.get(&bus.id) {
+    for pass in 0..2 {
+        for bus in &project.busses {
+            let is_bus_target = matches!(
+                bus.output_routing,
+                stem_core::project::TrackOutputRouting::Bus(dst) if dst != bus.id
+            );
+            if (pass == 0 && !is_bus_target) || (pass == 1 && is_bus_target) {
+                continue;
+            }
+            if bus.muted || (has_bus_solos && !bus.soloed) {
+                continue;
+            }
+            let Some((mut b_left, mut b_right)) = bus_buffers.remove(&bus.id) else {
+                continue;
+            };
+            if !bus.effects.is_empty() {
+                let mut bus_chain = stem_dsp::chain::EffectChain::from_configs(
+                    &bus.effects,
+                    project.sample_rate as f32,
+                );
+                for out_idx in 0..(total_frames as usize) {
+                    let (el, er) = bus_chain.process_stereo(b_left[out_idx], b_right[out_idx]);
+                    b_left[out_idx] = el;
+                    b_right[out_idx] = er;
+                }
+            }
+
             let bus_gain = 10.0f32.powf(bus.gain_db / 20.0);
             let pan = bus.pan.clamp(-1.0, 1.0);
             let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
             let gain_left = bus_gain * pan_rad.cos();
             let gain_right = bus_gain * pan_rad.sin();
 
-            for out_idx in 0..(total_frames as usize) {
-                master_left[out_idx] += b_left[out_idx] * gain_left;
-                master_right[out_idx] += b_right[out_idx] * gain_right;
+            match bus.output_routing {
+                stem_core::project::TrackOutputRouting::Bus(dst_id) if dst_id != bus.id => {
+                    if let Some((dst_l, dst_r)) = bus_buffers.get_mut(&dst_id) {
+                        for out_idx in 0..(total_frames as usize) {
+                            dst_l[out_idx] += b_left[out_idx] * gain_left;
+                            dst_r[out_idx] += b_right[out_idx] * gain_right;
+                        }
+                    } else {
+                        for out_idx in 0..(total_frames as usize) {
+                            master_left[out_idx] += b_left[out_idx] * gain_left;
+                            master_right[out_idx] += b_right[out_idx] * gain_right;
+                        }
+                    }
+                }
+                _ => {
+                    for out_idx in 0..(total_frames as usize) {
+                        master_left[out_idx] += b_left[out_idx] * gain_left;
+                        master_right[out_idx] += b_right[out_idx] * gain_right;
+                    }
+                }
             }
+        }
+    }
+
+    // Apply master insert effects before master fader (matching real-time signal flow)
+    if !project.master_effects.is_empty() {
+        let mut master_chain = stem_dsp::chain::EffectChain::from_configs(
+            &project.master_effects,
+            project.sample_rate as f32,
+        );
+        for out_idx in 0..(total_frames as usize) {
+            let (ml, mr) = master_chain.process_stereo(master_left[out_idx], master_right[out_idx]);
+            master_left[out_idx] = ml;
+            master_right[out_idx] = mr;
         }
     }
 
@@ -359,6 +528,54 @@ pub fn render_project_tracks(
 
                 track_left[out_idx] += in_l * net_gain;
                 track_right[out_idx] += in_r * net_gain;
+            }
+        }
+
+        // Apply phase inversion
+        if track.phase_invert_left {
+            for s in &mut track_left {
+                *s = -*s;
+            }
+        }
+        if track.phase_invert_right {
+            for s in &mut track_right {
+                *s = -*s;
+            }
+        }
+
+        // Apply stereo width & Mid/Side processing
+        if (track.stereo_width - 1.0).abs() > 1e-4
+            || track.mid_gain_db.abs() > 1e-4
+            || track.side_gain_db.abs() > 1e-4
+        {
+            let stereo_proc = stem_dsp::StereoProcessor::new(
+                track.stereo_width,
+                track.mid_gain_db,
+                track.side_gain_db,
+            );
+            for (l, r) in track_left.iter_mut().zip(track_right.iter_mut()) {
+                let (wl, wr) = stereo_proc.process_stereo(*l, *r);
+                *l = wl;
+                *r = wr;
+            }
+        }
+
+        // Apply Volume automation delta relative to track fader so live fader + automation both work
+        let has_vol_auto = track.automation_lanes.iter().any(|l| {
+            l.target == stem_core::project::AutomationTarget::Volume
+                && l.enabled
+                && !l.points.is_empty()
+        });
+        if has_vol_auto {
+            for (frame_idx, (l, r)) in track_left
+                .iter_mut()
+                .zip(track_right.iter_mut())
+                .enumerate()
+            {
+                let delta_db = track.evaluated_gain_db(frame_idx as u64) - track.gain_db;
+                let auto_gain = 10.0f32.powf(delta_db / 20.0);
+                *l *= auto_gain;
+                *r *= auto_gain;
             }
         }
 
@@ -448,6 +665,18 @@ pub fn export_project_to_file<P: AsRef<Path>>(
                         *sample *= gain_linear;
                     }
                 }
+            }
+        }
+    }
+
+    // 3b. Optional True Peak Limiting
+    if let Some(ceiling_db) = settings.true_peak_limit_db {
+        if let [left, right, ..] = channels.as_mut_slice() {
+            let mut lim_l = stem_dsp::Limiter::new(settings.sample_rate as f32, ceiling_db, 40.0);
+            let mut lim_r = stem_dsp::Limiter::new(settings.sample_rate as f32, ceiling_db, 40.0);
+            for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+                *l = lim_l.process_sample(*l);
+                *r = lim_r.process_sample(*r);
             }
         }
     }
@@ -814,31 +1043,128 @@ pub fn render_track_stem(
             let fade_gain = track.clip_gain_at_timeline_frame(clip_idx, t_frame);
             let net_gain = clip_gain * fade_gain;
 
-            let evaluated_gain_db = track.evaluated_gain_db(t_frame);
-            let track_gain = 10.0f32.powf(evaluated_gain_db / 20.0);
-            let pan = track.evaluated_pan(t_frame).clamp(-1.0, 1.0);
-            let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
-            let gain_left = track_gain * pan_rad.cos();
-            let gain_right = track_gain * pan_rad.sin();
-
-            stem_left[out_idx] += in_l * net_gain * gain_left;
-            stem_right[out_idx] += in_r * net_gain * gain_right;
+            stem_left[out_idx] += in_l * net_gain;
+            stem_right[out_idx] += in_r * net_gain;
         }
+    }
+
+    if !track.effects.is_empty() {
+        let mut chain =
+            stem_dsp::chain::EffectChain::from_configs(&track.effects, project.sample_rate as f32);
+        for out_idx in 0..(total_frames as usize) {
+            let (el, er) = chain.process_stereo(stem_left[out_idx], stem_right[out_idx]);
+            stem_left[out_idx] = el;
+            stem_right[out_idx] = er;
+        }
+    }
+
+    for out_idx in 0..(total_frames as usize) {
+        let t_frame = export_start + out_idx as u64;
+        let evaluated_gain_db = track.evaluated_gain_db(t_frame);
+        let track_gain = 10.0f32.powf(evaluated_gain_db / 20.0);
+        let pan = track.evaluated_pan(t_frame).clamp(-1.0, 1.0);
+        let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+        stem_left[out_idx] *= track_gain * pan_rad.cos();
+        stem_right[out_idx] *= track_gain * pan_rad.sin();
     }
 
     Ok(vec![stem_left, stem_right])
 }
 
-/// Encodes an in-memory stereo audio buffer directly to an export file format.
+/// Encodes an in-memory stereo (or mono, duplicated to stereo) audio buffer directly to an export file format.
 pub fn export_buffer_to_file(
     channels: &[Vec<f32>],
     dest: &Path,
     settings: &ExportSettings,
 ) -> Result<(), ExportError> {
-    match settings.format {
-        ExportFormat::Wav => write_wav(dest, channels, settings),
-        ExportFormat::Flac => write_flac(dest, channels, settings),
-        ExportFormat::Mp3 => write_mp3(dest, channels, settings),
-        ExportFormat::Ogg => write_ogg(dest, channels, settings),
+    if channels.is_empty() || channels[0].is_empty() {
+        return Err(ExportError::EmptyTimeline);
     }
+    let stereo;
+    let export_channels = if channels.len() >= 2 {
+        channels
+    } else {
+        stereo = vec![channels[0].clone(), channels[0].clone()];
+        &stereo
+    };
+    match settings.format {
+        ExportFormat::Wav => write_wav(dest, export_channels, settings),
+        ExportFormat::Flac => write_flac(dest, export_channels, settings),
+        ExportFormat::Mp3 => write_mp3(dest, export_channels, settings),
+        ExportFormat::Ogg => write_ogg(dest, export_channels, settings),
+    }
+}
+
+/// Renders a single track's audio (clips + insert effects + fader/pan) to a 32-bit float WAV
+/// file for track freezing.
+pub fn freeze_track_to_wav(
+    project: &Project,
+    source_buffers: &HashMap<Uuid, Vec<Vec<f32>>>,
+    track_idx: usize,
+    dest: &Path,
+) -> Result<(), ExportError> {
+    let stem = render_track_stem(
+        project,
+        source_buffers,
+        track_idx,
+        ExportRange::EntireProject,
+    )?;
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: project.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(dest, spec)?;
+    for (&l, &r) in stem[0].iter().zip(stem[1].iter()) {
+        writer.write_sample(l)?;
+        writer.write_sample(r)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+/// Renders a project into a 6-channel 5.1 surround 32-bit float WAV (`[L, R, C, LFE, Ls, Rs]`).
+pub fn export_surround_51_wav(
+    project: &Project,
+    source_buffers: &HashMap<Uuid, Vec<Vec<f32>>>,
+    dest: &Path,
+) -> Result<(), ExportError> {
+    let total_frames = project.total_frames();
+    if total_frames == 0 {
+        return Err(ExportError::EmptyTimeline);
+    }
+    let mut ch_bufs = vec![vec![0.0f32; total_frames as usize]; 6];
+    let has_solos = project.tracks.iter().any(|t| t.soloed);
+    for (t_idx, track) in project.tracks.iter().enumerate() {
+        if track.muted || (has_solos && !track.soloed) {
+            continue;
+        }
+        let stem = render_track_stem(project, source_buffers, t_idx, ExportRange::EntireProject)?;
+        let panner = stem_dsp::Surround51Pan {
+            rear_mix: track.surround_rear_mix,
+            center_mix: track.surround_center_mix,
+            lfe_mix: track.surround_lfe_mix,
+        };
+        for i in 0..(total_frames as usize) {
+            let encoded = panner.encode_stereo(stem[0][i], stem[1][i]);
+            for c in 0..6 {
+                ch_bufs[c][i] += encoded[c];
+            }
+        }
+    }
+    let spec = hound::WavSpec {
+        channels: 6,
+        sample_rate: project.sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
+    let mut writer = hound::WavWriter::create(dest, spec)?;
+    for i in 0..(total_frames as usize) {
+        for ch in &ch_bufs {
+            writer.write_sample(ch[i])?;
+        }
+    }
+    writer.finalize()?;
+    Ok(())
 }

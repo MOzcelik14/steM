@@ -205,6 +205,27 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     app.action_waveform_insert_silence();
                     ui.close_menu();
                 }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        has_doc,
+                        egui::Button::new(app.i18n.t("waveform-btn-fade-in")),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_fade_in(stem_core::waveform::FadeCurve::SCurve);
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_doc,
+                        egui::Button::new(app.i18n.t("waveform-btn-fade-out")),
+                    )
+                    .clicked()
+                {
+                    app.action_waveform_fade_out(stem_core::waveform::FadeCurve::SCurve);
+                    ui.close_menu();
+                }
             } else {
                 let can_undo = app.history.can_undo();
                 if ui
@@ -229,18 +250,84 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     ui.close_menu();
                 }
                 ui.separator();
+                let has_clip = app.timeline_state.selected_clip_id.is_some();
+                let has_sel = app.timeline_state.time_selection.is_some();
                 if ui
-                    .button(format!("{} (S)", app.i18n.t("menu-edit-split")))
+                    .add_enabled(
+                        has_clip || has_sel,
+                        egui::Button::new(format!("{} (Ctrl+X)", app.i18n.t("waveform-btn-cut"))),
+                    )
+                    .clicked()
+                {
+                    app.action_cut_selected_clip();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_clip || has_sel,
+                        egui::Button::new(format!("{} (Ctrl+C)", app.i18n.t("waveform-btn-copy"))),
+                    )
+                    .clicked()
+                {
+                    app.action_copy_selected_clip();
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        app.timeline_state.timeline_clip_clipboard.is_some(),
+                        egui::Button::new(format!("{} (Ctrl+V)", app.i18n.t("waveform-btn-paste"))),
+                    )
+                    .clicked()
+                {
+                    app.action_paste_clip();
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        has_clip,
+                        egui::Button::new(format!("{} (S)", app.i18n.t("menu-edit-split"))),
+                    )
                     .clicked()
                 {
                     app.action_split_selected_clip();
                     ui.close_menu();
                 }
                 if ui
-                    .button(format!("{} (Del)", app.i18n.t("menu-edit-delete")))
+                    .add_enabled(
+                        has_clip || has_sel,
+                        egui::Button::new(format!("{} (Del)", app.i18n.t("menu-edit-delete"))),
+                    )
                     .clicked()
                 {
-                    app.action_delete_selected_clip();
+                    app.action_delete_timeline_selection_or_clip();
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        has_clip || has_sel,
+                        egui::Button::new(format!(
+                            "{} (500ms)",
+                            app.i18n.t("waveform-btn-fade-in")
+                        )),
+                    )
+                    .clicked()
+                {
+                    app.action_fade_in_selected_clip(500.0);
+                    ui.close_menu();
+                }
+                if ui
+                    .add_enabled(
+                        has_clip || has_sel,
+                        egui::Button::new(format!(
+                            "{} (500ms)",
+                            app.i18n.t("waveform-btn-fade-out")
+                        )),
+                    )
+                    .clicked()
+                {
+                    app.action_fade_out_selected_clip(500.0);
                     ui.close_menu();
                 }
                 ui.separator();
@@ -386,6 +473,15 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                     ui.close_menu();
                 }
             }
+            ui.separator();
+            if ui.button("Plugin Browser (VST3 / LV2)...").clicked() {
+                app.plugin_browser_state.show = true;
+                ui.close_menu();
+            }
+            if ui.button("AI Stem Separation (Demucs)...").clicked() {
+                app.stem_separation_state.show = true;
+                ui.close_menu();
+            }
         });
 
         // ------------------ Markers Menu ------------------
@@ -431,16 +527,19 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
 
         // ------------------ Cleanup Menu ------------------
         ui.menu_button(app.i18n.t("menu-cleanup"), |ui| {
-            let has_doc = app.waveform_state.document.is_some();
-            let has_sel = app.waveform_state.selection.is_some();
+            let has_clip_target = app.timeline_state.selected_clip_id.is_some();
+            let has_doc = app.waveform_state.document.is_some() || has_clip_target;
+            let has_sel = app.waveform_state.selection.is_some()
+                || app.timeline_state.time_selection.is_some();
 
             if ui
                 .add_enabled(
-                    has_doc && has_sel,
+                    has_doc && (has_sel || has_clip_target),
                     egui::Button::new(app.i18n.t("menu-cleanup-capture-noise")),
                 )
                 .clicked()
             {
+                app.ensure_selected_clip_loaded_in_place();
                 app.action_capture_noise_profile();
                 ui.close_menu();
             }
@@ -452,6 +551,7 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 )
                 .clicked()
             {
+                app.ensure_selected_clip_loaded_in_place();
                 app.noise_reduction_state.show = true;
                 ui.close_menu();
             }
@@ -465,6 +565,7 @@ pub fn render_menu_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 )
                 .clicked()
             {
+                app.ensure_selected_clip_loaded_in_place();
                 app.click_remover_state.show = true;
                 ui.close_menu();
             }

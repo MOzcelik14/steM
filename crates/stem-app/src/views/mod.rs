@@ -6,6 +6,7 @@ pub mod spectrogram;
 pub mod timeline;
 pub mod transport;
 pub mod waveform;
+pub mod widgets;
 
 pub use dialogs::render_dialogs;
 pub use effects::{render_effects_dialog, EffectsRackState};
@@ -15,3 +16,4 @@ pub use spectrogram::{render_spectrogram_panel, SpectrogramState};
 pub use timeline::render_timeline_view;
 pub use transport::render_transport_bar;
 pub use waveform::render_waveform_editor;
+pub use widgets::render_vu_meter_bar;
