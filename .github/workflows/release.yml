@@ -13,39 +13,148 @@ env:
 
 jobs:
   linux:
-    name: Linux x86_64 · tar.gz
+    name: Linux x86_64 · deb + rpm + AppImage + tar.gz
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Install build dependencies
+      - name: Install build and packaging dependencies
         run: |
           sudo apt-get update -o Acquire::Retries=3
-          sudo apt-get install -y --no-install-recommends pkg-config build-essential libasound2-dev libx11-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config build-essential libasound2-dev libx11-dev libgl1-mesa-dev \
+            libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            rpm libfuse2 file curl
+          curl -fsSL -o /tmp/appimagetool-x86_64.AppImage https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool-x86_64.AppImage
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Test
         run: cargo test --workspace --locked
       - name: Build release binary
         run: cargo build --locked --release -p stem-app
-      - name: Package tarball
+      - name: Package Linux artifacts
         shell: bash
         run: |
           set -euo pipefail
           VER="${GITHUB_REF_NAME#v}"
-          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then VER="0.0.0-dev"; fi
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            VER="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          fi
+          mkdir -p dist
+
+          # 1. Portable tar.gz
           NAME="stem-${VER}-linux-x86_64"
           mkdir -p "dist/$NAME"
           install -m 755 target/release/stem "dist/$NAME/stem"
-          cp README.md "dist/$NAME/"
+          cp README.md LICENSE "dist/$NAME/"
           cp -r assets "dist/$NAME/assets" || true
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
           rm -rf "dist/$NAME"
+
+          # 2. Debian .deb
+          DEB_STAGE="$(mktemp -d)"
+          mkdir -p "${DEB_STAGE}/DEBIAN" "${DEB_STAGE}/usr/bin" "${DEB_STAGE}/usr/share/applications" "${DEB_STAGE}/usr/share/icons/hicolor/256x256/apps"
+          install -m 755 target/release/stem "${DEB_STAGE}/usr/bin/stem"
+          cp assets/icon.png "${DEB_STAGE}/usr/share/icons/hicolor/256x256/apps/stem.png"
+          cat > "${DEB_STAGE}/usr/share/applications/stem.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Name=steM.
+          Comment=Non-destructive multi-track audio workstation and waveform editor
+          Exec=stem %f
+          Icon=stem
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Audio;AudioVideoEditing;
+          DESKTOP
+          cat > "${DEB_STAGE}/DEBIAN/control" <<CONTROL
+          Package: stem
+          Version: ${VER}
+          Section: sound
+          Priority: optional
+          Architecture: amd64
+          Maintainer: steM. Contributors
+          Description: Multi-track audio workstation and waveform editor in Rust
+          CONTROL
+          dpkg-deb --build --root-owner-group "${DEB_STAGE}" "dist/stem_${VER}_amd64.deb"
+          rm -rf "${DEB_STAGE}"
+
+          # 3. Fedora/RHEL .rpm
+          RPM_TOP="$(mktemp -d)"
+          mkdir -p "${RPM_TOP}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          cp target/release/stem "${RPM_TOP}/SOURCES/stem"
+          cp assets/icon.png "${RPM_TOP}/SOURCES/stem.png"
+          cat > "${RPM_TOP}/SPECS/stem.spec" <<SPEC
+          %global debug_package %{nil}
+          Name:           stem
+          Version:        ${VER}
+          Release:        1%{?dist}
+          Summary:        Multi-track audio workstation and waveform editor
+          License:        GPL-3.0-or-later
+          URL:            https://github.com/MOzcelik14/steM
+
+          %description
+          Non-destructive multi-track audio workstation and waveform editor in Rust.
+
+          %install
+          rm -rf %{buildroot}
+          mkdir -p %{buildroot}%{_bindir} %{buildroot}%{_datadir}/applications %{buildroot}%{_datadir}/icons/hicolor/256x256/apps
+          install -m 0755 "%{_sourcedir}/stem" %{buildroot}%{_bindir}/stem
+          install -m 0644 "%{_sourcedir}/stem.png" %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/stem.png
+          cat > %{buildroot}%{_datadir}/applications/stem.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Name=steM.
+          Comment=Non-destructive multi-track audio workstation and waveform editor
+          Exec=stem %f
+          Icon=stem
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Audio;AudioVideoEditing;
+          DESKTOP
+
+          %files
+          %{_bindir}/stem
+          %{_datadir}/applications/stem.desktop
+          %{_datadir}/icons/hicolor/256x256/apps/stem.png
+          SPEC
+          rpmbuild -bb --target x86_64 --define "_topdir ${RPM_TOP}" --define "_sourcedir ${RPM_TOP}/SOURCES" "${RPM_TOP}/SPECS/stem.spec"
+          find "${RPM_TOP}/RPMS" -name "*.rpm" -exec cp {} "dist/stem-${VER}-1.x86_64.rpm" \;
+          rm -rf "${RPM_TOP}"
+
+          # 4. AppImage
+          APPDIR="$(mktemp -d)/steM.AppDir"
+          mkdir -p "${APPDIR}/usr/bin" "${APPDIR}/usr/share/applications" "${APPDIR}/usr/share/icons/hicolor/256x256/apps"
+          install -m 755 target/release/stem "${APPDIR}/usr/bin/stem"
+          cp assets/icon.png "${APPDIR}/stem.png"
+          cp assets/icon.png "${APPDIR}/usr/share/icons/hicolor/256x256/apps/stem.png"
+          cat > "${APPDIR}/stem.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Name=steM.
+          Comment=Non-destructive multi-track audio workstation and waveform editor
+          Exec=stem %f
+          Icon=stem
+          Terminal=false
+          Type=Application
+          Categories=AudioVideo;Audio;AudioVideoEditing;
+          DESKTOP
+          cp "${APPDIR}/stem.desktop" "${APPDIR}/usr/share/applications/stem.desktop"
+          cat > "${APPDIR}/AppRun" <<'APPRUN'
+          #!/usr/bin/env bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "${HERE}/usr/bin/stem" "$@"
+          APPRUN
+          chmod 755 "${APPDIR}/AppRun"
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 /tmp/appimagetool-x86_64.AppImage "${APPDIR}" "dist/steM-${VER}-x86_64.AppImage"
+          rm -rf "$(dirname "${APPDIR}")"
       - uses: actions/upload-artifact@v4
         with:
           name: stem-linux-package
-          path: dist/*.tar.gz
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+            dist/*.tar.gz
           if-no-files-found: error
 
   windows:
@@ -62,13 +171,14 @@ jobs:
       - name: Package zip
         shell: pwsh
         run: |
-          $ver = "0.0.0-dev"
+          $ver = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1)
           if ("${{ github.ref_type }}" -eq "tag") { $ver = "${{ github.ref_name }}".TrimStart('v') }
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           $stage = Join-Path $env:RUNNER_TEMP "stem-stage"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item "target\release\stem.exe" $stage
           Copy-Item "README.md" $stage
+          Copy-Item "LICENSE" $stage
           Compress-Archive -Path "$stage\*" -DestinationPath "dist\stem-$ver-windows-x86_64.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
@@ -76,9 +186,42 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
+  macos:
+    name: macOS arm64 · tar.gz
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --locked --release -p stem-app
+      - name: Package tar.gz
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            VER="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          fi
+          mkdir -p dist
+          STAGE="$(mktemp -d)"
+          PKG="${STAGE}/stem-${VER}-macos-arm64"
+          mkdir -p "${PKG}"
+          cp target/release/stem "${PKG}/stem"
+          cp README.md LICENSE "${PKG}/"
+          cp -r assets "${PKG}/assets" || true
+          tar -C "${STAGE}" -czf "dist/stem-${VER}-macos-arm64.tar.gz" "stem-${VER}-macos-arm64"
+          rm -rf "${STAGE}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stem-macos-package
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub Release
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -92,11 +235,14 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum -- *.tar.gz *.zip > SHA256SUMS.txt
+          sha256sum -- *.deb *.rpm *.AppImage *.tar.gz *.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS.txt
