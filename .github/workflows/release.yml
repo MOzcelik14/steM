@@ -187,7 +187,7 @@ jobs:
           if-no-files-found: error
 
   macos:
-    name: macOS arm64 · tar.gz
+    name: macOS arm64 · dmg + tar.gz
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -197,7 +197,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build release binary
         run: cargo build --locked --release -p stem-app
-      - name: Package tar.gz
+      - name: Package macOS dmg and tar.gz
         run: |
           set -euo pipefail
           VER="${GITHUB_REF_NAME#v}"
@@ -205,6 +205,7 @@ jobs:
             VER="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
           fi
           mkdir -p dist
+
           STAGE="$(mktemp -d)"
           PKG="${STAGE}/stem-${VER}-macos-arm64"
           mkdir -p "${PKG}"
@@ -213,10 +214,53 @@ jobs:
           cp -r assets "${PKG}/assets" || true
           tar -C "${STAGE}" -czf "dist/stem-${VER}-macos-arm64.tar.gz" "stem-${VER}-macos-arm64"
           rm -rf "${STAGE}"
+
+          DMG_STAGE="$(mktemp -d)"
+          APP_DIR="${DMG_STAGE}/steM..app"
+          mkdir -p "${APP_DIR}/Contents/MacOS" "${APP_DIR}/Contents/Resources"
+          cp target/release/stem "${APP_DIR}/Contents/MacOS/stem"
+          chmod +x "${APP_DIR}/Contents/MacOS/stem"
+
+          if [ -f assets/icon.png ]; then
+            ICONSET="$(mktemp -d)/stem.iconset"
+            mkdir -p "${ICONSET}"
+            sips -z 16 16     assets/icon.png --out "${ICONSET}/icon_16x16.png" >/dev/null
+            sips -z 32 32     assets/icon.png --out "${ICONSET}/icon_16x16@2x.png" >/dev/null
+            sips -z 32 32     assets/icon.png --out "${ICONSET}/icon_32x32.png" >/dev/null
+            sips -z 64 64     assets/icon.png --out "${ICONSET}/icon_32x32@2x.png" >/dev/null
+            sips -z 128 128   assets/icon.png --out "${ICONSET}/icon_128x128.png" >/dev/null
+            sips -z 256 256   assets/icon.png --out "${ICONSET}/icon_128x128@2x.png" >/dev/null
+            sips -z 256 256   assets/icon.png --out "${ICONSET}/icon_256x256.png" >/dev/null
+            sips -z 512 512   assets/icon.png --out "${ICONSET}/icon_256x256@2x.png" >/dev/null
+            iconutil -c icns "${ICONSET}" -o "${APP_DIR}/Contents/Resources/stem.icns"
+          fi
+
+          cat > "${APP_DIR}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>stem</string>
+            <key>CFBundleIdentifier</key><string>com.mozcelik14.stem</string>
+            <key>CFBundleName</key><string>steM.</string>
+            <key>CFBundleVersion</key><string>${VER}</string>
+            <key>CFBundleShortVersionString</key><string>${VER}</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleIconFile</key><string>stem</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          ln -s /Applications "${DMG_STAGE}/Applications"
+          hdiutil create -volname "steM. ${VER}" -srcfolder "${DMG_STAGE}" -ov -format UDZO "dist/stem-${VER}-macos-arm64.dmg"
+          rm -rf "${DMG_STAGE}"
       - uses: actions/upload-artifact@v4
         with:
           name: stem-macos-package
-          path: dist/*.tar.gz
+          path: |
+            dist/*.dmg
+            dist/*.tar.gz
           if-no-files-found: error
 
   publish:
@@ -235,7 +279,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum -- *.deb *.rpm *.AppImage *.tar.gz *.zip > SHA256SUMS.txt
+          sha256sum -- *.deb *.rpm *.AppImage *.dmg *.tar.gz *.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
@@ -243,6 +287,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.AppImage
+            dist/*.dmg
             dist/*.tar.gz
             dist/*.zip
             dist/SHA256SUMS.txt
