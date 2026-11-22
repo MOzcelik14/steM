@@ -533,7 +533,7 @@ impl SpectralRepair {
                         let cur_mag = (bin.re * bin.re + bin.im * bin.im).sqrt().max(1e-9);
                         let target_mag = pre_mags.get(k).copied().unwrap_or(0.0) * (1.0 - alpha)
                             + post_mags.get(k).copied().unwrap_or(0.0) * alpha;
-                        let scale = (target_mag / cur_mag).min(1.0);
+                        let scale = (target_mag / cur_mag).clamp(0.0, 4.0);
                         *bin *= scale;
                     }
                 }

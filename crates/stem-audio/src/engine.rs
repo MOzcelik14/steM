@@ -398,6 +398,20 @@ impl AudioEngine {
         let _ = self.timeline_tx.try_send(timeline);
     }
 
+    /// Synchronizes track mixer states (gain, pan, mute, solo) and master gain from a Project.
+    pub fn sync_project_mixer(&mut self, project: &stem_core::Project) {
+        self.set_master_gain_db(project.master_gain_db);
+        for (idx, track) in project.tracks.iter().enumerate() {
+            if idx >= crate::callback::MAX_TRACKS {
+                break;
+            }
+            self.set_track_gain_db(idx, track.gain_db);
+            self.set_track_pan(idx, track.pan);
+            self.set_track_mute(idx, track.muted);
+            self.set_track_solo(idx, track.soloed);
+        }
+    }
+
     /// Drain latest telemetry from audio thread ringbuffer.
     pub fn poll_telemetry(&mut self) -> AudioTelemetry {
         while let Ok(telem) = self.telemetry_rx.pop() {

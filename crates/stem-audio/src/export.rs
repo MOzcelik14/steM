@@ -960,6 +960,28 @@ fn write_ogg(
 /// - `{track}`: Track name
 /// - `{index}`: 1-based index formatted as 2 digits (e.g. "01")
 /// - `{marker}`: Marker name
+fn sanitize_filename_token(token: &str) -> String {
+    let mut out = String::with_capacity(token.len());
+    for ch in token.chars() {
+        if matches!(
+            ch,
+            '/' | '\\' | '\0' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+        ) || ch.is_control()
+        {
+            out.push('_');
+        } else {
+            out.push(ch);
+        }
+    }
+    let out = out.replace("..", "_");
+    let trimmed = out.trim_matches(|c: char| c == '.' || c.is_whitespace());
+    if trimmed.is_empty() {
+        "untitled".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub fn format_export_filename(
     template: &str,
     project_name: &str,
@@ -967,11 +989,14 @@ pub fn format_export_filename(
     index: usize,
     marker_name: &str,
 ) -> String {
+    let safe_project = sanitize_filename_token(project_name);
+    let safe_track = sanitize_filename_token(track_name);
+    let safe_marker = sanitize_filename_token(marker_name);
     template
-        .replace("{project}", project_name)
-        .replace("{track}", track_name)
+        .replace("{project}", &safe_project)
+        .replace("{track}", &safe_track)
         .replace("{index}", &format!("{:02}", index + 1))
-        .replace("{marker}", marker_name)
+        .replace("{marker}", &safe_marker)
 }
 
 /// Renders a single track's audio into a stereo mixdown buffer (stem export).

@@ -80,6 +80,7 @@ pub struct EqEffect {
     pub bands: [EqBandConfig; 4],
     filters_l: [BiquadFilter; 4],
     filters_r: [BiquadFilter; 4],
+    gain_smoothers: [SmoothedParam; 4],
 }
 
 impl EqEffect {
@@ -115,12 +116,16 @@ impl EqEffect {
             },
         ];
 
+        let gain_smoothers = std::array::from_fn(|i| {
+            SmoothedParam::new(default_bands[i].gain_db, sample_rate, 15.0)
+        });
         let mut eq = Self {
             bypassed: false,
             sample_rate,
             bands: default_bands,
             filters_l: Default::default(),
             filters_r: Default::default(),
+            gain_smoothers,
         };
         eq.recompute_all_bands();
         eq
@@ -128,6 +133,7 @@ impl EqEffect {
 
     pub fn set_band(&mut self, band_idx: usize, config: EqBandConfig) {
         if band_idx < 4 {
+            self.gain_smoothers[band_idx].set_target(config.gain_db);
             self.bands[band_idx] = config;
             self.recompute_band(band_idx);
         }
@@ -149,8 +155,9 @@ impl EqEffect {
             // 0..3: Band 0..3 Gain dB (-24.0 to +24.0)
             0..=3 => {
                 let idx = param_id as usize;
-                self.bands[idx].gain_db = value.clamp(-24.0, 24.0);
-                self.recompute_band(idx);
+                let clamped = value.clamp(-24.0, 24.0);
+                self.bands[idx].gain_db = clamped;
+                self.gain_smoothers[idx].set_target(clamped);
             }
             // 4..7: Band 0..3 Frequency Hz (20.0 to 20000.0)
             4..=7 => {
@@ -196,6 +203,19 @@ impl EqEffect {
         }
         for i in 0..4 {
             if self.bands[i].enabled {
+                if self.gain_smoothers[i].is_smoothing() {
+                    let smoothed_gain = self.gain_smoothers[i].next();
+                    let b = &self.bands[i];
+                    let coeffs = BiquadCoeffs::design(
+                        b.filter_type,
+                        self.sample_rate,
+                        b.frequency,
+                        b.q,
+                        smoothed_gain,
+                    );
+                    self.filters_l[i].coeffs = coeffs;
+                    self.filters_r[i].coeffs = coeffs;
+                }
                 left = self.filters_l[i].process_sample(left);
                 right = self.filters_r[i].process_sample(right);
             }

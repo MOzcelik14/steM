@@ -509,6 +509,8 @@ waveform-zoom-out-tooltip = Uzaklaştır (Ctrl+Eksi)
 waveform-zoom-in-tooltip = Yakınlaştır (Ctrl+Artı)
 waveform-zoom-reset-tooltip = Yakınlaştırmayı Sıfırla
 
-
-
-
+# Geçmiş Paneli
+history-panel-title = Düzenleme Geçmişi
+history-undo-stack = Geri Alınabilirler
+history-redo-stack = Yinelenecekler
+history-empty = Henüz kayıtlı düzenleme yok.

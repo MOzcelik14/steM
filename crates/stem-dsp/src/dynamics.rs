@@ -139,28 +139,36 @@ impl Compressor {
     }
 }
 
-/// Brickwall Peak Limiter to prevent clipping.
+/// Brickwall Peak Limiter with short lookahead to prevent clipping.
 #[derive(Debug, Clone)]
 pub struct Limiter {
     _sample_rate: f32,
     threshold_linear: f32,
     release_coeff: f32,
     gain: f32,
+    lookahead_buf: Vec<f32>,
+    lookahead_pos: usize,
 }
 
 impl Limiter {
     pub fn new(sample_rate: f32, threshold_db: f32, release_ms: f32) -> Self {
+        let sr = sample_rate.max(1.0);
         let release_s = (release_ms * 0.001).max(0.001);
+        let lookahead_samples = ((sr * 0.002).round() as usize).clamp(1, 256);
         Self {
-            _sample_rate: sample_rate,
+            _sample_rate: sr,
             threshold_linear: 10.0f32.powf(threshold_db / 20.0),
-            release_coeff: (-1.0 / (sample_rate * release_s)).exp(),
+            release_coeff: (-1.0 / (sr * release_s)).exp(),
             gain: 1.0,
+            lookahead_buf: vec![0.0; lookahead_samples],
+            lookahead_pos: 0,
         }
     }
 
     pub fn reset(&mut self) {
         self.gain = 1.0;
+        self.lookahead_buf.fill(0.0);
+        self.lookahead_pos = 0;
     }
 
     pub fn set_params(&mut self, threshold_db: f32, release_ms: f32) {
@@ -171,7 +179,11 @@ impl Limiter {
 
     #[inline]
     pub fn process_sample(&mut self, input: f32) -> f32 {
-        let peak = input.abs();
+        let delayed = self.lookahead_buf[self.lookahead_pos];
+        self.lookahead_buf[self.lookahead_pos] = input;
+        self.lookahead_pos = (self.lookahead_pos + 1) % self.lookahead_buf.len();
+
+        let peak = input.abs().max(delayed.abs());
         let target_gain = if peak > self.threshold_linear && peak > 1e-6 {
             self.threshold_linear / peak
         } else {
@@ -185,7 +197,7 @@ impl Limiter {
             self.gain = self.release_coeff * self.gain + (1.0 - self.release_coeff) * target_gain;
         }
 
-        input * self.gain
+        (delayed * self.gain).clamp(-self.threshold_linear, self.threshold_linear)
     }
 
     pub fn process_buffer(&mut self, buffer: &mut [f32]) {

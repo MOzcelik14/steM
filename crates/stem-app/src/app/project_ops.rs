@@ -18,6 +18,7 @@ impl StemApp {
         self.peak_pyramids.clear();
         self.history = UndoRedoStack::new();
         self.active_timeline = None;
+        self.sync_timeline_to_audio_engine();
         self.status_text = self.i18n.t("status-ready");
     }
 
@@ -186,9 +187,22 @@ impl StemApp {
     ) {
         self.status_text = self.i18n.t("status-loading");
         let tx = self.worker_tx.clone();
+        let target_sr = self.project.sample_rate;
 
         std::thread::spawn(move || match stem_audio::decode_file(&path) {
-            Ok(decoded) => {
+            Ok(mut decoded) => {
+                if decoded.source.sample_rate != target_sr {
+                    if let Ok(resampled) = stem_dsp::resample_audio(
+                        &decoded.channels,
+                        decoded.source.sample_rate,
+                        target_sr,
+                    ) {
+                        decoded.source.duration_frames =
+                            resampled.first().map(|c| c.len() as u64).unwrap_or(0);
+                        decoded.channels = resampled;
+                        decoded.source.sample_rate = target_sr;
+                    }
+                }
                 let channel_refs: Vec<&[f32]> =
                     decoded.channels.iter().map(|ch| ch.as_slice()).collect();
                 let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
@@ -348,6 +362,11 @@ impl StemApp {
 
     pub fn save_recovery_journal(&self) {
         if let Ok(ron_data) = self.project.to_ron() {
+            if let Some(parent) = self.recovery_file_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
             let tmp_path = self.recovery_file_path.with_extension("tmp");
             if std::fs::write(&tmp_path, ron_data).is_ok() {
                 let _ = std::fs::rename(&tmp_path, &self.recovery_file_path);

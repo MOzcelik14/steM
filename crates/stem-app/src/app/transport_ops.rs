@@ -665,8 +665,18 @@ impl StemApp {
         }
 
         if let Some((track_id, clip_id)) = target {
+            let before = self.project.tracks.clone();
             if let Ok((_first_id, second_id)) = self.project.split_clip(track_id, clip_id, playhead)
             {
+                let after = self.project.tracks.clone();
+                let _ = self.history.push_and_execute(
+                    Action::ProjectTracksEdit {
+                        label: "Split Clip",
+                        before,
+                        after,
+                    },
+                    &mut self.project,
+                );
                 self.timeline_state.selected_clip_id = Some(second_id);
                 self.sync_timeline_to_audio_engine();
                 self.save_recovery_journal();
@@ -829,11 +839,21 @@ impl StemApp {
 
     pub fn action_fade_in_selected_clip(&mut self, duration_ms: f32) {
         let frames = ((duration_ms / 1000.0) * self.project.sample_rate as f32).round() as u64;
+        let before = self.project.tracks.clone();
         if let Some(clip_id) = self.timeline_state.selected_clip_id {
             for track in &mut self.project.tracks {
                 if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
                     let max_fade = clip.length_frames.saturating_sub(clip.fade_out_frames);
                     clip.fade_in_frames = frames.min(max_fade);
+                    let after = self.project.tracks.clone();
+                    let _ = self.history.push_and_execute(
+                        Action::ProjectTracksEdit {
+                            label: "Fade In",
+                            before,
+                            after,
+                        },
+                        &mut self.project,
+                    );
                     self.sync_timeline_to_audio_engine();
                     self.save_recovery_journal();
                     self.status_text = format!("Fade In applied ({:.0} ms)", duration_ms);
@@ -854,6 +874,15 @@ impl StemApp {
                 }
             }
             if changed {
+                let after = self.project.tracks.clone();
+                let _ = self.history.push_and_execute(
+                    Action::ProjectTracksEdit {
+                        label: "Fade In",
+                        before,
+                        after,
+                    },
+                    &mut self.project,
+                );
                 self.sync_timeline_to_audio_engine();
                 self.save_recovery_journal();
                 self.status_text = "Fade In applied to selection".to_string();
@@ -863,11 +892,21 @@ impl StemApp {
 
     pub fn action_fade_out_selected_clip(&mut self, duration_ms: f32) {
         let frames = ((duration_ms / 1000.0) * self.project.sample_rate as f32).round() as u64;
+        let before = self.project.tracks.clone();
         if let Some(clip_id) = self.timeline_state.selected_clip_id {
             for track in &mut self.project.tracks {
                 if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
                     let max_fade = clip.length_frames.saturating_sub(clip.fade_in_frames);
                     clip.fade_out_frames = frames.min(max_fade);
+                    let after = self.project.tracks.clone();
+                    let _ = self.history.push_and_execute(
+                        Action::ProjectTracksEdit {
+                            label: "Fade Out",
+                            before,
+                            after,
+                        },
+                        &mut self.project,
+                    );
                     self.sync_timeline_to_audio_engine();
                     self.save_recovery_journal();
                     self.status_text = format!("Fade Out applied ({:.0} ms)", duration_ms);
@@ -888,6 +927,15 @@ impl StemApp {
                 }
             }
             if changed {
+                let after = self.project.tracks.clone();
+                let _ = self.history.push_and_execute(
+                    Action::ProjectTracksEdit {
+                        label: "Fade Out",
+                        before,
+                        after,
+                    },
+                    &mut self.project,
+                );
                 self.sync_timeline_to_audio_engine();
                 self.save_recovery_journal();
                 self.status_text = "Fade Out applied to selection".to_string();

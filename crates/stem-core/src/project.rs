@@ -877,6 +877,13 @@ impl EffectChainPreset {
     }
 
     pub fn from_ron(s: &str) -> Result<Self, ProjectError> {
+        const MAX_PRESET_RON_BYTES: usize = 1024 * 1024;
+        if s.len() > MAX_PRESET_RON_BYTES {
+            return Err(ProjectError::Validation(format!(
+                "Effect preset RON exceeds maximum size ({} bytes)",
+                MAX_PRESET_RON_BYTES
+            )));
+        }
         Ok(ron::from_str(s)?)
     }
 }
@@ -1440,6 +1447,13 @@ impl Project {
 
     /// Deserializes project from RON string and validates all semantic constraints.
     pub fn from_ron(s: &str) -> Result<Self, ProjectError> {
+        const MAX_PROJECT_RON_BYTES: usize = 32 * 1024 * 1024;
+        if s.len() > MAX_PROJECT_RON_BYTES {
+            return Err(ProjectError::Validation(format!(
+                "Project RON exceeds maximum size ({} bytes)",
+                MAX_PROJECT_RON_BYTES
+            )));
+        }
         let proj: Self = ron::from_str(s)?;
         proj.validate()?;
         Ok(proj)
@@ -1483,17 +1497,35 @@ impl Project {
         let audio_dir = project_dir.join("Audio");
         std::fs::create_dir_all(&audio_dir)?;
 
+        let mut claimed_targets: std::collections::HashSet<PathBuf> =
+            std::collections::HashSet::new();
         let mut copied_count = 0usize;
         for src in self.sources.values_mut() {
             if !src.path.exists() {
                 continue;
             }
-            let file_name = src
-                .path
-                .file_name()
-                .map(|n| n.to_os_string())
-                .unwrap_or_else(|| std::ffi::OsString::from(format!("{}.wav", src.id)));
-            let target_path = audio_dir.join(&file_name);
+            let mut target_path = if let Some(file_name) = src.path.file_name() {
+                audio_dir.join(file_name)
+            } else {
+                audio_dir.join(format!("{}.wav", src.id))
+            };
+            if src.path != target_path
+                && (claimed_targets.contains(&target_path) || target_path.exists())
+            {
+                let stem = src
+                    .path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("audio");
+                let ext = src
+                    .path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("wav");
+                let short_id = &src.id.to_string()[..8];
+                target_path = audio_dir.join(format!("{stem}_{short_id}.{ext}"));
+            }
+            claimed_targets.insert(target_path.clone());
             if src.path != target_path {
                 std::fs::copy(&src.path, &target_path)?;
                 src.path = target_path;

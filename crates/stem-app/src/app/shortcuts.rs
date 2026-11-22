@@ -131,12 +131,20 @@ impl StemApp {
             }
         }
 
-        // Escape: Deselect / clear selection (both views)
+        // Escape: Deselect / clear selection, or stop playback/recording if nothing selected
         if input.key_pressed(egui::Key::Escape) {
-            self.timeline_state.time_selection = None;
-            self.timeline_state.selected_clip_id = None;
-            self.timeline_state.selected_clip_ids.clear();
-            self.waveform_state.selection = None;
+            let had_selection = self.timeline_state.time_selection.is_some()
+                || self.timeline_state.selected_clip_id.is_some()
+                || !self.timeline_state.selected_clip_ids.is_empty()
+                || self.waveform_state.selection.is_some();
+            if had_selection {
+                self.timeline_state.time_selection = None;
+                self.timeline_state.selected_clip_id = None;
+                self.timeline_state.selected_clip_ids.clear();
+                self.waveform_state.selection = None;
+            } else if self.is_playing || self.is_recording {
+                self.action_stop();
+            }
         }
 
         // Ctrl+A: Select All (both views)
@@ -224,12 +232,12 @@ impl StemApp {
                 self.action_paste_clip();
             }
 
-            // Split Clip (Ctrl+K or S)
+            // Split Clip (Ctrl+K or bare S)
             if self
                 .keybindings
                 .is_action_triggered(AppAction::SplitClip, &input)
                 || (input.modifiers.command && input.key_pressed(egui::Key::K))
-                || input.key_pressed(egui::Key::S)
+                || (!input.modifiers.any() && input.key_pressed(egui::Key::S))
             {
                 self.action_split_selected_clip();
             }

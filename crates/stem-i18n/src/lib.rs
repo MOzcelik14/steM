@@ -251,10 +251,20 @@ pub enum TimecodeMode {
 
 impl TimecodeMode {
     pub fn format_time(&self, seconds: f64, sample_rate: u32) -> String {
+        self.format_time_with_tempo(seconds, sample_rate, 120.0, (4, 4))
+    }
+
+    pub fn format_time_with_tempo(
+        &self,
+        seconds: f64,
+        sample_rate: u32,
+        bpm: f64,
+        time_signature: (u8, u8),
+    ) -> String {
         match self {
             TimecodeMode::TimeCode => format_time_code(seconds),
             TimecodeMode::Smpte => format_smpte(seconds, 30.0),
-            TimecodeMode::BarsBeats => format_bars_beats(seconds, 120.0, (4, 4)),
+            TimecodeMode::BarsBeats => format_bars_beats(seconds, bpm, time_signature),
             TimecodeMode::Samples => {
                 let frames = (seconds * sample_rate as f64).max(0.0).round() as u64;
                 format_samples(frames)

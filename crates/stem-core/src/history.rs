@@ -49,6 +49,11 @@ pub enum Action {
         old_gain: f32,
         new_gain: f32,
     },
+    ProjectTracksEdit {
+        label: &'static str,
+        before: Vec<Track>,
+        after: Vec<Track>,
+    },
 }
 
 impl Action {
@@ -63,6 +68,7 @@ impl Action {
             Action::SetTrackGain { .. } => "Change Track Gain",
             Action::SetTrackPan { .. } => "Change Track Pan",
             Action::SetMasterGain { .. } => "Change Master Gain",
+            Action::ProjectTracksEdit { label, .. } => label,
         }
     }
 
@@ -139,6 +145,9 @@ impl Action {
             }
             Action::SetMasterGain { new_gain, .. } => {
                 project.master_gain_db = *new_gain;
+            }
+            Action::ProjectTracksEdit { after, .. } => {
+                project.tracks = after.clone();
             }
         }
         Ok(())
@@ -222,17 +231,26 @@ impl Action {
             Action::SetMasterGain { old_gain, .. } => {
                 project.master_gain_db = *old_gain;
             }
+            Action::ProjectTracksEdit { before, .. } => {
+                project.tracks = before.clone();
+            }
         }
         Ok(())
     }
 }
 
 /// Managing undo/redo history.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct UndoRedoStack {
     undo_stack: Vec<Action>,
     redo_stack: Vec<Action>,
     max_history: usize,
+}
+
+impl Default for UndoRedoStack {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UndoRedoStack {
@@ -268,7 +286,10 @@ impl UndoRedoStack {
 
     pub fn undo(&mut self, project: &mut Project) -> Result<Option<Action>, ProjectError> {
         if let Some(action) = self.undo_stack.pop() {
-            action.undo(project)?;
+            if let Err(err) = action.undo(project) {
+                self.undo_stack.push(action);
+                return Err(err);
+            }
             self.redo_stack.push(action.clone());
             Ok(Some(action))
         } else {
@@ -278,7 +299,10 @@ impl UndoRedoStack {
 
     pub fn redo(&mut self, project: &mut Project) -> Result<Option<Action>, ProjectError> {
         if let Some(action) = self.redo_stack.pop() {
-            action.execute(project)?;
+            if let Err(err) = action.execute(project) {
+                self.redo_stack.push(action);
+                return Err(err);
+            }
             self.undo_stack.push(action.clone());
             Ok(Some(action))
         } else {

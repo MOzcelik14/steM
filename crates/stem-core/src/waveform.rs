@@ -489,13 +489,68 @@ impl WaveformDocument {
             return None;
         }
 
-        let full_render = self.render_planar(source_buffers);
-        let mut clip_channels = Vec::with_capacity(full_render.len());
-        for ch in &full_render {
-            let slice = ch[s as usize..e as usize].to_vec();
-            clip_channels.push(slice);
+        let range_len = (e - s) as usize;
+        let mut output = vec![vec![0.0f32; range_len]; self.channels];
+
+        let mut seg_doc_start = 0u64;
+        for segment in &self.segments {
+            let seg_len = segment.length_frames();
+            let seg_doc_end = seg_doc_start + seg_len;
+
+            if seg_doc_end <= s {
+                seg_doc_start = seg_doc_end;
+                continue;
+            }
+            if seg_doc_start >= e {
+                break;
+            }
+
+            let overlap_start = seg_doc_start.max(s);
+            let overlap_end = seg_doc_end.min(e);
+            let overlap_len = (overlap_end - overlap_start) as usize;
+            let out_offset = (overlap_start - s) as usize;
+            let in_seg_offset = (overlap_start - seg_doc_start) as usize;
+
+            if let AudioSegment::SourceSlice {
+                source_id,
+                start_frame: slice_start,
+                length_frames,
+                reversed,
+                inverted,
+            } = segment
+            {
+                let len = *length_frames as usize;
+                let start = *slice_start as usize;
+                let sign = if *inverted { -1.0f32 } else { 1.0f32 };
+
+                if let Some(buf) = source_buffers.get(source_id) {
+                    for (ch_idx, out_ch) in output.iter_mut().enumerate() {
+                        let src_ch = if ch_idx < buf.len() {
+                            &buf[ch_idx]
+                        } else if !buf.is_empty() {
+                            &buf[0]
+                        } else {
+                            continue;
+                        };
+
+                        for i in 0..overlap_len {
+                            let seg_i = in_seg_offset + i;
+                            let src_idx = if *reversed {
+                                start + (len - 1 - seg_i)
+                            } else {
+                                start + seg_i
+                            };
+                            let val = src_ch.get(src_idx).copied().unwrap_or(0.0) * sign;
+                            out_ch[out_offset + i] = val;
+                        }
+                    }
+                }
+            }
+
+            seg_doc_start = seg_doc_end;
         }
-        Some(clip_channels)
+
+        Some(output)
     }
 
     /// Replace range [start_frame, end_frame) with pre-rendered planar audio channels.
@@ -687,11 +742,17 @@ pub fn find_nearest_zero_crossing(
 }
 
 /// Transactional undo/redo stack for waveform document edits.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WaveformHistory {
     undo_stack: Vec<WaveformDocument>,
     redo_stack: Vec<WaveformDocument>,
     max_entries: usize,
+}
+
+impl Default for WaveformHistory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WaveformHistory {
@@ -705,6 +766,9 @@ impl WaveformHistory {
 
     /// Record a state before mutating. Clears redo stack.
     pub fn push_state(&mut self, state_before: WaveformDocument) {
+        if self.max_entries == 0 {
+            return;
+        }
         if self.undo_stack.len() >= self.max_entries {
             self.undo_stack.remove(0);
         }

@@ -509,7 +509,8 @@ waveform-zoom-out-tooltip = Zoom Out (Ctrl+Minus)
 waveform-zoom-in-tooltip = Zoom In (Ctrl+Plus)
 waveform-zoom-reset-tooltip = Reset Zoom
 
-
-
-
-
+# History Panel
+history-panel-title = Edit History
+history-undo-stack = Undo Stack
+history-redo-stack = Redo Stack
+history-empty = No recorded edits yet.

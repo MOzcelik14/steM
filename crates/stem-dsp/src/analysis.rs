@@ -76,6 +76,9 @@ pub struct SpectrumAnalyzer {
     fft_size: usize,
     window: Vec<f32>,
     planner: RealFftPlanner<f32>,
+    r2c: std::sync::Arc<dyn realfft::RealToComplex<f32>>,
+    input_buf: Vec<f32>,
+    output_buf: Vec<realfft::num_complex::Complex<f32>>,
 }
 
 impl SpectrumAnalyzer {
@@ -90,10 +93,18 @@ impl SpectrumAnalyzer {
             })
             .collect();
 
+        let mut planner = RealFftPlanner::new();
+        let r2c = planner.plan_fft_forward(fft_size);
+        let input_buf = vec![0.0; fft_size];
+        let output_buf = r2c.make_output_vec();
+
         Self {
             fft_size,
             window,
-            planner: RealFftPlanner::new(),
+            planner,
+            r2c,
+            input_buf,
+            output_buf,
         }
     }
 
@@ -103,6 +114,9 @@ impl SpectrumAnalyzer {
 
     pub fn set_fft_size(&mut self, fft_size: usize) {
         assert!(fft_size.is_power_of_two());
+        if self.fft_size == fft_size {
+            return;
+        }
         self.fft_size = fft_size;
         self.window = (0..fft_size)
             .map(|i| {
@@ -110,24 +124,29 @@ impl SpectrumAnalyzer {
                     - (2.0 * std::f32::consts::PI * i as f32 / (fft_size as f32 - 1.0)).cos())
             })
             .collect();
+        self.r2c = self.planner.plan_fft_forward(fft_size);
+        self.input_buf.resize(fft_size, 0.0);
+        self.output_buf = self.r2c.make_output_vec();
     }
 
     /// Compute magnitude spectrum in dB for a slice of audio of length `fft_size`.
     /// Returns vector of magnitudes of length `fft_size / 2 + 1`.
     pub fn compute_magnitude_db(&mut self, audio: &[f32]) -> Vec<f32> {
-        let r2c = self.planner.plan_fft_forward(self.fft_size);
-        let mut input = vec![0.0; self.fft_size];
-
+        self.input_buf.fill(0.0);
         let copy_len = audio.len().min(self.fft_size);
-        for i in 0..copy_len {
-            input[i] = audio[i] * self.window[i];
+        for (dst, (&src, &win)) in self
+            .input_buf
+            .iter_mut()
+            .zip(audio.iter().zip(self.window.iter()))
+            .take(copy_len)
+        {
+            *dst = src * win;
         }
 
-        let mut output = r2c.make_output_vec();
-        r2c.process(&mut input, &mut output).unwrap_or_default();
+        let _ = self.r2c.process(&mut self.input_buf, &mut self.output_buf);
 
         let norm = 1.0 / self.fft_size as f32;
-        output
+        self.output_buf
             .iter()
             .map(|c| {
                 let mag = (c.norm() * norm).max(1e-6);
@@ -358,28 +377,40 @@ impl MasteringAssistant {
             .map(|f| f.iter().sum::<f32>() / ch_count as f32)
             .collect();
 
-        // Compute tonal balance using FFT over representative center window
+        // Compute tonal balance using FFT averaged across up to 8 windows spanning the mix
         let fft_size = 4096usize;
         let mut analyzer = SpectrumAnalyzer::new(fft_size);
-        let start = mono.len().saturating_sub(fft_size) / 2;
-        let mut slice = vec![0.0f32; fft_size];
-        let copy_len = (mono.len().saturating_sub(start)).min(fft_size);
-        slice[..copy_len].copy_from_slice(&mono[start..start + copy_len]);
-        let mags_db = analyzer.compute_magnitude_db(&slice);
-
         let bin_hz = sample_rate.max(1) as f32 / fft_size as f32;
+        let num_windows = if mono.len() <= fft_size {
+            1
+        } else {
+            (mono.len() / fft_size).clamp(1, 8)
+        };
+        let mut slice = vec![0.0f32; fft_size];
         let mut low_e = 0.0f64;
         let mut mid_e = 0.0f64;
         let mut high_e = 0.0f64;
-        for (i, &db) in mags_db.iter().enumerate().skip(1) {
-            let freq = i as f32 * bin_hz;
-            let e = 10.0f64.powf(db as f64 / 10.0);
-            if freq < 250.0 {
-                low_e += e;
-            } else if freq <= 4000.0 {
-                mid_e += e;
+
+        for w in 0..num_windows {
+            let start = if num_windows == 1 {
+                0
             } else {
-                high_e += e;
+                (mono.len() - fft_size) * w / (num_windows - 1)
+            };
+            slice.fill(0.0);
+            let copy_len = (mono.len().saturating_sub(start)).min(fft_size);
+            slice[..copy_len].copy_from_slice(&mono[start..start + copy_len]);
+            let mags_db = analyzer.compute_magnitude_db(&slice);
+            for (i, &db) in mags_db.iter().enumerate().skip(1) {
+                let freq = i as f32 * bin_hz;
+                let e = 10.0f64.powf(db as f64 / 10.0);
+                if freq < 250.0 {
+                    low_e += e;
+                } else if freq <= 4000.0 {
+                    mid_e += e;
+                } else {
+                    high_e += e;
+                }
             }
         }
         let total_e = (low_e + mid_e + high_e).max(1e-12);

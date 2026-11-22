@@ -1208,9 +1208,14 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         }
 
         if !is_mouse_down {
+            if app.timeline_state.drag_automation_point.is_some() {
+                timeline_needs_sync = true;
+            }
             app.timeline_state.drag_automation_point = None;
         }
-        if timeline_needs_sync {
+        if timeline_needs_sync
+            && (!is_mouse_down || app.timeline_state.drag_automation_point.is_none())
+        {
             app.sync_timeline_to_audio_engine();
         }
 
@@ -1872,6 +1877,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
             } else {
                 // Mouse released, end drag
+                let mut mutated = false;
                 if let Some(DragOp::MoveClip {
                     clip_id, track_id, ..
                 }) = app.timeline_state.drag_op
@@ -1880,6 +1886,17 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                         app.project
                             .apply_auto_crossfades_on_track(track_id, clip_id);
                     }
+                    mutated = true;
+                } else if matches!(
+                    app.timeline_state.drag_op,
+                    Some(
+                        DragOp::TrimLeft { .. }
+                            | DragOp::TrimRight { .. }
+                            | DragOp::FadeIn { .. }
+                            | DragOp::FadeOut { .. }
+                    )
+                ) {
+                    mutated = true;
                 }
                 if let Some(DragOp::SelectTimeRange { .. }) = app.timeline_state.drag_op {
                     if let Some((s, e)) = app.timeline_state.time_selection {
@@ -1890,7 +1907,9 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                     }
                 }
                 app.timeline_state.drag_op = None;
-                app.sync_timeline_to_audio_engine();
+                if mutated {
+                    app.sync_timeline_to_audio_engine();
+                }
             }
         }
 
@@ -2044,11 +2063,30 @@ fn render_clip_waveform(
     if wave_rect.height() < 4.0 || wave_rect.width() < 2.0 {
         return;
     }
-    let target_points = (wave_rect.width() as usize).clamp(10, 2000);
+    let clip_bounds = painter.clip_rect();
+    let vis_min_x = wave_rect.min.x.max(clip_bounds.min.x);
+    let vis_max_x = wave_rect.max.x.min(clip_bounds.max.x);
+    let vis_width = vis_max_x - vis_min_x;
+    if vis_width < 1.0 {
+        return;
+    }
+
+    let frac_start = ((vis_min_x - wave_rect.min.x) / wave_rect.width()).clamp(0.0, 1.0);
+    let frac_end = ((vis_max_x - wave_rect.min.x) / wave_rect.width()).clamp(0.0, 1.0);
+    let query_start =
+        clip.source_start_frame + (clip.length_frames as f64 * frac_start as f64).floor() as u64;
+    let query_end = (clip.source_start_frame
+        + (clip.length_frames as f64 * frac_end as f64).ceil() as u64)
+        .min(clip.source_start_frame + clip.length_frames);
+    if query_end <= query_start {
+        return;
+    }
+
+    let target_points = (vis_width as usize).clamp(10, 2000);
     let peaks = pyramid.query_channel_peaks(
         0, // Left channel or mono
-        clip.source_start_frame,
-        clip.source_start_frame + clip.length_frames,
+        query_start,
+        query_end,
         target_points,
     );
 
@@ -2061,7 +2099,7 @@ fn render_clip_waveform(
 
     // Subtle zero line
     painter.line_segment(
-        [pos2(wave_rect.min.x, mid_y), pos2(wave_rect.max.x, mid_y)],
+        [pos2(vis_min_x, mid_y), pos2(vis_max_x, mid_y)],
         Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(255, 255, 255, 18)),
     );
 
@@ -2070,19 +2108,20 @@ fn render_clip_waveform(
     } else {
         Color32::from_rgb(56, 189, 248) // studio cyan
     };
+    let stroke = Stroke::new(1.0_f32, waveform_color);
+    let step_x = vis_width / peaks.len() as f32;
 
-    let step_x = wave_rect.width() / peaks.len() as f32;
-
-    for (i, p) in peaks.iter().enumerate() {
-        let x = wave_rect.min.x + i as f32 * step_x;
-        let top_y = mid_y - (p.max.clamp(-1.0, 1.0) * half_h);
-        let bot_y = mid_y - (p.min.clamp(-1.0, 1.0) * half_h);
-
-        painter.line_segment(
-            [pos2(x, top_y), pos2(x, bot_y.max(top_y + 1.0))],
-            Stroke::new(1.0_f32, waveform_color),
-        );
-    }
+    let shapes: Vec<egui::Shape> = peaks
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let x = vis_min_x + i as f32 * step_x;
+            let top_y = mid_y - (p.max.clamp(-1.0, 1.0) * half_h);
+            let bot_y = mid_y - (p.min.clamp(-1.0, 1.0) * half_h);
+            egui::Shape::line_segment([pos2(x, top_y), pos2(x, bot_y.max(top_y + 1.0))], stroke)
+        })
+        .collect();
+    painter.extend(shapes);
 }
 
 /// Context parameters for rendering an automation lane.

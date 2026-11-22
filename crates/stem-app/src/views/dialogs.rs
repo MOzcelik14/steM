@@ -2010,4 +2010,71 @@ fn render_stem_separation_dialog(app: &mut StemApp, ctx: &egui::Context) {
     if !open || close_dialog {
         app.stem_separation_state.show = false;
     }
+
+    // ----------------- Edit History Panel -----------------
+    if app.show_history_panel {
+        let mut hist_open = true;
+        let mut trigger_undo = false;
+        let mut trigger_redo = false;
+        let undo_items = app.history.undo_descriptions();
+        let redo_items = app.history.redo_descriptions();
+
+        egui::Window::new(app.i18n.t("history-panel-title"))
+            .open(&mut hist_open)
+            .default_width(280.0)
+            .default_height(320.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            app.history.can_undo(),
+                            egui::Button::new(app.i18n.t("menu-edit-undo")),
+                        )
+                        .clicked()
+                    {
+                        trigger_undo = true;
+                    }
+                    if ui
+                        .add_enabled(
+                            app.history.can_redo(),
+                            egui::Button::new(app.i18n.t("menu-edit-redo")),
+                        )
+                        .clicked()
+                    {
+                        trigger_redo = true;
+                    }
+                });
+                ui.separator();
+
+                if undo_items.is_empty() && redo_items.is_empty() {
+                    ui.label(app.i18n.t("history-empty"));
+                } else {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if !undo_items.is_empty() {
+                            ui.strong(app.i18n.t("history-undo-stack"));
+                            for (idx, desc) in undo_items.iter().enumerate() {
+                                ui.label(format!("{}. {}", idx + 1, desc));
+                            }
+                            ui.add_space(6.0);
+                        }
+                        if !redo_items.is_empty() {
+                            ui.strong(app.i18n.t("history-redo-stack"));
+                            for (idx, desc) in redo_items.iter().enumerate() {
+                                ui.weak(format!("{}. {}", idx + 1, desc));
+                            }
+                        }
+                    });
+                }
+            });
+
+        if trigger_undo {
+            app.action_undo();
+        }
+        if trigger_redo {
+            app.action_redo();
+        }
+        if !hist_open {
+            app.show_history_panel = false;
+        }
+    }
 }

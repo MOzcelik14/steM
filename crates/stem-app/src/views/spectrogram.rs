@@ -482,22 +482,21 @@ fn render_spectrum_canvas(
         );
     }
 
-    // Draw smooth frequency response curve
+    // Draw smooth frequency response curve as a single batched polyline
     let step_x = rect.width() / (num_bins - 1) as f32;
-    let mut prev_pt: Option<egui::Pos2> = None;
-
-    for (i, &db) in state.spectrum_history.iter().enumerate() {
-        let norm = ((db - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
-        let x = rect.min.x + i as f32 * step_x;
-        let y = rect.max.y - (norm * rect.height());
-        let current_pt = pos2(x, y);
-
-        if let Some(prev) = prev_pt {
-            painter.line_segment(
-                [prev, current_pt],
-                Stroke::new(1.5_f32, Color32::from_rgb(80, 220, 150)),
-            );
-        }
-        prev_pt = Some(current_pt);
-    }
+    let points: Vec<egui::Pos2> = state
+        .spectrum_history
+        .iter()
+        .enumerate()
+        .map(|(i, &db)| {
+            let norm = ((db - min_db) / (max_db - min_db)).clamp(0.0, 1.0);
+            let x = rect.min.x + i as f32 * step_x;
+            let y = rect.max.y - (norm * rect.height());
+            pos2(x, y)
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        points,
+        Stroke::new(1.5_f32, Color32::from_rgb(80, 220, 150)),
+    ));
 }

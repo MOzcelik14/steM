@@ -154,9 +154,7 @@ impl StemApp {
         let project = Project::new("Untitled Project", 48000);
         let status_text = i18n.t("status-ready");
 
-        let recovery_file_path = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".stem-recovery");
+        let recovery_file_path = default_recovery_file_path();
 
         let mut recovery_state = RecoveryDialogState::default();
         if recovery_file_path.exists() {
@@ -251,6 +249,7 @@ impl StemApp {
             });
             self.active_timeline = Some(timeline.clone());
             if let Some(ref mut engine) = self.audio_engine {
+                engine.sync_project_mixer(&self.project);
                 engine.update_timeline(timeline);
             }
         }
@@ -607,8 +606,15 @@ impl eframe::App for StemApp {
 
 impl Drop for StemApp {
     fn drop(&mut self) {
-        if !self.history.can_undo() {
-            self.discard_recovery_journal();
-        }
+        self.discard_recovery_journal();
     }
+}
+
+fn default_recovery_file_path() -> PathBuf {
+    let base_dir = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .unwrap_or_else(std::env::temp_dir);
+    base_dir.join("steM").join("recovery.stem")
 }

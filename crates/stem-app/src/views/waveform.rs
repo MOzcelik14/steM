@@ -347,15 +347,26 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         if let Some((s_frame, e_frame)) = app.waveform_state.selection {
             let dur_frame = e_frame.saturating_sub(s_frame);
-            let s_str = app
-                .timecode_mode
-                .format_time(s_frame as f64 / sample_rate as f64, sample_rate);
-            let e_str = app
-                .timecode_mode
-                .format_time(e_frame as f64 / sample_rate as f64, sample_rate);
-            let d_str = app
-                .timecode_mode
-                .format_time(dur_frame as f64 / sample_rate as f64, sample_rate);
+            let bpm = app.project.tempo_bpm;
+            let time_sig = app.project.time_signature;
+            let s_str = app.timecode_mode.format_time_with_tempo(
+                s_frame as f64 / sample_rate as f64,
+                sample_rate,
+                bpm,
+                time_sig,
+            );
+            let e_str = app.timecode_mode.format_time_with_tempo(
+                e_frame as f64 / sample_rate as f64,
+                sample_rate,
+                bpm,
+                time_sig,
+            );
+            let d_str = app.timecode_mode.format_time_with_tempo(
+                dur_frame as f64 / sample_rate as f64,
+                sample_rate,
+                bpm,
+                time_sig,
+            );
 
             ui.label(
                 egui::RichText::new(app.i18n.t_arg("waveform-selection-start", "time", s_str))

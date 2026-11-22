@@ -8,7 +8,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
 use rtrb::{Consumer, Producer, RingBuffer};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use thiserror::Error;
@@ -64,6 +64,7 @@ pub struct AudioRecorder {
     is_recording: Arc<AtomicBool>,
     monitoring_enabled: Arc<AtomicBool>,
     device_lost: Arc<AtomicBool>,
+    overrun_samples: Arc<AtomicU64>,
     telemetry_rx: Consumer<InputTelemetry>,
     latest_telemetry: InputTelemetry,
     worker_running: Arc<AtomicBool>,
@@ -189,6 +190,7 @@ impl AudioRecorder {
 
         let device_lost = Arc::new(AtomicBool::new(false));
         let device_lost_cb = device_lost.clone();
+        let overrun_samples = Arc::new(AtomicU64::new(0));
 
         let mut record_callback = RealtimeRecordCallback::new(
             channels,
@@ -197,7 +199,8 @@ impl AudioRecorder {
             monitor_producer,
             is_recording.clone(),
             monitoring_enabled.clone(),
-        );
+        )
+        .with_overrun_counter(overrun_samples.clone());
 
         let stream = device.build_input_stream(
             &config,
@@ -220,23 +223,66 @@ impl AudioRecorder {
         let (flush_tx, flush_rx) = crossbeam_channel::bounded::<()>(4);
 
         let worker_handle = std::thread::spawn(move || {
-            let mut recorded = Vec::with_capacity(48000 * 10);
+            let temp_wav_path =
+                std::env::temp_dir().join(format!("stem_rec_{}.wav", Uuid::new_v4()));
+            let spec = hound::WavSpec {
+                channels,
+                sample_rate,
+                bits_per_sample: 32,
+                sample_format: hound::SampleFormat::Float,
+            };
+            let mut writer = hound::WavWriter::create(&temp_wav_path, spec).ok();
+            let mut fallback_recorded = Vec::new();
+            let mut has_samples = false;
 
             while worker_running_thread.load(Ordering::Relaxed) {
                 let mut drained_any = false;
                 while let Ok(sample) = record_consumer.pop() {
-                    recorded.push(sample);
+                    has_samples = true;
                     drained_any = true;
+                    if let Some(ref mut w) = writer {
+                        if w.write_sample(sample).is_err() {
+                            writer = None;
+                            fallback_recorded.push(sample);
+                        }
+                    } else {
+                        fallback_recorded.push(sample);
+                    }
                 }
 
                 if flush_rx.try_recv().is_ok() {
-                    let _ = result_tx.send(std::mem::take(&mut recorded));
+                    if let Some(w) = writer.take() {
+                        let _ = w.finalize();
+                        if has_samples {
+                            if let Ok(mut reader) = hound::WavReader::open(&temp_wav_path) {
+                                let samples: Vec<f32> =
+                                    reader.samples::<f32>().filter_map(Result::ok).collect();
+                                let _ = result_tx.send(samples);
+                            } else {
+                                let _ = result_tx.send(std::mem::take(&mut fallback_recorded));
+                            }
+                        } else {
+                            let _ = result_tx.send(Vec::new());
+                        }
+                        let _ = std::fs::remove_file(&temp_wav_path);
+                        has_samples = false;
+                        fallback_recorded.clear();
+                        writer = hound::WavWriter::create(&temp_wav_path, spec).ok();
+                    } else {
+                        let _ = result_tx.send(std::mem::take(&mut fallback_recorded));
+                        has_samples = false;
+                    }
                 }
 
                 if !drained_any {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
+
+            if let Some(w) = writer.take() {
+                let _ = w.finalize();
+            }
+            let _ = std::fs::remove_file(&temp_wav_path);
         });
 
         Ok(Self {
@@ -247,6 +293,7 @@ impl AudioRecorder {
             is_recording,
             monitoring_enabled,
             device_lost,
+            overrun_samples,
             telemetry_rx: telem_consumer,
             latest_telemetry: InputTelemetry::default(),
             worker_running,
@@ -274,6 +321,10 @@ impl AudioRecorder {
 
     pub fn is_device_lost(&self) -> bool {
         self.device_lost.load(Ordering::Relaxed)
+    }
+
+    pub fn overrun_samples(&self) -> u64 {
+        self.overrun_samples.load(Ordering::Relaxed)
     }
 
     pub fn set_monitoring(&self, enabled: bool) {
@@ -359,6 +410,7 @@ pub struct RealtimeRecordCallback {
     pub monitor_producer: Option<Producer<f32>>,
     pub is_recording: Arc<AtomicBool>,
     pub monitoring_enabled: Arc<AtomicBool>,
+    pub overrun_samples: Arc<AtomicU64>,
 }
 
 impl RealtimeRecordCallback {
@@ -377,7 +429,13 @@ impl RealtimeRecordCallback {
             monitor_producer,
             is_recording,
             monitoring_enabled,
+            overrun_samples: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    pub fn with_overrun_counter(mut self, overrun_samples: Arc<AtomicU64>) -> Self {
+        self.overrun_samples = overrun_samples;
+        self
     }
 
     pub fn process(&mut self, data: &[f32]) {
@@ -426,10 +484,18 @@ impl RealtimeRecordCallback {
             rms_r: r_r,
         });
 
-        // 2. Stream to recording worker if active
+        // 2. Stream to recording worker if active (frame-aligned so overrun never shifts channels)
         if self.is_recording.load(Ordering::Relaxed) {
-            for &sample in data {
-                let _ = self.record_producer.push(sample);
+            let ch_count = (self.channels as usize).max(1);
+            for frame in data.chunks_exact(ch_count) {
+                if self.record_producer.slots() < ch_count {
+                    self.overrun_samples
+                        .fetch_add(ch_count as u64, Ordering::Relaxed);
+                    break;
+                }
+                for &sample in frame {
+                    let _ = self.record_producer.push(sample);
+                }
             }
         }
 

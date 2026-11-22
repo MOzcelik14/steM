@@ -355,9 +355,12 @@ fn decode_stream_inner(
         .make(&track.codec_params, &dec_opts)
         .map_err(DecodeError::Symphonia)?;
 
+    const MAX_INITIAL_RESERVE_FRAMES: usize = 1_048_576;
     let mut planar_channels: Vec<Vec<f32>> = vec![Vec::new(); num_channels];
     if let Some(est_frames) = track.codec_params.n_frames {
-        let cap = (est_frames as usize).min(MAX_DECODE_FRAMES);
+        let cap = (est_frames as usize)
+            .min(MAX_DECODE_FRAMES)
+            .min(MAX_INITIAL_RESERVE_FRAMES);
         for ch in &mut planar_channels {
             ch.reserve(cap);
         }

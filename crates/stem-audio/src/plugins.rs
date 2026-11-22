@@ -271,9 +271,23 @@ impl PluginScanner {
                 name = parsed_name;
             }
             if let Some(bin_rel) = Self::extract_ttl_uri(&ttl, "lv2:binary") {
-                let candidate = bundle_path.join(bin_rel);
-                if candidate.is_file() {
-                    binary_path = Some(candidate);
+                let rel_path = Path::new(&bin_rel);
+                let safe_rel = !rel_path.is_absolute()
+                    && rel_path.components().all(|c| {
+                        matches!(
+                            c,
+                            std::path::Component::Normal(_) | std::path::Component::CurDir
+                        )
+                    });
+                if safe_rel {
+                    let candidate = bundle_path.join(rel_path);
+                    if let (Ok(canon_bundle), Ok(canon_cand)) =
+                        (bundle_path.canonicalize(), candidate.canonicalize())
+                    {
+                        if canon_cand.starts_with(&canon_bundle) && canon_cand.is_file() {
+                            binary_path = Some(canon_cand);
+                        }
+                    }
                 }
             }
         }
