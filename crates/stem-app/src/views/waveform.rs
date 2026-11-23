@@ -731,8 +731,9 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
                 };
 
                 if app.waveform_state.drag_op.is_none() {
-                    // Start drag operation
-                    if mp.y < wave_top {
+                    if !response.hovered() {
+                        // Pointer is over a popup menu or modal window; do not pass click through
+                    } else if mp.y < wave_top {
                         // Click in ruler -> Scrub Playhead
                         app.waveform_state.drag_op = Some(WaveformDragOp::ScrubPlayhead);
                         app.action_seek_waveform(snapped_frame);

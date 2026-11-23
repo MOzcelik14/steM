@@ -717,13 +717,18 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         );
         let lane_painter = ui.painter().with_clip_rect(tracks_clip_rect);
 
-        let mouse_pos = response
-            .interact_pointer_pos()
-            .or_else(|| response.hover_pos())
-            .or_else(|| ui.input(|i| i.pointer.latest_pos()));
-        let is_mouse_down = ui.input(|i| i.pointer.primary_down());
-        let is_primary_clicked = ui.input(|i| i.pointer.primary_clicked());
-        let is_secondary_clicked = ui.input(|i| i.pointer.secondary_clicked());
+        let can_interact = app.timeline_state.drag_op.is_some() || response.hovered();
+        let mouse_pos = if can_interact {
+            response
+                .interact_pointer_pos()
+                .or_else(|| response.hover_pos())
+                .or_else(|| ui.input(|i| i.pointer.latest_pos()))
+        } else {
+            None
+        };
+        let is_mouse_down = ui.input(|i| i.pointer.primary_down()) && can_interact;
+        let is_primary_clicked = ui.input(|i| i.pointer.primary_clicked()) && can_interact;
+        let is_secondary_clicked = ui.input(|i| i.pointer.secondary_clicked()) && can_interact;
         let mut open_clip_in_waveform: Option<uuid::Uuid> = None;
         let mut timeline_needs_sync = false;
 
