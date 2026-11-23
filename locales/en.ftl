@@ -537,3 +537,9 @@ ctx-dereverb = De-Reverb
 ctx-apply-effects = Apply Active Effects
 ctx-loudness-report = Loudness Report
 
+# Plugin & Demucs Status
+plugin-passthrough-notice = Note: VST3/LV2 support is currently in preview (bundle scan & slot persistence only; audio passes through unmodified).
+demucs-copy-cmd = Copy Install Command
+demucs-recheck = Re-check
+
+

@@ -1635,6 +1635,11 @@ fn render_plugin_browser_dialog(app: &mut StemApp, ctx: &egui::Context) {
         .resizable(true)
         .default_size(egui::vec2(620.0, 480.0))
         .show(ctx, |ui| {
+            ui.colored_label(
+                egui::Color32::from_rgb(245, 190, 90),
+                app.i18n.t("plugin-passthrough-notice"),
+            );
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 if ui.button("Scan Plugins").clicked() {
                     app.plugin_browser_state.discovered =
@@ -1890,6 +1895,15 @@ fn render_stem_separation_dialog(app: &mut StemApp, ctx: &egui::Context) {
                     egui::Color32::from_rgb(245, 170, 80),
                     "Demucs CLI not found. Install with: pip install demucs",
                 );
+                ui.horizontal(|ui| {
+                    if ui.button(app.i18n.t("demucs-copy-cmd")).clicked() {
+                        ui.ctx().copy_text("pip install demucs".to_string());
+                    }
+                    if ui.button(app.i18n.t("demucs-recheck")).clicked() {
+                        app.stem_separation_state.demucs_available =
+                            Some(stem_audio::DemucsRunner::is_available());
+                    }
+                });
             }
 
             ui.separator();
@@ -1993,7 +2007,10 @@ fn render_stem_separation_dialog(app: &mut StemApp, ctx: &egui::Context) {
                         }
                     }
                 } else if ui
-                    .add_enabled(!sources.is_empty(), egui::Button::new("Separate Stems"))
+                    .add_enabled(
+                        available && !sources.is_empty(),
+                        egui::Button::new("Separate Stems"),
+                    )
                     .clicked()
                 {
                     start_sep = true;

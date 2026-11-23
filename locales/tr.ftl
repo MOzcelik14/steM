@@ -537,3 +537,9 @@ ctx-dereverb = Yankı Azalt (De-Reverb)
 ctx-apply-effects = Aktif Efektleri Uygula
 ctx-loudness-report = Ses Yüksekliği Raporu
 
+# Eklenti ve Demucs Durumu
+plugin-passthrough-notice = Not: VST3/LV2 desteği şu an önizleme aşamasındadır (yalnızca tarama ve slot kaydı; ses işleme passthrough).
+demucs-copy-cmd = Kurulum Komutunu Kopyala
+demucs-recheck = Tekrar Kontrol Et
+
+
