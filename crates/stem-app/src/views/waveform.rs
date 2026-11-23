@@ -823,6 +823,183 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
         }
     }
 
+    // ---------------- Right-Click Context Menu ----------------
+    response.context_menu(|ui| {
+        let has_sel = app.waveform_state.selection.is_some();
+        let has_clip = app.clipboard.is_some();
+
+        if has_sel {
+            if ui.button(app.i18n.t("waveform-play-selection")).clicked() {
+                if let Some((s, _)) = app.waveform_state.selection {
+                    app.action_seek_waveform(s);
+                    app.action_toggle_play();
+                }
+                ui.close_menu();
+            }
+            ui.checkbox(
+                &mut app.waveform_state.loop_selection,
+                app.i18n.t("waveform-loop-selection"),
+            );
+            ui.separator();
+        }
+
+        if ui
+            .add_enabled(has_sel, egui::Button::new(app.i18n.t("waveform-btn-cut")))
+            .clicked()
+        {
+            app.action_waveform_cut();
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(has_sel, egui::Button::new(app.i18n.t("waveform-btn-copy")))
+            .clicked()
+        {
+            app.action_waveform_copy();
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(
+                has_clip,
+                egui::Button::new(app.i18n.t("waveform-btn-paste")),
+            )
+            .clicked()
+        {
+            app.action_waveform_paste();
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(
+                has_sel,
+                egui::Button::new(app.i18n.t("waveform-btn-delete")),
+            )
+            .clicked()
+        {
+            app.action_waveform_delete();
+            ui.close_menu();
+        }
+        if ui
+            .add_enabled(has_sel, egui::Button::new(app.i18n.t("waveform-btn-trim")))
+            .clicked()
+        {
+            app.action_waveform_trim();
+            ui.close_menu();
+        }
+        if ui.button(app.i18n.t("waveform-btn-silence")).clicked() {
+            app.action_waveform_insert_silence();
+            ui.close_menu();
+        }
+
+        ui.separator();
+
+        ui.menu_button(app.i18n.t("ctx-normalize"), |ui| {
+            for (label, db) in [
+                ("-0.1 dBFS", -0.1),
+                ("-1.0 dBFS", -1.0),
+                ("-3.0 dBFS", -3.0),
+            ] {
+                if ui.button(label).clicked() {
+                    app.action_waveform_normalize(db);
+                    ui.close_menu();
+                }
+            }
+        });
+
+        ui.menu_button(app.i18n.t("ctx-fade-in"), |ui| {
+            for (label, curve) in [
+                ("Linear", stem_core::waveform::FadeCurve::Linear),
+                ("Exponential", stem_core::waveform::FadeCurve::Exponential),
+                ("Logarithmic", stem_core::waveform::FadeCurve::Logarithmic),
+                ("S-Curve", stem_core::waveform::FadeCurve::SCurve),
+            ] {
+                if ui.button(label).clicked() {
+                    app.action_waveform_fade_in(curve);
+                    ui.close_menu();
+                }
+            }
+        });
+
+        ui.menu_button(app.i18n.t("ctx-fade-out"), |ui| {
+            for (label, curve) in [
+                ("Linear", stem_core::waveform::FadeCurve::Linear),
+                ("Exponential", stem_core::waveform::FadeCurve::Exponential),
+                ("Logarithmic", stem_core::waveform::FadeCurve::Logarithmic),
+                ("S-Curve", stem_core::waveform::FadeCurve::SCurve),
+            ] {
+                if ui.button(label).clicked() {
+                    app.action_waveform_fade_out(curve);
+                    ui.close_menu();
+                }
+            }
+        });
+
+        if ui.button(app.i18n.t("waveform-btn-reverse")).clicked() {
+            app.action_waveform_reverse();
+            ui.close_menu();
+        }
+        if ui.button(app.i18n.t("waveform-btn-invert")).clicked() {
+            app.action_waveform_invert_phase();
+            ui.close_menu();
+        }
+
+        ui.separator();
+
+        ui.menu_button(app.i18n.t("ctx-restoration"), |ui| {
+            if ui.button(app.i18n.t("noise-capture-profile")).clicked() {
+                app.action_capture_noise_profile();
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("noise-apply-selection")).clicked() {
+                app.action_apply_noise_reduction(false);
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("noise-apply-whole")).clicked() {
+                app.action_apply_noise_reduction(true);
+                ui.close_menu();
+            }
+            ui.separator();
+            if ui.button(app.i18n.t("click-remover-apply")).clicked() {
+                app.action_apply_click_remover();
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("ctx-dehum-50")).clicked() {
+                app.action_apply_dehum(50.0);
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("ctx-dehum-60")).clicked() {
+                app.action_apply_dehum(60.0);
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("ctx-declip")).clicked() {
+                app.action_apply_declip();
+                ui.close_menu();
+            }
+            if ui.button(app.i18n.t("ctx-dereverb")).clicked() {
+                app.action_apply_dereverb();
+                ui.close_menu();
+            }
+        });
+
+        if ui.button(app.i18n.t("ctx-apply-effects")).clicked() {
+            app.action_waveform_apply_active_effects();
+            ui.close_menu();
+        }
+        if ui.button(app.i18n.t("ctx-loudness-report")).clicked() {
+            app.action_open_loudness_report();
+            ui.close_menu();
+        }
+
+        if app.waveform_state.active_clip_info.is_some() {
+            ui.separator();
+            if ui
+                .button(app.i18n.t("waveform-btn-apply-to-project"))
+                .clicked()
+            {
+                app.action_waveform_apply_to_project();
+                ui.close_menu();
+            }
+        }
+    });
+
     render_normalize_dialog(app, ui.ctx());
 }
 

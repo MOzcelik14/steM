@@ -1085,6 +1085,14 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 // Check for click / selection / drag start
                 if let Some(mp) = mouse_pos {
                     if clip_rect.contains(mp) && app.timeline_state.drag_op.is_none() {
+                        if is_secondary_clicked {
+                            app.timeline_state.selected_clip_id = Some(clip.id);
+                            app.timeline_state.selected_track_id = Some(track_id);
+                            if !app.timeline_state.selected_clip_ids.contains(&clip.id) {
+                                app.timeline_state.selected_clip_ids.clear();
+                                app.timeline_state.selected_clip_ids.insert(clip.id);
+                            }
+                        }
                         let primary_pressed =
                             ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
                         let primary_double = ui.input(|i| {
@@ -1912,6 +1920,124 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
             }
         }
+
+        // ---------------- Right-Click Context Menu ----------------
+        response.context_menu(|ui| {
+            let selected_clip = app.timeline_state.selected_clip_id;
+            let has_selection = app.timeline_state.time_selection.is_some();
+            let has_clipboard = app.timeline_state.timeline_clip_clipboard.is_some();
+
+            if let Some(clip_id) = selected_clip {
+                if ui.button(app.i18n.t("ctx-open-in-waveform")).clicked() {
+                    app.action_open_clip_in_waveform_editor(clip_id);
+                    ui.close_menu();
+                }
+                ui.separator();
+
+                if ui.button(app.i18n.t("ctx-split-at-playhead")).clicked() {
+                    app.action_split_selected_clip();
+                    ui.close_menu();
+                }
+                if has_selection && ui.button(app.i18n.t("ctx-split-at-selection")).clicked() {
+                    app.action_split_at_selection();
+                    ui.close_menu();
+                }
+                ui.separator();
+
+                if ui.button(app.i18n.t("waveform-btn-cut")).clicked() {
+                    app.action_cut_selected_clip();
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("waveform-btn-copy")).clicked() {
+                    app.action_copy_selected_clip();
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("ctx-duplicate-clip")).clicked() {
+                    app.action_duplicate_selected_clip();
+                    ui.close_menu();
+                }
+                if has_clipboard && ui.button(app.i18n.t("waveform-btn-paste")).clicked() {
+                    app.action_paste_clip();
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("waveform-btn-delete")).clicked() {
+                    app.action_delete_selected_clip();
+                    ui.close_menu();
+                }
+                ui.separator();
+
+                ui.menu_button(app.i18n.t("ctx-fade-in"), |ui| {
+                    for (label, ms) in [("50 ms", 50.0), ("250 ms", 250.0), ("1000 ms", 1000.0)] {
+                        if ui.button(label).clicked() {
+                            app.action_fade_in_selected_clip(ms);
+                            ui.close_menu();
+                        }
+                    }
+                    ui.separator();
+                    if ui.button(app.i18n.t("ctx-fade-clear")).clicked() {
+                        app.action_fade_in_selected_clip(0.0);
+                        ui.close_menu();
+                    }
+                });
+
+                ui.menu_button(app.i18n.t("ctx-fade-out"), |ui| {
+                    for (label, ms) in [("50 ms", 50.0), ("250 ms", 250.0), ("1000 ms", 1000.0)] {
+                        if ui.button(label).clicked() {
+                            app.action_fade_out_selected_clip(ms);
+                            ui.close_menu();
+                        }
+                    }
+                    ui.separator();
+                    if ui.button(app.i18n.t("ctx-fade-clear")).clicked() {
+                        app.action_fade_out_selected_clip(0.0);
+                        ui.close_menu();
+                    }
+                });
+
+                if has_selection {
+                    ui.separator();
+                    if ui.button(app.i18n.t("ctx-silence-selection")).clicked() {
+                        app.action_silence_selection();
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("ctx-ripple-delete")).clicked() {
+                        app.action_ripple_delete_selection();
+                        ui.close_menu();
+                    }
+                }
+
+                ui.separator();
+                if ui.button(app.i18n.t("ctx-separate-stems")).clicked() {
+                    app.stem_separation_state.show = true;
+                    ui.close_menu();
+                }
+            } else {
+                if has_clipboard && ui.button(app.i18n.t("waveform-btn-paste")).clicked() {
+                    app.action_paste_clip();
+                    ui.close_menu();
+                }
+                if has_selection {
+                    if ui.button(app.i18n.t("ctx-silence-selection")).clicked() {
+                        app.action_silence_selection();
+                        ui.close_menu();
+                    }
+                    if ui.button(app.i18n.t("ctx-ripple-delete")).clicked() {
+                        app.action_ripple_delete_selection();
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                }
+                if ui.button(app.i18n.t("ctx-add-track")).clicked() {
+                    let count = app.project.tracks.len() + 1;
+                    app.action_add_track(format!("Track {}", count));
+                    ui.close_menu();
+                }
+                if ui.button(app.i18n.t("ctx-drop-marker")).clicked() {
+                    app.action_drop_marker(None);
+                    ui.close_menu();
+                }
+            }
+        });
 
         // ---------------- Drag & Drop Audio Import ----------------
         let hovered_files_count = ui.input(|i| i.raw.hovered_files.len());

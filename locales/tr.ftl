@@ -514,3 +514,26 @@ history-panel-title = Düzenleme Geçmişi
 history-undo-stack = Geri Alınabilirler
 history-redo-stack = Yinelenecekler
 history-empty = Henüz kayıtlı düzenleme yok.
+
+# Sağ Tık Menüleri
+ctx-open-in-waveform = Dalga Formu Düzenleyicide Aç
+ctx-split-at-playhead = İmleç Konumundan Böl
+ctx-split-at-selection = Seçim Sınırlarından Böl
+ctx-duplicate-clip = Klibi Çoğalt
+ctx-silence-selection = Seçimi Sessizleştir
+ctx-ripple-delete = Kaydırarak Sil (Ripple Delete)
+ctx-fade-in = Giriş Sönümü (Fade In)
+ctx-fade-out = Çıkış Sönümü (Fade Out)
+ctx-fade-clear = Fade'i Sıfırla
+ctx-separate-stems = Stem Ayırma...
+ctx-add-track = Kanal Ekle
+ctx-drop-marker = İşaretçi Ekle
+ctx-normalize = Normalize Et
+ctx-restoration = Ses Onarım ve Restorasyon
+ctx-dehum-50 = Uğultu Gider (50 Hz)
+ctx-dehum-60 = Uğultu Gider (60 Hz)
+ctx-declip = Kırpılma Onar (De-Clip)
+ctx-dereverb = Yankı Azalt (De-Reverb)
+ctx-apply-effects = Aktif Efektleri Uygula
+ctx-loudness-report = Ses Yüksekliği Raporu
+

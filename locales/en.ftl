@@ -514,3 +514,26 @@ history-panel-title = Edit History
 history-undo-stack = Undo Stack
 history-redo-stack = Redo Stack
 history-empty = No recorded edits yet.
+
+# Context Menus
+ctx-open-in-waveform = Open in Waveform Editor
+ctx-split-at-playhead = Split at Playhead
+ctx-split-at-selection = Split at Selection
+ctx-duplicate-clip = Duplicate Clip
+ctx-silence-selection = Silence Selection
+ctx-ripple-delete = Ripple Delete
+ctx-fade-in = Fade In
+ctx-fade-out = Fade Out
+ctx-fade-clear = Clear Fade
+ctx-separate-stems = Separate Stems...
+ctx-add-track = Add Track
+ctx-drop-marker = Drop Marker
+ctx-normalize = Normalize
+ctx-restoration = Restoration
+ctx-dehum-50 = De-Hum (50 Hz)
+ctx-dehum-60 = De-Hum (60 Hz)
+ctx-declip = De-Clip
+ctx-dereverb = De-Reverb
+ctx-apply-effects = Apply Active Effects
+ctx-loudness-report = Loudness Report
+
