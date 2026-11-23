@@ -350,7 +350,7 @@ fn test_peak_cache_exact_correctness() {
 
         assert_eq!(level.channels[0].len(), num_buckets);
 
-        for b in 0..num_buckets {
+        for (b, &peak) in level.channels[0].iter().enumerate().take(num_buckets) {
             let start = b * bucket_size;
             let end = (start + bucket_size).min(num_frames);
             let slice = &buf[start..end];
@@ -366,7 +366,6 @@ fn test_peak_cache_exact_correctness() {
                 }
             }
 
-            let peak = level.channels[0][b];
             assert!(
                 (peak.min - expected_min).abs() < 1e-6,
                 "Lvl {lvl_idx} bucket {b} min mismatch: expected {expected_min}, got {}",
