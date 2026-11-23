@@ -398,9 +398,52 @@ impl AudioEngine {
         let _ = self.timeline_tx.try_send(timeline);
     }
 
-    /// Synchronizes track mixer states (gain, pan, mute, solo) and master gain from a Project.
+    /// Synchronizes track mixer states (gain, pan, mute, solo, bus/send routing),
+    /// submix busses, and master gain from a Project.
     pub fn sync_project_mixer(&mut self, project: &stem_core::Project) {
         self.set_master_gain_db(project.master_gain_db);
+
+        for (b_idx, bus) in project
+            .busses
+            .iter()
+            .take(crate::callback::MAX_BUSSES)
+            .enumerate()
+        {
+            let gain = if bus.gain_db <= -60.0 {
+                0.0
+            } else {
+                10.0f32.powf(bus.gain_db / 20.0)
+            };
+            let _ = self.command_tx.push(AudioCommand::SetBusGain {
+                bus_idx: b_idx,
+                gain,
+            });
+            let _ = self.command_tx.push(AudioCommand::SetBusPan {
+                bus_idx: b_idx,
+                pan: bus.pan.clamp(-1.0, 1.0),
+            });
+            let _ = self.command_tx.push(AudioCommand::SetBusMute {
+                bus_idx: b_idx,
+                muted: bus.muted,
+            });
+            let _ = self.command_tx.push(AudioCommand::SetBusSolo {
+                bus_idx: b_idx,
+                soloed: bus.soloed,
+            });
+            let parent_idx = match bus.output_routing {
+                stem_core::project::TrackOutputRouting::Bus(pid) => project
+                    .busses
+                    .iter()
+                    .take(crate::callback::MAX_BUSSES)
+                    .position(|b| b.id == pid),
+                stem_core::project::TrackOutputRouting::Master => None,
+            };
+            let _ = self.command_tx.push(AudioCommand::SetBusOutputBus {
+                bus_idx: b_idx,
+                parent_idx,
+            });
+        }
+
         for (idx, track) in project.tracks.iter().enumerate() {
             if idx >= crate::callback::MAX_TRACKS {
                 break;
@@ -409,6 +452,49 @@ impl AudioEngine {
             self.set_track_pan(idx, track.pan);
             self.set_track_mute(idx, track.muted);
             self.set_track_solo(idx, track.soloed);
+
+            let out_bus_idx = match track.output_routing {
+                stem_core::project::TrackOutputRouting::Bus(bid) => project
+                    .busses
+                    .iter()
+                    .take(crate::callback::MAX_BUSSES)
+                    .position(|b| b.id == bid),
+                stem_core::project::TrackOutputRouting::Master => None,
+            };
+            let _ = self.command_tx.push(AudioCommand::SetTrackOutputBus {
+                track_idx: idx,
+                bus_idx: out_bus_idx,
+            });
+
+            for send_idx in 0..crate::callback::MAX_SENDS {
+                if let Some(send) = track.sends.get(send_idx) {
+                    let s_bus_idx = project
+                        .busses
+                        .iter()
+                        .take(crate::callback::MAX_BUSSES)
+                        .position(|b| b.id == send.target_bus_id);
+                    let send_gain = if send.muted || send.gain_db <= -60.0 {
+                        0.0
+                    } else {
+                        10.0f32.powf(send.gain_db / 20.0)
+                    };
+                    let _ = self.command_tx.push(AudioCommand::SetTrackSend {
+                        track_idx: idx,
+                        send_idx,
+                        bus_idx: s_bus_idx,
+                        gain: send_gain,
+                        pre_fader: send.pre_fader,
+                    });
+                } else {
+                    let _ = self.command_tx.push(AudioCommand::SetTrackSend {
+                        track_idx: idx,
+                        send_idx,
+                        bus_idx: None,
+                        gain: 0.0,
+                        pre_fader: false,
+                    });
+                }
+            }
         }
     }
 

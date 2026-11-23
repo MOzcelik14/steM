@@ -66,9 +66,42 @@ pub enum AudioCommand {
         beats_per_bar: u8,
         sample_rate: u32,
     },
+    SetTrackOutputBus {
+        track_idx: usize,
+        bus_idx: Option<usize>,
+    },
+    SetTrackSend {
+        track_idx: usize,
+        send_idx: usize,
+        bus_idx: Option<usize>,
+        gain: f32,
+        pre_fader: bool,
+    },
+    SetBusGain {
+        bus_idx: usize,
+        gain: f32,
+    },
+    SetBusPan {
+        bus_idx: usize,
+        pan: f32,
+    },
+    SetBusMute {
+        bus_idx: usize,
+        muted: bool,
+    },
+    SetBusSolo {
+        bus_idx: usize,
+        soloed: bool,
+    },
+    SetBusOutputBus {
+        bus_idx: usize,
+        parent_idx: Option<usize>,
+    },
 }
 
 pub const MAX_TRACKS: usize = stem_core::MAX_PROJECT_TRACKS;
+pub const MAX_BUSSES: usize = 16;
+pub const MAX_SENDS: usize = 4;
 
 /// Telemetry metrics returned from the audio thread back to the UI.
 #[derive(Debug, Clone, Copy)]
@@ -94,6 +127,36 @@ impl Default for AudioTelemetry {
     }
 }
 
+/// Auxiliary send state for a track.
+#[derive(Clone, Copy, Default)]
+pub struct SendState {
+    pub bus_idx: Option<usize>,
+    pub gain: f32,
+    pub pre_fader: bool,
+}
+
+/// Static per-bus state kept in the audio callback.
+#[derive(Clone, Copy)]
+pub struct BusMixerState {
+    pub gain: f32,
+    pub pan: f32,
+    pub muted: bool,
+    pub soloed: bool,
+    pub output_bus_idx: Option<usize>,
+}
+
+impl Default for BusMixerState {
+    fn default() -> Self {
+        Self {
+            gain: 1.0,
+            pan: 0.0,
+            muted: false,
+            soloed: false,
+            output_bus_idx: None,
+        }
+    }
+}
+
 /// Static per-track state kept in the audio callback.
 #[derive(Clone, Copy)]
 pub struct TrackMixerState {
@@ -101,6 +164,8 @@ pub struct TrackMixerState {
     pub pan: f32,
     pub muted: bool,
     pub soloed: bool,
+    pub output_bus_idx: Option<usize>,
+    pub sends: [SendState; MAX_SENDS],
 }
 
 impl Default for TrackMixerState {
@@ -110,6 +175,8 @@ impl Default for TrackMixerState {
             pan: 0.0,
             muted: false,
             soloed: false,
+            output_bus_idx: None,
+            sends: [SendState::default(); MAX_SENDS],
         }
     }
 }
@@ -131,6 +198,7 @@ pub struct AudioProcessor {
     playhead_frame: u64,
     master_gain: f32,
     tracks: [TrackMixerState; MAX_TRACKS],
+    busses: [BusMixerState; MAX_BUSSES],
     track_effects: [EffectChain; MAX_TRACKS],
     master_effects: EffectChain,
     loop_enabled: bool,
@@ -202,6 +270,7 @@ impl AudioProcessor {
             playhead_frame: 0,
             master_gain: 1.0,
             tracks: [TrackMixerState::default(); MAX_TRACKS],
+            busses: [BusMixerState::default(); MAX_BUSSES],
             track_effects: default_track_effects,
             master_effects: EffectChain::default_chain(sr as f32),
             loop_enabled: false,
@@ -354,6 +423,55 @@ impl AudioProcessor {
                         self.metronome_last_beat_idx = -1;
                     }
                 }
+                AudioCommand::SetTrackOutputBus { track_idx, bus_idx } => {
+                    if track_idx < MAX_TRACKS {
+                        self.tracks[track_idx].output_bus_idx = bus_idx.filter(|&b| b < MAX_BUSSES);
+                    }
+                }
+                AudioCommand::SetTrackSend {
+                    track_idx,
+                    send_idx,
+                    bus_idx,
+                    gain,
+                    pre_fader,
+                } => {
+                    if track_idx < MAX_TRACKS && send_idx < MAX_SENDS {
+                        self.tracks[track_idx].sends[send_idx] = SendState {
+                            bus_idx: bus_idx.filter(|&b| b < MAX_BUSSES),
+                            gain,
+                            pre_fader,
+                        };
+                    }
+                }
+                AudioCommand::SetBusGain { bus_idx, gain } => {
+                    if bus_idx < MAX_BUSSES {
+                        self.busses[bus_idx].gain = gain;
+                    }
+                }
+                AudioCommand::SetBusPan { bus_idx, pan } => {
+                    if bus_idx < MAX_BUSSES {
+                        self.busses[bus_idx].pan = pan;
+                    }
+                }
+                AudioCommand::SetBusMute { bus_idx, muted } => {
+                    if bus_idx < MAX_BUSSES {
+                        self.busses[bus_idx].muted = muted;
+                    }
+                }
+                AudioCommand::SetBusSolo { bus_idx, soloed } => {
+                    if bus_idx < MAX_BUSSES {
+                        self.busses[bus_idx].soloed = soloed;
+                    }
+                }
+                AudioCommand::SetBusOutputBus {
+                    bus_idx,
+                    parent_idx,
+                } => {
+                    if bus_idx < MAX_BUSSES {
+                        self.busses[bus_idx].output_bus_idx =
+                            parent_idx.filter(|&p| p < MAX_BUSSES && p != bus_idx);
+                    }
+                }
             }
         }
     }
@@ -397,6 +515,9 @@ impl AudioProcessor {
                         if !timeline.track_channels.is_empty() {
                             let mut accum_l = 0.0f32;
                             let mut accum_r = 0.0f32;
+                            let mut bus_accum_l = [0.0f32; MAX_BUSSES];
+                            let mut bus_accum_r = [0.0f32; MAX_BUSSES];
+                            let has_bus_solos = self.busses.iter().any(|b| b.soloed);
                             let num_tracks = timeline.track_channels.len().min(MAX_TRACKS);
 
                             #[allow(clippy::needless_range_loop)]
@@ -419,6 +540,16 @@ impl AudioProcessor {
                                 let (proc_l, proc_r) =
                                     self.track_effects[t].process_stereo(t_left, t_right);
 
+                                // Pre-fader auxiliary sends
+                                for send in &track_state.sends {
+                                    if send.pre_fader {
+                                        if let Some(b_idx) = send.bus_idx {
+                                            bus_accum_l[b_idx] += proc_l * send.gain;
+                                            bus_accum_r[b_idx] += proc_r * send.gain;
+                                        }
+                                    }
+                                }
+
                                 let pan = track_state.pan.clamp(-1.0, 1.0);
                                 let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
                                 let gain_l = track_state.gain * pan_rad.cos();
@@ -431,8 +562,58 @@ impl AudioProcessor {
                                     track_peaks[t] = trk_peak;
                                 }
 
-                                accum_l += out_l;
-                                accum_r += out_r;
+                                // Post-fader auxiliary sends
+                                for send in &track_state.sends {
+                                    if !send.pre_fader {
+                                        if let Some(b_idx) = send.bus_idx {
+                                            bus_accum_l[b_idx] += out_l * send.gain;
+                                            bus_accum_r[b_idx] += out_r * send.gain;
+                                        }
+                                    }
+                                }
+
+                                if let Some(b_idx) = track_state.output_bus_idx {
+                                    bus_accum_l[b_idx] += out_l;
+                                    bus_accum_r[b_idx] += out_r;
+                                } else {
+                                    accum_l += out_l;
+                                    accum_r += out_r;
+                                }
+                            }
+
+                            // Process submix busses (2 passes to support bus-to-bus chaining)
+                            for pass in 0..2 {
+                                for b in 0..MAX_BUSSES {
+                                    let b_in_l = bus_accum_l[b];
+                                    let b_in_r = bus_accum_r[b];
+                                    if b_in_l == 0.0 && b_in_r == 0.0 {
+                                        continue;
+                                    }
+                                    let bus = self.busses[b];
+                                    if pass == 0 && bus.output_bus_idx.is_none() {
+                                        continue;
+                                    }
+                                    if pass == 1 && bus.output_bus_idx.is_some() {
+                                        continue;
+                                    }
+                                    bus_accum_l[b] = 0.0;
+                                    bus_accum_r[b] = 0.0;
+
+                                    if bus.muted || (has_bus_solos && !bus.soloed) {
+                                        continue;
+                                    }
+                                    let pan = bus.pan.clamp(-1.0, 1.0);
+                                    let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
+                                    let out_l = b_in_l * bus.gain * pan_rad.cos();
+                                    let out_r = b_in_r * bus.gain * pan_rad.sin();
+                                    if let Some(parent_idx) = bus.output_bus_idx {
+                                        bus_accum_l[parent_idx] += out_l;
+                                        bus_accum_r[parent_idx] += out_r;
+                                    } else {
+                                        accum_l += out_l;
+                                        accum_r += out_r;
+                                    }
+                                }
                             }
 
                             let (ml, mr) = self.master_effects.process_stereo(accum_l, accum_r);
