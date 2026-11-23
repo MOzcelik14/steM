@@ -151,7 +151,7 @@ impl StemApp {
             ..Default::default()
         };
 
-        let project = Project::new("Untitled Project", 48000);
+        let project = Project::new("Untitled Project", selected_sr);
         let status_text = i18n.t("status-ready");
 
         let recovery_file_path = default_recovery_file_path();
@@ -237,11 +237,39 @@ impl StemApp {
         }
     }
 
+    /// Returns the active audio engine sample rate (falling back to selected/default rate).
+    pub fn active_sample_rate(&self) -> u32 {
+        self.audio_engine
+            .as_ref()
+            .map(|e| e.sample_rate())
+            .unwrap_or(self.recording_state.selected_sample_rate)
+    }
+
     /// Re-renders project mixdown into a SharedAudioTimeline buffer and sends it to the real-time engine.
     pub fn sync_timeline_to_audio_engine(&mut self) {
-        if let Ok(mix) = render_project_mixdown(&self.project, &self.source_buffers, None) {
-            let total_frames = self.project.total_frames();
-            let track_channels = render_project_tracks(&self.project, &self.source_buffers);
+        if let Ok(mut mix) = render_project_mixdown(&self.project, &self.source_buffers, None) {
+            let mut total_frames = self.project.total_frames();
+            let mut track_channels = render_project_tracks(&self.project, &self.source_buffers);
+
+            if let Some(ref engine) = self.audio_engine {
+                let engine_sr = engine.sample_rate();
+                if engine_sr != self.project.sample_rate && self.project.sample_rate > 0 {
+                    if let Ok(resampled_mix) =
+                        stem_dsp::resample_audio(&mix, self.project.sample_rate, engine_sr)
+                    {
+                        total_frames = resampled_mix.first().map(|c| c.len() as u64).unwrap_or(0);
+                        mix = resampled_mix;
+                    }
+                    for trk in &mut track_channels {
+                        if let Ok(resampled_trk) =
+                            stem_dsp::resample_audio(trk, self.project.sample_rate, engine_sr)
+                        {
+                            *trk = resampled_trk;
+                        }
+                    }
+                }
+            }
+
             let timeline = Arc::new(SharedAudioTimeline {
                 channels: mix,
                 track_channels,

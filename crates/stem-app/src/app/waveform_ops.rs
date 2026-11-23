@@ -12,14 +12,32 @@ impl StemApp {
     /// Re-renders active waveform document into a SharedAudioTimeline buffer and sends it to the real-time engine.
     pub fn sync_waveform_to_audio_engine(&mut self) {
         if let Some(ref planar) = self.waveform_state.cached_planar {
-            let total_frames = self
+            let doc_sr = self
+                .waveform_state
+                .document
+                .as_ref()
+                .map(|d| d.sample_rate)
+                .unwrap_or(self.project.sample_rate);
+            let mut channels = planar.clone();
+            let mut total_frames = self
                 .waveform_state
                 .document
                 .as_ref()
                 .map(|d| d.total_frames())
                 .unwrap_or(0);
+
+            if let Some(ref engine) = self.audio_engine {
+                let engine_sr = engine.sample_rate();
+                if engine_sr != doc_sr && doc_sr > 0 {
+                    if let Ok(resampled) = stem_dsp::resample_audio(&channels, doc_sr, engine_sr) {
+                        total_frames = resampled.first().map(|c| c.len() as u64).unwrap_or(0);
+                        channels = resampled;
+                    }
+                }
+            }
+
             let timeline = Arc::new(SharedAudioTimeline {
-                channels: planar.clone(),
+                channels,
                 track_channels: Vec::new(),
                 total_frames,
             });

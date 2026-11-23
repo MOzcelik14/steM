@@ -12,7 +12,8 @@ use crate::state::WorkerMessage;
 impl StemApp {
     pub fn action_new_project(&mut self) {
         self.action_stop();
-        self.project = Project::new("Untitled Project", 48000);
+        let sr = self.active_sample_rate();
+        self.project = Project::new("Untitled Project", sr);
         self.project_file_path = None;
         self.source_buffers.clear();
         self.peak_pyramids.clear();
@@ -27,7 +28,8 @@ impl StemApp {
         template: stem_core::project::ProjectTemplate,
     ) {
         self.action_stop();
-        self.project = Project::from_template(template, 48000);
+        let sr = self.active_sample_rate();
+        self.project = Project::from_template(template, sr);
         self.project_file_path = None;
         self.source_buffers.clear();
         self.peak_pyramids.clear();
@@ -39,7 +41,8 @@ impl StemApp {
 
     pub fn action_load_demo(&mut self) {
         self.action_stop();
-        let (demo_proj, demo_buffers) = stem_core::generate_demo_project(48000);
+        let sr = self.active_sample_rate();
+        let (demo_proj, demo_buffers) = stem_core::generate_demo_project(sr);
         self.project = demo_proj;
         self.project_file_path = None;
         self.source_buffers = demo_buffers;
