@@ -104,7 +104,7 @@ allow = [
 ]
 confidence-threshold = 0.8
 exceptions = [
-    { allow = ["LicenseRef-UFL-1.0"], name = "epaint_default_fonts" },
+    { allow = ["Ubuntu-font-1.0"], name = "epaint_default_fonts" },
 ]
 
 

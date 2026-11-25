@@ -6,7 +6,7 @@ mod interactions;
 mod track_headers;
 
 use crate::app::StemApp;
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 
 pub(super) struct TimelineGeom {
     pub available_size: egui::Vec2,
@@ -158,7 +158,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
         );
         painter.rect_filled(
             h_scrollbar_rect,
-            Rounding::ZERO,
+            CornerRadius::ZERO,
             Color32::from_rgb(22, 24, 28),
         );
         painter.line_segment(
@@ -186,7 +186,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             } else {
                 Color32::from_rgb(60, 64, 75)
             };
-            painter.rect_filled(thumb_rect, Rounding::same(3.0), thumb_color);
+            painter.rect_filled(thumb_rect, CornerRadius::same(3), thumb_color);
 
             if is_mouse_down && is_h_hover {
                 if let Some(mp) = mouse_pos {
@@ -207,7 +207,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             );
             painter.rect_filled(
                 v_scrollbar_rect,
-                Rounding::ZERO,
+                CornerRadius::ZERO,
                 Color32::from_rgb(22, 24, 28),
             );
 
@@ -227,7 +227,7 @@ pub fn render_timeline_view(app: &mut StemApp, ui: &mut egui::Ui) {
             } else {
                 Color32::from_rgb(60, 64, 75)
             };
-            painter.rect_filled(thumb_rect, Rounding::same(3.0), thumb_color);
+            painter.rect_filled(thumb_rect, CornerRadius::same(3), thumb_color);
 
             if is_mouse_down && is_v_hover {
                 if let Some(mp) = mouse_pos {

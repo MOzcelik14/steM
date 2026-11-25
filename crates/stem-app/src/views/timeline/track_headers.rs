@@ -1,6 +1,6 @@
 use super::TimelineGeom;
 use crate::app::StemApp;
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 
 pub(super) fn render_track_headers(
     app: &mut StemApp,
@@ -24,8 +24,11 @@ pub(super) fn render_track_headers(
 
     // Fixed Top Header above tracks (ruler spacer)
     let top_hdr_rect = Rect::from_min_size(col_rect.min, vec2(header_width, ruler_height));
-    ui.painter()
-        .rect_filled(top_hdr_rect, Rounding::ZERO, Color32::from_rgb(26, 28, 33));
+    ui.painter().rect_filled(
+        top_hdr_rect,
+        CornerRadius::ZERO,
+        Color32::from_rgb(26, 28, 33),
+    );
     ui.painter().line_segment(
         [
             pos2(top_hdr_rect.min.x, top_hdr_rect.max.y),
@@ -96,7 +99,7 @@ pub(super) fn render_track_headers(
         } else {
             Color32::from_rgb(26, 28, 34)
         };
-        painter.rect_filled(rect, Rounding::ZERO, bg_color);
+        painter.rect_filled(rect, CornerRadius::ZERO, bg_color);
 
         // Left track color stripe (4px)
         let track_colors = [
@@ -110,7 +113,7 @@ pub(super) fn render_track_headers(
         let stripe_color = track_colors[t_idx % track_colors.len()];
         painter.rect_filled(
             Rect::from_min_size(pos2(rect.min.x, rect.min.y), vec2(4.0, header_h)),
-            Rounding::ZERO,
+            CornerRadius::ZERO,
             stripe_color,
         );
 
@@ -194,7 +197,7 @@ pub(super) fn render_track_headers(
                 )
                 .fill(mute_bg)
                 .min_size(vec2(24.0, 20.0))
-                .rounding(Rounding::same(3.0));
+                .corner_radius(CornerRadius::same(3));
                 if ui
                     .add(mute_btn)
                     .on_hover_text("Sessize Al (Mute)")
@@ -225,7 +228,7 @@ pub(super) fn render_track_headers(
                 )
                 .fill(solo_bg)
                 .min_size(vec2(24.0, 20.0))
-                .rounding(Rounding::same(3.0));
+                .corner_radius(CornerRadius::same(3));
                 if ui.add(solo_btn).on_hover_text("Solo Dinle").clicked() {
                     soloed = !soloed;
                     app.action_set_track_solo(t_idx, soloed);
@@ -245,7 +248,7 @@ pub(super) fn render_track_headers(
                     egui::Button::new(egui::RichText::new("R").strong().size(11.0).color(arm_text))
                         .fill(arm_bg)
                         .min_size(vec2(24.0, 20.0))
-                        .rounding(Rounding::same(3.0));
+                        .corner_radius(CornerRadius::same(3));
                 if ui.add(arm_btn).on_hover_text("Kayıt Hazır (Arm)").clicked() {
                     armed = !armed;
                     app.action_set_track_arm(t_idx, armed);

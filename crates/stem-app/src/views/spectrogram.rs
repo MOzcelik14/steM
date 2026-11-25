@@ -1,7 +1,7 @@
 //! Real-time FFT spectral analyzer and 2D rolling waterfall spectrogram view.
 
 use crate::app::StemApp;
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 use stem_dsp::{SpectrogramPalette, SpectrumAnalyzer};
 use stem_i18n::format_db;
 
@@ -333,11 +333,12 @@ pub fn render_spectrogram_panel(app: &mut StemApp, ui: &mut egui::Ui) {
         let (rect, _response) = ui.allocate_exact_size(available_size, egui::Sense::hover());
 
         let painter = ui.painter();
-        painter.rect_filled(rect, Rounding::same(4.0), Color32::from_rgb(12, 14, 18));
+        painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(12, 14, 18));
         painter.rect_stroke(
             rect,
-            Rounding::same(4.0),
+            CornerRadius::same(4),
             Stroke::new(1.0_f32, Color32::from_rgb(40, 42, 50)),
+            egui::StrokeKind::Middle,
         );
 
         match app.spectrogram_state.display_mode {
@@ -413,7 +414,7 @@ fn render_waterfall_canvas(painter: &egui::Painter, rect: Rect, state: &Spectrog
             // Frequency increases from bottom to top
             let y = rect.max.y - (chunk + 1) as f32 * chunk_h;
             let chunk_rect = Rect::from_min_size(pos2(x, y), vec2(col_w + 0.5, chunk_h + 0.5));
-            painter.rect_filled(chunk_rect, Rounding::ZERO, color);
+            painter.rect_filled(chunk_rect, CornerRadius::ZERO, color);
         }
     }
 }

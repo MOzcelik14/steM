@@ -2,7 +2,7 @@ use super::automation::{render_automation_lane, AutomationLaneRenderCtx};
 use super::{CanvasFrame, TimelineGeom};
 use crate::app::StemApp;
 use crate::state::DragOp;
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 use stem_core::peaks::PeakPyramid;
 use stem_core::project::Clip;
 
@@ -31,11 +31,19 @@ pub(super) fn render_timeline_canvas(
     let painter = ui.painter().with_clip_rect(canvas_rect);
 
     // Background
-    painter.rect_filled(canvas_rect, Rounding::ZERO, Color32::from_rgb(20, 22, 26));
+    painter.rect_filled(
+        canvas_rect,
+        CornerRadius::ZERO,
+        Color32::from_rgb(20, 22, 26),
+    );
 
     // ---------------- Timeline Ruler ----------------
     let ruler_rect = Rect::from_min_size(canvas_rect.min, vec2(canvas_rect.width(), ruler_height));
-    painter.rect_filled(ruler_rect, Rounding::ZERO, Color32::from_rgb(28, 30, 36));
+    painter.rect_filled(
+        ruler_rect,
+        CornerRadius::ZERO,
+        Color32::from_rgb(28, 30, 36),
+    );
     painter.line_segment(
         [
             pos2(ruler_rect.min.x, ruler_rect.max.y),
@@ -181,7 +189,7 @@ pub(super) fn render_timeline_canvas(
         } else {
             Color32::from_rgb(28, 30, 35)
         };
-        lane_painter.rect_filled(track_rect, Rounding::ZERO, track_bg);
+        lane_painter.rect_filled(track_rect, CornerRadius::ZERO, track_bg);
         lane_painter.line_segment(
             [
                 pos2(track_rect.min.x, track_rect.max.y),
@@ -222,7 +230,7 @@ pub(super) fn render_timeline_canvas(
                         // Crossfade region overlay
                         lane_painter.rect_filled(
                             xf_rect,
-                            Rounding::ZERO,
+                            CornerRadius::ZERO,
                             Color32::from_rgba_premultiplied(40, 150, 220, 50),
                         );
                         lane_painter.line_segment(
@@ -274,7 +282,7 @@ pub(super) fn render_timeline_canvas(
             } else {
                 Color32::from_rgb(24, 38, 56)
             };
-            lane_painter.rect_filled(clip_rect, Rounding::same(4.0), clip_bg);
+            lane_painter.rect_filled(clip_rect, CornerRadius::same(4), clip_bg);
 
             // Clip border stroke
             let stroke_color = if is_clip_selected {
@@ -285,8 +293,9 @@ pub(super) fn render_timeline_canvas(
             let stroke_width = if is_clip_selected { 1.5_f32 } else { 1.0_f32 };
             lane_painter.rect_stroke(
                 clip_rect,
-                Rounding::same(4.0),
+                CornerRadius::same(4),
                 Stroke::new(stroke_width, stroke_color),
+                egui::StrokeKind::Middle,
             );
 
             // Clip titlebar header strip
@@ -295,11 +304,11 @@ pub(super) fn render_timeline_canvas(
                 Rect::from_min_size(clip_rect.min, vec2(clip_rect.width(), titlebar_h));
             lane_painter.rect_filled(
                 titlebar_rect,
-                Rounding {
-                    nw: 4.0,
-                    ne: 4.0,
-                    sw: 0.0,
-                    se: 0.0,
+                CornerRadius {
+                    nw: 4,
+                    ne: 4,
+                    sw: 0,
+                    se: 0,
                 },
                 Color32::from_rgba_premultiplied(14, 18, 26, 200),
             );
@@ -414,22 +423,26 @@ pub(super) fn render_timeline_canvas(
                     Color32::from_rgba_premultiplied(255, 190, 60, 180)
                 };
 
-                lane_painter.rect_filled(fade_in_handle_rect, Rounding::same(2.0), fade_in_color);
-                lane_painter.rect_filled(fade_out_handle_rect, Rounding::same(2.0), fade_out_color);
+                lane_painter.rect_filled(fade_in_handle_rect, CornerRadius::same(2), fade_in_color);
+                lane_painter.rect_filled(
+                    fade_out_handle_rect,
+                    CornerRadius::same(2),
+                    fade_out_color,
+                );
             }
 
             // Highlight trim edge on hover
             if is_left_trim_hovered {
                 lane_painter.rect_filled(
                     left_handle_rect,
-                    Rounding::same(2.0),
+                    CornerRadius::same(2),
                     Color32::from_rgba_premultiplied(120, 200, 255, 160),
                 );
             }
             if is_right_trim_hovered {
                 lane_painter.rect_filled(
                     right_handle_rect,
-                    Rounding::same(2.0),
+                    CornerRadius::same(2),
                     Color32::from_rgba_premultiplied(120, 200, 255, 160),
                 );
             }

@@ -1,7 +1,7 @@
 //! Transport bar with playback controls, timecode display, and master VU meters
 
 use crate::app::StemApp;
-use egui::{Color32, Rect, Rounding, Stroke, Vec2};
+use egui::{Color32, CornerRadius, Rect, Stroke, Vec2};
 use stem_i18n::{
     format_bars_beats, format_db, format_samples, format_smpte, format_time_code, TimecodeMode,
 };
@@ -37,7 +37,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             )
             .fill(play_fill)
             .min_size(Vec2::new(38.0, 26.0))
-            .rounding(Rounding::same(4.0));
+            .corner_radius(CornerRadius::same(4));
             if ui
                 .add(play_btn)
                 .on_hover_text("Oynat / Duraklat (Boşluk)")
@@ -54,7 +54,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             )
             .fill(Color32::from_rgb(28, 32, 42))
             .min_size(Vec2::new(32.0, 26.0))
-            .rounding(Rounding::same(4.0));
+            .corner_radius(CornerRadius::same(4));
             if ui.add(stop_btn).on_hover_text("Durdur").clicked() {
                 app.action_stop();
             }
@@ -80,7 +80,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             )
             .fill(rec_fill)
             .min_size(Vec2::new(36.0, 26.0))
-            .rounding(Rounding::same(4.0));
+            .corner_radius(CornerRadius::same(4));
             if ui
                 .add(rec_btn)
                 .on_hover_text(app.i18n.t("transport-record"))
@@ -106,7 +106,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 egui::Button::new(egui::RichText::new("🔁").size(14.0).color(loop_color))
                     .fill(loop_fill)
                     .min_size(Vec2::new(32.0, 26.0))
-                    .rounding(Rounding::same(4.0));
+                    .corner_radius(CornerRadius::same(4));
             if ui
                 .add(loop_btn)
                 .on_hover_text("Döngü Oynatma (L)")
@@ -236,11 +236,11 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 TimecodeMode::Samples => app.i18n.t("transport-mode-samples"),
             };
 
-            let lcd_frame = egui::Frame::none()
+            let lcd_frame = egui::Frame::NONE
                 .fill(Color32::from_rgb(12, 14, 18))
                 .stroke(Stroke::new(1.0_f32, Color32::from_rgb(36, 42, 54)))
-                .rounding(Rounding::same(5.0))
-                .inner_margin(egui::Margin::symmetric(10.0, 3.0));
+                .corner_radius(CornerRadius::same(5))
+                .inner_margin(egui::Margin::symmetric(10, 3));
 
             let timecode_resp = lcd_frame
                 .show(ui, |ui| {
@@ -403,11 +403,11 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
             ui.separator();
 
             // Segmented View Mode Switcher
-            let tab_frame = egui::Frame::none()
+            let tab_frame = egui::Frame::NONE
                 .fill(Color32::from_rgb(18, 21, 28))
                 .stroke(Stroke::new(1.0_f32, Color32::from_rgb(36, 42, 54)))
-                .rounding(Rounding::same(5.0))
-                .inner_margin(egui::Margin::same(2.0));
+                .corner_radius(CornerRadius::same(5))
+                .inner_margin(egui::Margin::same(2));
 
             tab_frame.show(ui, |ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
@@ -429,7 +429,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                         .color(multi_color),
                 )
                 .fill(multi_fill)
-                .rounding(Rounding::same(4.0));
+                .corner_radius(CornerRadius::same(4));
                 if ui
                     .add(multi_btn)
                     .on_hover_text("Çok Kanallı Oturum Görünümü (1)")
@@ -456,7 +456,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                         .color(wave_color),
                 )
                 .fill(wave_fill)
-                .rounding(Rounding::same(4.0));
+                .corner_radius(CornerRadius::same(4));
                 if ui
                     .add(wave_btn)
                     .on_hover_text("Tek Dosya Dalga Formu Editörü (2)")
@@ -485,7 +485,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                 let mixer_btn =
                     egui::Button::new(egui::RichText::new("Mikser").size(11.0).color(mixer_color))
                         .fill(mixer_fill)
-                        .rounding(Rounding::same(4.0));
+                        .corner_radius(CornerRadius::same(4));
                 if ui
                     .add(mixer_btn)
                     .on_hover_text("Alt Mikser Panelini Göster/Gizle")
@@ -512,7 +512,7 @@ pub fn render_transport_bar(app: &mut StemApp, ui: &mut egui::Ui) {
                         .color(spec_color),
                 )
                 .fill(spec_fill)
-                .rounding(Rounding::same(4.0));
+                .corner_radius(CornerRadius::same(4));
                 if ui
                     .add(spec_btn)
                     .on_hover_text("Spektrogram Panelini Göster/Gizle")
@@ -585,7 +585,7 @@ fn render_master_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
     ));
 
     let painter = ui.painter();
-    painter.rect_filled(rect, Rounding::same(2.0), Color32::from_rgb(20, 22, 26));
+    painter.rect_filled(rect, CornerRadius::same(2), Color32::from_rgb(20, 22, 26));
 
     let half_h = rect.height() * 0.45;
     let gap = rect.height() * 0.1;
@@ -620,7 +620,7 @@ fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: 
                 egui::pos2(current_x, rect.min.y),
                 Vec2::new(green_w, rect.height()),
             );
-            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(45, 150, 45));
+            painter.rect_filled(r, CornerRadius::ZERO, Color32::from_rgb(45, 150, 45));
             current_x += green_w;
         }
         if yellow_w > 0.0 {
@@ -628,7 +628,7 @@ fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: 
                 egui::pos2(current_x, rect.min.y),
                 Vec2::new(yellow_w, rect.height()),
             );
-            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(180, 150, 30));
+            painter.rect_filled(r, CornerRadius::ZERO, Color32::from_rgb(180, 150, 30));
             current_x += yellow_w;
         }
         if red_w > 0.0 {
@@ -636,7 +636,7 @@ fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: 
                 egui::pos2(current_x, rect.min.y),
                 Vec2::new(red_w, rect.height()),
             );
-            painter.rect_filled(r, Rounding::ZERO, Color32::from_rgb(190, 40, 40));
+            painter.rect_filled(r, CornerRadius::ZERO, Color32::from_rgb(190, 40, 40));
         }
     }
 
@@ -662,8 +662,9 @@ fn render_single_meter_bar(painter: &egui::Painter, rect: Rect, peak: f32, rms: 
     // Border
     painter.rect_stroke(
         rect,
-        Rounding::same(1.0),
+        CornerRadius::same(1),
         Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 55)),
+        egui::StrokeKind::Middle,
     );
 }
 
@@ -700,7 +701,7 @@ pub fn render_input_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
     let painter = ui.painter_at(rect);
 
     // Dark background
-    painter.rect_filled(rect, Rounding::same(2.0), Color32::from_rgb(18, 20, 24));
+    painter.rect_filled(rect, CornerRadius::same(2), Color32::from_rgb(18, 20, 24));
 
     let bar_height = (rect.height() - 3.0) / 2.0;
 
@@ -721,7 +722,8 @@ pub fn render_input_vu_meter(app: &StemApp, ui: &mut egui::Ui) {
     // Overall frame outline
     painter.rect_stroke(
         rect,
-        Rounding::same(2.0),
+        CornerRadius::same(2),
         Stroke::new(1.0_f32, Color32::from_rgb(50, 55, 65)),
+        egui::StrokeKind::Middle,
     );
 }

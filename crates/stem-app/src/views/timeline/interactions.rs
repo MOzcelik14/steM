@@ -1,7 +1,7 @@
 use super::{CanvasFrame, TimelineGeom};
 use crate::app::StemApp;
 use crate::state::DragOp;
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 
 pub(super) fn render_overlays_and_interactions(
     app: &mut StemApp,
@@ -115,7 +115,7 @@ pub(super) fn render_overlays_and_interactions(
             if punch_rect.width() > 0.0 {
                 painter.rect_filled(
                     punch_rect,
-                    Rounding::ZERO,
+                    CornerRadius::ZERO,
                     Color32::from_rgba_premultiplied(255, 90, 40, 35),
                 );
             }
@@ -243,7 +243,7 @@ pub(super) fn render_overlays_and_interactions(
             // Shaded selection box across all tracks (Audacity blue tint)
             painter.rect_filled(
                 sel_rect,
-                Rounding::ZERO,
+                CornerRadius::ZERO,
                 Color32::from_rgba_premultiplied(70, 150, 255, 45),
             );
 
@@ -276,7 +276,7 @@ pub(super) fn render_overlays_and_interactions(
             );
             painter.rect_filled(
                 ruler_sel,
-                Rounding::ZERO,
+                CornerRadius::ZERO,
                 Color32::from_rgba_premultiplied(100, 190, 255, 65),
             );
 
@@ -291,11 +291,11 @@ pub(super) fn render_overlays_and_interactions(
                     .id_salt("time_sel_quick_bar");
                 let mut action: Option<u8> = None;
                 ui.allocate_new_ui(bar_ui, |ui| {
-                    egui::Frame::none()
+                    egui::Frame::NONE
                         .fill(Color32::from_rgba_premultiplied(20, 24, 34, 230))
                         .stroke(Stroke::new(1.0_f32, Color32::from_rgb(90, 170, 255)))
-                        .rounding(Rounding::same(4.0))
-                        .inner_margin(egui::Margin::symmetric(4.0, 2.0))
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(4, 2))
                         .show(ui, |ui| {
                             ui.spacing_mut().item_spacing = vec2(3.0, 0.0);
                             if ui
@@ -381,13 +381,14 @@ pub(super) fn render_overlays_and_interactions(
         let hud_rect = Rect::from_center_size(center, vec2(240.0, 70.0));
         painter.rect_filled(
             hud_rect,
-            Rounding::same(8.0),
+            CornerRadius::same(8),
             Color32::from_rgba_premultiplied(18, 20, 26, 230),
         );
         painter.rect_stroke(
             hud_rect,
-            Rounding::same(8.0),
+            CornerRadius::same(8),
             Stroke::new(2.0_f32, Color32::from_rgb(255, 170, 40)),
+            egui::StrokeKind::Middle,
         );
 
         let count_num = (app.recording_state.count_in_seconds_remaining.ceil() as u32).max(1);
@@ -406,7 +407,7 @@ pub(super) fn render_overlays_and_interactions(
             Rect::from_center_size(pos2(center.x, center.y + 16.0), vec2(200.0 * progress, 6.0));
         painter.rect_filled(
             bar_rect,
-            Rounding::same(3.0),
+            CornerRadius::same(3),
             Color32::from_rgb(255, 140, 30),
         );
     }
@@ -611,9 +612,10 @@ pub(super) fn render_overlays_and_interactions(
                         let marquee = Rect::from_two_pos(start_pos, mp);
                         painter.rect(
                             marquee,
-                            Rounding::same(2.0),
+                            CornerRadius::same(2),
                             Color32::from_rgba_premultiplied(59, 130, 246, 45),
                             Stroke::new(1.5_f32, Color32::from_rgb(96, 165, 250)),
+                            egui::StrokeKind::Middle,
                         );
                         let f_start = ((marquee.min.x - canvas_rect.min.x + scroll_x).max(0.0)
                             / pps
@@ -817,8 +819,9 @@ pub(super) fn render_overlays_and_interactions(
     if hovered_files_count > 0 && mouse_pos.is_some_and(|mp| canvas_rect.contains(mp)) {
         painter.rect_stroke(
             canvas_rect.shrink(2.0),
-            Rounding::same(6.0),
+            CornerRadius::same(6),
             Stroke::new(2.0_f32, Color32::from_rgb(80, 190, 255)),
+            egui::StrokeKind::Middle,
         );
         painter.text(
             canvas_rect.center(),

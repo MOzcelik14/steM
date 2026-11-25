@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Pos2, Rect, Rounding};
+use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect};
 
 /// Renders a vertical peak VU meter bar with green/amber/red studio thresholds.
 pub fn render_vu_meter_bar(
@@ -8,9 +8,10 @@ pub fn render_vu_meter_bar(
     inset_x: f32,
     rounding: f32,
 ) {
+    let radius = rounding.round().clamp(0.0, 255.0) as u8;
     painter.rect_filled(
         rect,
-        Rounding::same(rounding),
+        CornerRadius::same(radius),
         Color32::from_rgb(18, 22, 30),
     );
     if peak <= 1e-5 {
@@ -34,5 +35,5 @@ pub fn render_vu_meter_bar(
     } else {
         Color32::from_rgb(70, 210, 125)
     };
-    painter.rect_filled(fill_rect, Rounding::same(rounding), col);
+    painter.rect_filled(fill_rect, CornerRadius::same(radius), col);
 }

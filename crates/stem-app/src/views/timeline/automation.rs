@@ -1,4 +1,4 @@
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 
 pub(super) struct AutomationLaneRenderCtx<'a> {
     pub lane_rect: Rect,
@@ -34,7 +34,7 @@ pub(super) fn render_automation_lane(
     let track_id = ctx.track_id;
 
     // Background
-    painter.rect_filled(lane_rect, Rounding::ZERO, Color32::from_rgb(18, 20, 24));
+    painter.rect_filled(lane_rect, CornerRadius::ZERO, Color32::from_rgb(18, 20, 24));
     painter.line_segment(
         [
             pos2(lane_rect.min.x, lane_rect.max.y),
@@ -193,8 +193,13 @@ pub(super) fn render_automation_lane(
             }
             stem_core::project::AutomationCurve::Step => {
                 let sq = Rect::from_center_size(pt_pos, vec2(radius * 1.8, radius * 1.8));
-                painter.rect_filled(sq, Rounding::ZERO, fill);
-                painter.rect_stroke(sq, Rounding::ZERO, Stroke::new(1.0_f32, Color32::BLACK));
+                painter.rect_filled(sq, CornerRadius::ZERO, fill);
+                painter.rect_stroke(
+                    sq,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.0_f32, Color32::BLACK),
+                    egui::StrokeKind::Middle,
+                );
             }
         }
     }
