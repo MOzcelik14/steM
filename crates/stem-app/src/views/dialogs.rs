@@ -1773,12 +1773,20 @@ fn render_plugin_browser_dialog(app: &mut StemApp, ctx: &egui::Context) {
                     let t_idx = app.plugin_browser_state.target_track_idx;
                     if let Some(track) = app.project.tracks.get_mut(t_idx) {
                         let slot = desc.to_slot_config();
+                        let passthrough_note = app.i18n.t("plugin-slot-passthrough-warning");
                         let msg = match stem_audio::PluginHostInstance::load(&slot) {
-                            Ok(_) => format!("Inserted '{}' on {}", slot.name, track.name),
-                            Err(err) => format!("Inserted '{}' (warning: {err})", slot.name),
+                            Ok(_) => format!(
+                                "Inserted '{}' on {} — {passthrough_note}",
+                                slot.name, track.name
+                            ),
+                            Err(err) => format!(
+                                "Inserted '{}' (warning: {err}) — {passthrough_note}",
+                                slot.name
+                            ),
                         };
                         track.plugins.push(slot);
                         app.plugin_browser_state.status_msg = Some(msg);
+                        app.status_text = passthrough_note;
                     }
                 }
             }

@@ -545,6 +545,8 @@ decode-too-large = Audio file exceeds the decoded memory limit ({ $mb } MB).
 project-newer-schema-error = This project was saved with a newer steM version (schema v{ $version }). Please update steM to open it.
 recording-write-error = Recording disk write error: audio may have been truncated.
 recording-orphaned-found = Unfinished recording file(s) found in { $dir }.
+plugin-slot-passthrough-warning = Plugin currently does not process audio (slot/placeholder only).
+
 
 
 
