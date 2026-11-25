@@ -1459,17 +1459,10 @@ impl Project {
         Ok(proj)
     }
 
-    /// Saves the project atomically via a temporary sibling file and rename.
+    /// Saves the project atomically via a temporary sibling file, `sync_all`, and rename.
     pub fn save_atomic(&self, dest: &std::path::Path) -> Result<(), ProjectError> {
         let ron_data = self.to_ron()?;
-        if let Some(parent) = dest.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let tmp_path = dest.with_extension("stem.tmp");
-        std::fs::write(&tmp_path, ron_data.as_bytes())?;
-        std::fs::rename(&tmp_path, dest)?;
+        crate::fs_util::atomic_write_bytes(dest, ron_data.as_bytes())?;
         Ok(())
     }
 

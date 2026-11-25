@@ -91,24 +91,7 @@ impl StemApp {
     }
 
     fn write_atomic_file(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
-        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        let stem = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("project");
-        let tmp_path = parent.join(format!(".{}_{}.stem_tmp", stem, Uuid::new_v4()));
-        std::fs::write(&tmp_path, contents)?;
-        if let Err(e) = std::fs::rename(&tmp_path, path) {
-            if path.exists()
-                && std::fs::remove_file(path).is_ok()
-                && std::fs::rename(&tmp_path, path).is_ok()
-            {
-                return Ok(());
-            }
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(e);
-        }
-        Ok(())
+        stem_core::atomic_write_bytes(path, contents.as_bytes())
     }
 
     pub fn action_open_project(&mut self) {
@@ -365,15 +348,7 @@ impl StemApp {
 
     pub fn save_recovery_journal(&self) {
         if let Ok(ron_data) = self.project.to_ron() {
-            if let Some(parent) = self.recovery_file_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-            }
-            let tmp_path = self.recovery_file_path.with_extension("tmp");
-            if std::fs::write(&tmp_path, ron_data).is_ok() {
-                let _ = std::fs::rename(&tmp_path, &self.recovery_file_path);
-            }
+            let _ = stem_core::atomic_write_bytes(&self.recovery_file_path, ron_data.as_bytes());
         }
     }
 

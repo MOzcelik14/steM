@@ -710,21 +710,10 @@ pub fn export_project_to_file<P: AsRef<Path>>(
         return Err(e);
     }
 
-    if let Err(e) = std::fs::rename(&tmp_dest, dest) {
-        // On Windows, std::fs::rename fails if `dest` already exists.
-        // Attempt removal of `dest` and retry rename before cleaning up tmp file.
-        if dest.exists()
-            && std::fs::remove_file(dest).is_ok()
-            && std::fs::rename(&tmp_dest, dest).is_ok()
-        {
-            if let Some(ref tx) = progress_tx {
-                let _ = tx.send(1.0);
-            }
-            return Ok(());
-        }
-        let _ = std::fs::remove_file(&tmp_dest);
-        return Err(ExportError::Io(e));
+    if let Ok(f) = std::fs::File::open(&tmp_dest) {
+        let _ = f.sync_all();
     }
+    stem_core::atomic_rename(&tmp_dest, dest).map_err(ExportError::Io)?;
 
     if let Some(ref tx) = progress_tx {
         let _ = tx.send(1.0);
