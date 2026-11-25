@@ -12,7 +12,7 @@ English | [Türkçe](README.tr.md)
   <a href="LICENSE"><img src="https://img.shields.io/github/license/MOzcelik14/steM?style=flat-square&color=2f3542" alt="License" /></a>
   <a href="https://github.com/MOzcelik14/steM/releases"><img src="https://img.shields.io/github/v/release/MOzcelik14/steM?style=flat-square&color=2f3542" alt="Release" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Built%20with-Rust-2f3542?style=flat-square" alt="Built with Rust" /></a>
-  <a href="#system-requirements"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-2f3542?style=flat-square" alt="Platform" /></a>
+  <a href="#system-requirements"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-2f3542?style=flat-square" alt="Platform" /></a>
   <a href="https://github.com/MOzcelik14/steM/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/MOzcelik14/steM/release.yml?style=flat-square&color=2f3542&label=CI" alt="CI" /></a>
   <a href="https://github.com/MOzcelik14/steM/commits/master"><img src="https://img.shields.io/github/last-commit/MOzcelik14/steM?style=flat-square&color=2f3542" alt="Last Commit" /></a>
   <a href="https://github.com/MOzcelik14/prism-suite"><img src="https://img.shields.io/badge/Part%20of-prisM.%20Suite-2f3542?style=flat-square" alt="Part of prisM. Suite" /></a>
@@ -42,7 +42,7 @@ English | [Türkçe](README.tr.md)
 
 All timeline edits are non-destructive: original audio files on disk remain untouched while clip trims, fades, crossfades, gain envelopes, and effect chains are evaluated on the fly or rendered during export. A lock-free audio callback keeps playback and recording isolated from user interface updates and memory allocations.
 
-Designed for podcasters, sound designers, voice editors, and independent musicians on Linux and Windows, **steM.** ships as a standalone native binary with built-in English and Turkish localization.
+Designed for podcasters, sound designers, voice editors, and independent musicians on Linux, Windows, and macOS, **steM.** ships as a standalone native binary with built-in English and Turkish localization.
 
 ## Highlights
 
@@ -103,7 +103,7 @@ Designed for podcasters, sound designers, voice editors, and independent musicia
 
 ### Prebuilt Binaries (GitHub Releases)
 
-Download standalone archives for Linux (`x86_64`) and Windows (`x86_64`) from [GitHub Releases](https://github.com/MOzcelik14/steM/releases), along with `SHA256SUMS.txt` for verification.
+Download standalone archives for Linux (`x86_64`), Windows (`x86_64`), and macOS (`arm64`) from [GitHub Releases](https://github.com/MOzcelik14/steM/releases), along with `SHA256SUMS.txt` and build provenance attestations for verification.
 
 **Linux (`x86_64`):**
 
@@ -117,13 +117,17 @@ cd stem-0.6.1-linux-x86_64
 
 Extract `stem-0.6.1-windows-x86_64.zip` and run `stem.exe`.
 
+**macOS (`arm64`):**
+
+Open `stem-0.6.1-macos-arm64.dmg` (or extract `stem-0.6.1-macos-arm64.tar.gz`) and run `steM.`.
+
 You can also install and manage **steM.** through [prisM. Suite](https://github.com/MOzcelik14/prism-suite).
 
 ### Building from Source
 
 #### Debian / Ubuntu Prerequisites
 
-Install the Rust toolchain (1.80+ recommended) and the system libraries used in CI:
+Install the Rust toolchain (1.88+ recommended; `rust-toolchain.toml` pins the tested CI version) and the system libraries used in CI:
 
 ```bash
 sudo apt-get update
@@ -208,10 +212,10 @@ Default bindings defined in `KeyBindingMap` and `shortcuts.rs` (customizable via
 
 | Component | Minimum / Supported |
 | :--- | :--- |
-| Operating System | Linux (`x86_64`) or Windows 10/11 (`x86_64`) |
-| Audio Backend | ALSA, PulseAudio, or PipeWire (via ALSA/CPAL) on Linux; WASAPI on Windows |
-| Graphics | OpenGL-capable GPU and X11 or Wayland display server on Linux; DirectX/OpenGL on Windows |
-| Build Toolchain | Rust 1.80 or newer (`stable`) with `pkg-config` and development headers on Linux |
+| Operating System | Linux (`x86_64`), Windows 10/11 (`x86_64`), or macOS (`arm64`) |
+| Audio Backend | ALSA, PulseAudio, or PipeWire (via ALSA/CPAL) on Linux; WASAPI on Windows; CoreAudio on macOS |
+| Graphics | OpenGL-capable GPU and X11 or Wayland display server on Linux; DirectX/OpenGL on Windows; Metal/OpenGL on macOS |
+| Build Toolchain | Rust 1.88 or newer (`stable`) with `pkg-config` and development headers on Linux |
 
 ## Architecture
 
