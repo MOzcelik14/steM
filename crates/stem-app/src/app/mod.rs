@@ -314,12 +314,19 @@ impl eframe::App for StemApp {
             self.auto_save_last_time = std::time::Instant::now();
         }
 
-        // Check for audio hardware disconnection
+        // Check for audio hardware disconnection or recording disk write errors
         let mut lost_device = false;
+        let mut rec_write_err = false;
         if let Some(ref recorder) = self.audio_recorder {
             if recorder.is_device_lost() {
                 lost_device = true;
             }
+            if recorder.has_write_error() {
+                rec_write_err = true;
+            }
+        }
+        if rec_write_err {
+            self.status_text = self.i18n.t("recording-write-error");
         }
         if lost_device {
             if self.is_recording {
