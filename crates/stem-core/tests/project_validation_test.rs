@@ -156,3 +156,42 @@ fn test_large_track_count_and_serialization_perf() {
     assert_eq!(proj.tracks.len(), 120);
     assert!(proj.validate().is_err());
 }
+
+#[test]
+fn test_rejects_future_schema_version() {
+    let proj = Project::new("Future Project", 48000);
+    let ron = proj.to_ron().expect("serialize project");
+    let future_ron = ron.replacen("schema_version: 1,", "schema_version: 999,", 1);
+    assert!(future_ron.contains("schema_version: 999,"));
+
+    let err = Project::from_ron(&future_ron).expect_err("future schema_version must be rejected");
+    assert!(
+        matches!(
+            err,
+            stem_core::ProjectError::UnsupportedSchemaVersion {
+                found: 999,
+                supported
+            } if supported == stem_core::project::CURRENT_SCHEMA_VERSION
+        ),
+        "expected UnsupportedSchemaVersion, got {err:?}"
+    );
+}
+
+#[test]
+fn test_v1_project_loads_and_migrates_legacy_v0() {
+    let proj = Project::new("V1 Project", 48000);
+    let ron = proj.to_ron().expect("serialize v1 project");
+    let restored = Project::from_ron(&ron).expect("v1 project must load cleanly");
+    assert_eq!(
+        restored.schema_version,
+        stem_core::project::CURRENT_SCHEMA_VERSION
+    );
+
+    // Simulate legacy v0 schema_version and verify migration upgrades to CURRENT_SCHEMA_VERSION
+    let legacy_ron = ron.replacen("schema_version: 1,", "schema_version: 0,", 1);
+    let migrated = Project::from_ron(&legacy_ron).expect("v0 project must migrate to current");
+    assert_eq!(
+        migrated.schema_version,
+        stem_core::project::CURRENT_SCHEMA_VERSION
+    );
+}

@@ -31,4 +31,7 @@ pub enum ProjectError {
 
     #[error("Project validation error: {0}")]
     Validation(String),
+
+    #[error("This project was saved with a newer version of steM (schema v{found}, supported up to v{supported})")]
+    UnsupportedSchemaVersion { found: u32, supported: u32 },
 }

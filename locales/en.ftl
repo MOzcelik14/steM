@@ -542,6 +542,8 @@ plugin-passthrough-notice = Note: VST3/LV2 support is currently in preview (bund
 demucs-copy-cmd = Copy Install Command
 demucs-recheck = Re-check
 decode-too-large = Audio file exceeds the decoded memory limit ({ $mb } MB).
+project-newer-schema-error = This project was saved with a newer steM version (schema v{ $version }). Please update steM to open it.
+
 
 
 

@@ -542,6 +542,8 @@ plugin-passthrough-notice = Not: VST3/LV2 desteği şu an önizleme aşamasında
 demucs-copy-cmd = Kurulum Komutunu Kopyala
 demucs-recheck = Tekrar Kontrol Et
 decode-too-large = Ses dosyası bellek sınırını ({ $mb } MB) aşıyor.
+project-newer-schema-error = Bu proje daha yeni bir steM sürümüyle kaydedilmiş (şema v{ $version }). Açmak için lütfen steM'i güncelleyin.
+
 
 
 

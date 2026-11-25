@@ -112,6 +112,13 @@ impl StemApp {
                         self.sync_timeline_to_audio_engine();
                         self.status_text = self.i18n.t("status-ready");
                     }
+                    Err(stem_core::ProjectError::UnsupportedSchemaVersion { found, .. }) => {
+                        self.status_text = self.i18n.t_arg(
+                            "project-newer-schema-error",
+                            "version",
+                            found.to_string(),
+                        );
+                    }
                     Err(e) => {
                         self.status_text = format!("Open error: {e}");
                     }
