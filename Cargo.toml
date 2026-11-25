@@ -49,3 +49,7 @@ egui = "0.29"
 rfd = "0.15"
 mp3lame-encoder = "0.3"
 vorbis_rs = "0.5"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
