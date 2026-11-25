@@ -63,6 +63,7 @@ feature-depth = 1
 # More documentation for the advisories section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
 [advisories]
+yanked = "warn"
 ignore = [
     { id = "RUSTSEC-2026-0195", reason = "quick-xml 0.30.0 pulled transitively by accesskit/egui-winit; unreachable from user audio or project parsing" },
     { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.30.0 pulled transitively by accesskit/egui-winit; unreachable from user audio or project parsing" },
@@ -71,6 +72,16 @@ ignore = [
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6.0 upstream; pulled transitively by accesskit and ashpd" },
     { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; pulled transitively by accesskit_windows" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; pulled transitively by epaint/egui font rendering" },
+    { id = "RUSTSEC-2026-0592", reason = "url 2.5.8 pulled transitively by rfd/ashpd; nested blob: Url::origin() is unreachable from local file dialogs or audio/project parsing" },
+    { id = "RUSTSEC-2026-0574", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::FindMutView" },
+    { id = "RUSTSEC-2026-0575", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM uses rtrb for lock-free rings, not heapless::spsc" },
+    { id = "RUSTSEC-2026-0576", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::IndexMap" },
+    { id = "RUSTSEC-2026-0577", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not construct panicking Drop types in heapless" },
+    { id = "RUSTSEC-2026-0578", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::SortedLinkedList" },
+    { id = "RUSTSEC-2026-0579", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::Deque::from" },
+    { id = "RUSTSEC-2026-0580", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless Treiber stack" },
+    { id = "RUSTSEC-2026-0581", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::Deque::make_contiguous" },
+    { id = "RUSTSEC-2026-0582", reason = "heapless 0.8.0 pulled transitively by ecosystem crates; steM does not use heapless::IndexMap" },
 ]
 
 [licenses]
