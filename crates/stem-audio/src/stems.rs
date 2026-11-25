@@ -1,14 +1,112 @@
 //! AI-powered stem separation via Demucs CLI integration with progress, cancellation, and sync preservation.
 
-use std::io::{BufRead, BufReader};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use thiserror::Error;
 
 use crate::decode::{decode_file, DecodeError, DecodedAudio};
+
+/// RAII guard that removes a temporary directory when dropped.
+pub struct TempDirGuard(pub PathBuf);
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// RAII guard that removes a temporary file when dropped.
+pub struct TempFileGuard(pub PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Removes orphaned `stem_demucs_out_*`, `stem_demucs_in_*`, and `stem_rec_*` temp artifacts
+/// older than `max_age`.
+pub fn cleanup_stale_temp_artifacts(max_age: Duration) {
+    let temp_dir = std::env::temp_dir();
+    let Ok(entries) = std::fs::read_dir(&temp_dir) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        let is_stem_artifact = name_str.starts_with("stem_demucs_out_")
+            || name_str.starts_with("stem_demucs_in_")
+            || name_str.starts_with("stem_rec_");
+        if !is_stem_artifact {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            let modified = meta.modified().unwrap_or(now);
+            if now.duration_since(modified).unwrap_or_default() > max_age {
+                let path = entry.path();
+                if path.is_dir() {
+                    let _ = std::fs::remove_dir_all(path);
+                } else {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
+}
+
+/// RAII guard that terminates a child process and its descendant tree on Drop if not disarmed.
+struct ProcessTreeGuard {
+    child: Option<Child>,
+}
+
+impl ProcessTreeGuard {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child_mut(&mut self) -> Option<&mut Child> {
+        self.child.as_mut()
+    }
+
+    fn disarm(&mut self) -> Option<Child> {
+        self.child.take()
+    }
+
+    fn kill_and_wait(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let pid = child.id();
+            #[cfg(unix)]
+            {
+                let _ = Command::new("kill")
+                    .args(["-s", "KILL", "--", &format!("-{pid}")])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+impl Drop for ProcessTreeGuard {
+    fn drop(&mut self) {
+        self.kill_and_wait();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DemucsModel {
@@ -169,6 +267,7 @@ impl DemucsRunner {
             args.push("-d".to_string());
             args.push("cpu".to_string());
         }
+        args.push("--".to_string());
         args.push(req.input_path.to_string_lossy().to_string());
         args
     }
@@ -194,6 +293,19 @@ impl DemucsRunner {
     /// Executes Demucs in a subprocess, streaming progress and supporting cancellation.
     pub fn run_separation<F>(
         req: &StemSeparationRequest,
+        on_progress: F,
+        cancel_token: Option<Arc<AtomicBool>>,
+    ) -> Result<Vec<(StemKind, DecodedAudio)>, StemSeparationError>
+    where
+        F: FnMut(f32),
+    {
+        Self::run_separation_with_command(req, None, on_progress, cancel_token)
+    }
+
+    /// Executes stem separation using an explicit executable path (or default `demucs` / `python3 -m demucs` when `None`).
+    pub fn run_separation_with_command<F>(
+        req: &StemSeparationRequest,
+        program_override: Option<&Path>,
         mut on_progress: F,
         cancel_token: Option<Arc<AtomicBool>>,
     ) -> Result<Vec<(StemKind, DecodedAudio)>, StemSeparationError>
@@ -209,58 +321,113 @@ impl DemucsRunner {
         std::fs::create_dir_all(&req.output_dir)?;
 
         let cli_args = Self::build_command_args(req);
-        let mut child = Command::new("demucs")
-            .args(&cli_args)
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .or_else(|_| {
-                Command::new("python3")
-                    .arg("-m")
-                    .arg("demucs")
-                    .args(&cli_args)
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::piped())
-                    .spawn()
-            })
-            .map_err(|_| StemSeparationError::ToolNotFound)?;
-
-        if let Some(stderr) = child.stderr.take() {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().map_while(Result::ok) {
-                if cancel_token
-                    .as_ref()
-                    .is_some_and(|t| t.load(Ordering::Relaxed))
-                {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(StemSeparationError::Cancelled);
-                }
-                if let Some(pct) = Self::parse_progress_percent(&line) {
-                    on_progress((pct / 100.0).clamp(0.0, 0.95));
-                }
+        let spawn_cmd = |program: &Path, extra_prefix: &[&str]| -> std::io::Result<Child> {
+            let mut cmd = Command::new(program);
+            cmd.args(extra_prefix)
+                .args(&cli_args)
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
             }
-        }
+            cmd.spawn()
+        };
+
+        let child = if let Some(prog) = program_override {
+            spawn_cmd(prog, &[]).map_err(|_| StemSeparationError::ToolNotFound)?
+        } else {
+            spawn_cmd(Path::new("demucs"), &[])
+                .or_else(|_| spawn_cmd(Path::new("python3"), &["-m", "demucs"]))
+                .map_err(|_| StemSeparationError::ToolNotFound)?
+        };
+
+        let mut guard = ProcessTreeGuard::new(child);
+
+        let (stderr_tx, stderr_rx) = crossbeam_channel::bounded::<String>(128);
+        let reader_handle = guard
+            .child_mut()
+            .and_then(|c| c.stderr.take())
+            .map(|mut stderr| {
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 512];
+                    let mut line_buf = Vec::with_capacity(256);
+                    loop {
+                        match stderr.read(&mut buf) {
+                            Ok(0) | Err(_) => {
+                                if !line_buf.is_empty() {
+                                    let s = String::from_utf8_lossy(&line_buf).trim().to_string();
+                                    if !s.is_empty() {
+                                        let _ = stderr_tx.send(s);
+                                    }
+                                }
+                                break;
+                            }
+                            Ok(n) => {
+                                for &b in &buf[..n] {
+                                    if b == b'\n' || b == b'\r' {
+                                        if !line_buf.is_empty() {
+                                            let s = String::from_utf8_lossy(&line_buf)
+                                                .trim()
+                                                .to_string();
+                                            if !s.is_empty() {
+                                                let _ = stderr_tx.send(s);
+                                            }
+                                            line_buf.clear();
+                                        }
+                                    } else if line_buf.len() < 4096 {
+                                        line_buf.push(b);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+            });
 
         loop {
             if cancel_token
                 .as_ref()
                 .is_some_and(|t| t.load(Ordering::Relaxed))
             {
-                let _ = child.kill();
-                let _ = child.wait();
+                guard.kill_and_wait();
+                if let Some(h) = reader_handle {
+                    let _ = h.join();
+                }
                 return Err(StemSeparationError::Cancelled);
             }
-            match child.try_wait()? {
-                Some(status) => {
-                    if !status.success() {
-                        return Err(StemSeparationError::ProcessFailed(format!(
-                            "Demucs exited with status {status}"
-                        )));
+
+            match stderr_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(line) => {
+                    if let Some(pct) = Self::parse_progress_percent(&line) {
+                        on_progress((pct / 100.0).clamp(0.0, 0.95));
                     }
-                    break;
                 }
-                None => std::thread::sleep(Duration::from_millis(80)),
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {}
+            }
+
+            let exited = match guard.child_mut() {
+                Some(c) => c.try_wait()?,
+                None => break,
+            };
+            if let Some(status) = exited {
+                let _ = guard.disarm();
+                while let Ok(line) = stderr_rx.try_recv() {
+                    if let Some(pct) = Self::parse_progress_percent(&line) {
+                        on_progress((pct / 100.0).clamp(0.0, 0.95));
+                    }
+                }
+                if let Some(h) = reader_handle {
+                    let _ = h.join();
+                }
+                if !status.success() {
+                    return Err(StemSeparationError::ProcessFailed(format!(
+                        "Demucs exited with status {status}"
+                    )));
+                }
+                break;
             }
         }
 
@@ -356,6 +523,14 @@ mod tests {
         assert!(args.contains(&"htdemucs_ft".to_string()));
         assert!(args.contains(&"cpu".to_string()));
         assert!(args.contains(&"0.5".to_string()));
+        let sep_pos = args
+            .iter()
+            .position(|a| a == "--")
+            .expect("must contain --");
+        assert_eq!(
+            args.get(sep_pos + 1).map(String::as_str),
+            Some("/tmp/MyTrack.wav")
+        );
 
         let paths = DemucsRunner::resolve_stem_paths(&req.output_dir, req.model, &req.input_path);
         assert_eq!(paths.len(), 4);
@@ -366,6 +541,10 @@ mod tests {
         assert_eq!(
             DemucsRunner::parse_progress_percent(" 42%|████|"),
             Some(42.0)
+        );
+        assert_eq!(
+            DemucsRunner::parse_progress_percent("\r 12%|███        | 1/8"),
+            Some(12.0)
         );
     }
 
@@ -383,5 +562,121 @@ mod tests {
         let res = DemucsRunner::run_batch_separation(&reqs, |_, _, _| {}, Some(cancel));
         assert_eq!(res.len(), 1);
         assert!(matches!(res[0], Err(StemSeparationError::Cancelled)));
+    }
+
+    #[cfg(unix)]
+    fn write_mock_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/usr/bin/env sh\n{body}\n")).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&path, perms).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mock_demucs_silent_sleep_cancels_quickly() {
+        let tmp = std::env::temp_dir().join(format!("stem_mock_silent_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let _dir_guard = TempDirGuard(tmp.clone());
+
+        let input = tmp.join("in.wav");
+        std::fs::write(&input, b"dummy").unwrap();
+        let out_dir = tmp.join("out");
+        let script = write_mock_script(&tmp, "mock_demucs.sh", "sleep 30");
+
+        let req = StemSeparationRequest {
+            input_path: input,
+            output_dir: out_dir,
+            model: DemucsModel::Htdemucs,
+            quality: SeparationQuality::Fast,
+            prefer_gpu: false,
+            target_sample_rate: 48000,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_trigger = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            cancel_trigger.store(true, Ordering::Relaxed);
+        });
+
+        let start = std::time::Instant::now();
+        let res =
+            DemucsRunner::run_separation_with_command(&req, Some(&script), |_| {}, Some(cancel));
+        let elapsed = start.elapsed();
+        assert!(matches!(res, Err(StemSeparationError::Cancelled)));
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "cancellation took too long: {elapsed:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_mock_demucs_carriage_return_progress_and_tree_cleanup() {
+        let tmp = std::env::temp_dir().join(format!("stem_mock_cr_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let _dir_guard = TempDirGuard(tmp.clone());
+
+        let input = tmp.join("in.wav");
+        std::fs::write(&input, b"dummy").unwrap();
+        let out_dir = tmp.join("stem_demucs_out_test");
+        let pid_file = tmp.join("grandchild.pid");
+        let script_body = format!(
+            "sleep 30 &\necho $! > \"{}\"\nprintf '\\r 12%%|███|\\r 55%%|██████|\\r' >&2\nsleep 30",
+            pid_file.display()
+        );
+        let script = write_mock_script(&tmp, "mock_demucs_cr.sh", &script_body);
+
+        let req = StemSeparationRequest {
+            input_path: input,
+            output_dir: out_dir.clone(),
+            model: DemucsModel::Htdemucs,
+            quality: SeparationQuality::Fast,
+            prefer_gpu: false,
+            target_sample_rate: 48000,
+        };
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_trigger = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            cancel_trigger.store(true, Ordering::Relaxed);
+        });
+
+        let mut reported = Vec::new();
+        let res = {
+            let _out_guard = TempDirGuard(out_dir.clone());
+            DemucsRunner::run_separation_with_command(
+                &req,
+                Some(&script),
+                |p| reported.push(p),
+                Some(cancel),
+            )
+        };
+        assert!(matches!(res, Err(StemSeparationError::Cancelled)));
+        assert!(!out_dir.exists(), "TempDirGuard must remove output dir");
+        assert!(
+            reported.iter().any(|&p| (p - 0.12).abs() < 0.01)
+                && reported.iter().any(|&p| (p - 0.55).abs() < 0.01),
+            "expected CR progress 12% and 55%, got {reported:?}"
+        );
+
+        // Verify grandchild process was terminated by process group kill
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            let pid_str = pid_str.trim();
+            if !pid_str.is_empty() {
+                std::thread::sleep(Duration::from_millis(50));
+                let alive = Command::new("kill")
+                    .args(["-0", pid_str])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                    .is_ok_and(|s| s.success());
+                assert!(!alive, "grandchild PID {pid_str} must be killed");
+            }
+        }
     }
 }

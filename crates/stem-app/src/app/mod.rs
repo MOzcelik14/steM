@@ -156,6 +156,7 @@ impl StemApp {
         let status_text = i18n.t("status-ready");
 
         let recovery_file_path = default_recovery_file_path();
+        stem_audio::stems::cleanup_stale_temp_artifacts(std::time::Duration::from_secs(86_400));
 
         let mut recovery_state = RecoveryDialogState::default();
         if recovery_file_path.exists() {
@@ -643,6 +644,12 @@ impl eframe::App for StemApp {
 
 impl Drop for StemApp {
     fn drop(&mut self) {
+        if self.stem_separation_state.in_progress {
+            if let Some(ref tok) = self.stem_separation_state.cancel_token {
+                tok.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
         self.discard_recovery_journal();
     }
 }

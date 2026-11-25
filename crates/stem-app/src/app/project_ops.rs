@@ -665,9 +665,12 @@ impl StemApp {
         self.stem_separation_state.status_msg = Some("Running Demucs...".to_string());
 
         std::thread::spawn(move || {
+            let _out_guard = stem_audio::stems::TempDirGuard(out_dir.clone());
+            let _in_guard = temp_input_file.map(stem_audio::stems::TempFileGuard);
+
             let req = stem_audio::StemSeparationRequest {
                 input_path,
-                output_dir: out_dir.clone(),
+                output_dir: out_dir,
                 model,
                 quality,
                 prefer_gpu,
@@ -692,11 +695,6 @@ impl StemApp {
                     .collect()
             })
             .map_err(|e| e.to_string());
-
-            if let Some(tmp) = temp_input_file {
-                let _ = std::fs::remove_file(tmp);
-            }
-            let _ = std::fs::remove_dir_all(&out_dir);
 
             let _ = tx.send(WorkerMessage::StemSeparationFinished {
                 offset_frames,
