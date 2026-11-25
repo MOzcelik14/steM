@@ -25,6 +25,8 @@ pub const MIN_DECODE_SAMPLE_RATE: u32 = 8_000;
 pub const MAX_DECODE_SAMPLE_RATE: u32 = 192_000;
 /// Maximum allowable decoded audio frames (4 hours at 192 kHz) to prevent OOM exhaustion.
 pub const MAX_DECODE_FRAMES: usize = 192_000 * 3600 * 4;
+/// Default maximum total decoded PCM memory in bytes (~2 GiB).
+pub const DEFAULT_MAX_DECODE_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 #[derive(Error, Debug)]
 pub enum DecodeError {
@@ -49,6 +51,9 @@ pub enum DecodeError {
     #[error("Exceeded maximum audio frame limit ({MAX_DECODE_FRAMES} frames)")]
     FrameLimitExceeded,
 
+    #[error("Decoded audio exceeds memory limit ({bytes} bytes > {limit_bytes} bytes)")]
+    TooLarge { bytes: usize, limit_bytes: usize },
+
     #[error("Corrupted container header: {0}")]
     CorruptedHeader(String),
 }
@@ -60,8 +65,16 @@ pub struct DecodedAudio {
     pub channels: Vec<Vec<f32>>,
 }
 
-/// Decodes an audio file at `path` into normalized 32-bit float buffers.
+/// Decodes an audio file at `path` into normalized 32-bit float buffers using `DEFAULT_MAX_DECODE_BYTES`.
 pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError> {
+    decode_file_with_limit(path, DEFAULT_MAX_DECODE_BYTES)
+}
+
+/// Decodes an audio file at `path` enforcing a total decoded PCM byte limit (`max_bytes`).
+pub fn decode_file_with_limit<P: AsRef<Path>>(
+    path: P,
+    max_bytes: usize,
+) -> Result<DecodedAudio, DecodeError> {
     use std::io::{Read, Seek, SeekFrom};
 
     let path = path.as_ref();
@@ -97,13 +110,22 @@ pub fn decode_file<P: AsRef<Path>>(path: P) -> Result<DecodedAudio, DecodeError>
         .unwrap_or("audio")
         .to_string();
 
-    decode_stream(mss, hint, PathBuf::from(path), filename)
+    decode_stream(mss, hint, PathBuf::from(path), filename, max_bytes)
 }
 
-/// Decodes an in-memory byte slice (useful for fuzzing and unit testing).
+/// Decodes an in-memory byte slice using `DEFAULT_MAX_DECODE_BYTES` (useful for fuzzing and unit testing).
 pub fn decode_bytes(
     bytes: &[u8],
     extension_hint: Option<&str>,
+) -> Result<DecodedAudio, DecodeError> {
+    decode_bytes_with_limit(bytes, extension_hint, DEFAULT_MAX_DECODE_BYTES)
+}
+
+/// Decodes an in-memory byte slice enforcing a total decoded PCM byte limit (`max_bytes`).
+pub fn decode_bytes_with_limit(
+    bytes: &[u8],
+    extension_hint: Option<&str>,
+    max_bytes: usize,
 ) -> Result<DecodedAudio, DecodeError> {
     validate_audio_bytes(bytes)?;
 
@@ -119,7 +141,13 @@ pub fn decode_bytes(
         hint.with_extension(ext);
     }
 
-    decode_stream(mss, hint, PathBuf::from("memory"), "memory".to_string())
+    decode_stream(
+        mss,
+        hint,
+        PathBuf::from("memory"),
+        "memory".to_string(),
+        max_bytes,
+    )
 }
 
 /// Wraps an underlying media stream to provide safe `MediaSource` operations.
@@ -303,9 +331,10 @@ fn decode_stream(
     hint: Hint,
     path_buf: PathBuf,
     filename: String,
+    max_bytes: usize,
 ) -> Result<DecodedAudio, DecodeError> {
     let result = catch_unwind_silent(std::panic::AssertUnwindSafe(|| {
-        decode_stream_inner(mss, hint, path_buf, filename)
+        decode_stream_inner(mss, hint, path_buf, filename, max_bytes)
     }));
 
     match result {
@@ -321,6 +350,7 @@ fn decode_stream_inner(
     hint: Hint,
     path_buf: PathBuf,
     filename: String,
+    max_bytes: usize,
 ) -> Result<DecodedAudio, DecodeError> {
     let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
@@ -356,11 +386,16 @@ fn decode_stream_inner(
         .map_err(DecodeError::Symphonia)?;
 
     const MAX_INITIAL_RESERVE_FRAMES: usize = 1_048_576;
+    let bytes_per_frame = num_channels
+        .saturating_mul(std::mem::size_of::<f32>())
+        .max(1);
+    let max_frames_for_bytes = max_bytes / bytes_per_frame;
     let mut planar_channels: Vec<Vec<f32>> = vec![Vec::new(); num_channels];
     if let Some(est_frames) = track.codec_params.n_frames {
         let cap = (est_frames as usize)
             .min(MAX_DECODE_FRAMES)
-            .min(MAX_INITIAL_RESERVE_FRAMES);
+            .min(MAX_INITIAL_RESERVE_FRAMES)
+            .min(max_frames_for_bytes);
         for ch in &mut planar_channels {
             ch.reserve(cap);
         }
@@ -403,10 +438,20 @@ fn decode_stream_inner(
 
         let samples = sbuf.samples();
 
-        // Check frame limit to avoid OOM
+        // Check byte memory limit and frame limit on actual decoded samples to avoid OOM
         let current_frames = planar_channels.first().map(|ch| ch.len()).unwrap_or(0);
         let incoming_frames = samples.len() / num_channels;
-        if current_frames + incoming_frames > MAX_DECODE_FRAMES {
+        let new_frames = current_frames.saturating_add(incoming_frames);
+        let total_bytes = new_frames.saturating_mul(bytes_per_frame);
+        if total_bytes > max_bytes {
+            drop(planar_channels);
+            return Err(DecodeError::TooLarge {
+                bytes: total_bytes,
+                limit_bytes: max_bytes,
+            });
+        }
+        if new_frames > MAX_DECODE_FRAMES {
+            drop(planar_channels);
             return Err(DecodeError::FrameLimitExceeded);
         }
 

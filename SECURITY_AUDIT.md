@@ -1,6 +1,8 @@
 # Security and Robustness Audit Report: steM.
 
-**Date:** 2026-10-30  
+> **Tarihsel Kayıt Notu (v0.1.x / v0.6.x Öncesi):** Bu belgenin 1–2. bölümleri **2026-10-30** tarihindeki tarihsel denetim çıktısını korur (o tarihte 58 test mevcuttu; `fix/audit-findings` dalında güncel test sayısı **97**'dir). Güncel tedarik zinciri çıktıları ve S-1…S-6 takip tablosu belgenin altındaki **Güncel Durum ve Takip Edilen Bulgular (2026-11-25)** bölümündedir.
+
+**Date:** 2026-10-30 (Updated: 2026-11-25)  
 **Scope:** steM. workspace crates (`stem-core`, `stem-audio`, `stem-dsp`, `stem-i18n`, `stem-app`)  
 **Auditor:** Antigravity Pairing Agent  
 **Repository:** `MOzcelik14/steM`  
@@ -123,3 +125,25 @@ Dedicated `libfuzzer-sys` fuzz targets created in `fuzz/`:
 ### Limitations & Out of Scope
 - **Hardware Audio Drivers:** Physical unplugging or kernel-level ALSA/PipeWire driver lockups cannot be prevented by userspace; detected via `device_lost` atomic flag for graceful recovery.
 - **OpenGL Driver Crash:** Hardware GPU OpenGL surface context loss handled by OS compositor; state is persisted in `.stem-recovery` for session recovery.
+
+---
+
+## 6. Güncel Durum ve Takip Edilen Bulgular (2026-11-25)
+
+### 6.1 Güncel Araç Çıktıları (2026-11-25)
+- `cargo test --workspace --locked --no-fail-fast`: **97 test geçti, 0 başarısız** (`audio_thread_alloc_test` dahil).
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: **0 uyarı / hata**.
+- `cargo deny check`: `advisories FAILED, bans ok, licenses ok, sources ok` (`async-executor 1.14.0` yanked, `url 2.5.8` advisory, `heapless 0.8.0` uyarıları — Aşama 4'te ele alınacak).
+- `cargo audit`: **1 zafiyet** (`url 2.5.8`, `RUSTSEC-2026-0592`), **10 uyarı** (`heapless 0.8.0` ×9, `async-executor 1.14.0` yanked).
+
+### 6.2 Takip Edilen Bulgular Tablosu (S-1…S-6)
+
+| ID | Başlık | Durum | Not / Doğrulama |
+| :--- | :--- | :--- | :--- |
+| **S-1** | Decode bellek sınırı (`MAX_DECODE_BYTES`) | Düzeltildi | `DEFAULT_MAX_DECODE_BYTES` (2 GiB) + paket bazlı kontrol + 2 test; `fuzz_decode` güncellendi (fuzzer koşusu doğrulanmadı). |
+| **S-2** | Atomik yazmada sil-ve-yeniden-dene riski | Düzeltildi | Ortak `atomic_write_bytes` / `atomic_rename` (`sync_all` + dizin `fsync`) + 3 test; Windows davranışı doğrulanmadı. |
+| **S-3** | Kayıt dayanıklılığı ve hata yutma | Düzeltildi | Kalıcı `.stem_recordings` dizini, periyodik WAV `flush()`, `write_error` bildirimi + 3 test; gerçek mikrofon/GUI doğrulanmadı. |
+| **S-4** | Demucs iptal gecikmesi ve yetim süreçler | Düzeltildi | Bayt tabanlı `\r`/`\n` `stderr` okuyucu, `ProcessTreeGuard`, `TempDirGuard`, `--` ayracı + 2 yapay betik testi; gerçek `demucs`/Windows doğrulanmadı. |
+| **S-5** | VST3/LV2 hosting passthrough stub dürüstlüğü | Düzeltildi | `ROADMAP.md`, `plugins.rs` doc/test adı ve UI uyarı mesajı gerçeğe çekildi; canlı GUI tıklaması doğrulanmadı. |
+| **S-6** | Proje şema sürümü (`schema_version`) doğrulama | Düzeltildi | `CURRENT_SCHEMA_VERSION = 1`, gelecek sürüm reddi (`UnsupportedSchemaVersion`), v0→v1 migrasyonu + 2 test. |
+

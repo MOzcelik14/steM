@@ -72,15 +72,13 @@ These issues should be addressed before introducing major new features.
 Introduce support for external audio plugins.
 
 - [x] Research suitable Rust plugin hosting libraries.
-- [x] Implement plugin discovery and scanning.
-- [x] Implement plugin loading and unloading.
-- [x] Support VST3 plugins.
-- [x] Support LV2 plugins.
+- [x] Implement plugin discovery and scanning (`.vst3` / `.lv2` bundle metadata).
 - [x] Create a plugin browser.
-- [x] Allow plugins to be inserted into track effect chains.
-- [x] Support plugin parameter automation.
-- [x] Save plugin states inside project files.
+- [x] Allow plugin slot placeholders to be inserted into track effect chains.
+- [x] Support plugin parameter metadata and automation targets.
+- [x] Save plugin slot states inside project files.
 - [x] Handle missing or incompatible plugins gracefully.
+- [ ] **VST3/LV2 audio processing (real binary hosting & unloading):** Currently `PluginHostInstance::process_stereo` is a passthrough stub with no external binary loading. Implementing real hosting requires addressing third-party native binary loading risks, out-of-process sandboxing for crash isolation, and strict zero-allocation/lock-free real-time callback safety.
 
 **Priority:** High
 

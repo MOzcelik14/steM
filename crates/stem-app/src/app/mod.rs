@@ -76,6 +76,7 @@ pub struct StemApp {
     pub logo_texture: Option<egui::TextureHandle>,
     pub show_effects_dialog: bool,
     pub metronome_enabled: bool,
+    pub max_decode_bytes: usize,
 
     // Export State
     pub export_destination_path: Option<String>,
@@ -155,6 +156,7 @@ impl StemApp {
         let status_text = i18n.t("status-ready");
 
         let recovery_file_path = default_recovery_file_path();
+        stem_audio::stems::cleanup_stale_temp_artifacts(std::time::Duration::from_secs(86_400));
 
         let mut recovery_state = RecoveryDialogState::default();
         if recovery_file_path.exists() {
@@ -209,6 +211,7 @@ impl StemApp {
             logo_texture: None,
             show_effects_dialog: false,
             metronome_enabled: false,
+            max_decode_bytes: stem_audio::decode::DEFAULT_MAX_DECODE_BYTES,
 
             export_destination_path: None,
             export_settings: ExportSettings::default(),
@@ -312,12 +315,19 @@ impl eframe::App for StemApp {
             self.auto_save_last_time = std::time::Instant::now();
         }
 
-        // Check for audio hardware disconnection
+        // Check for audio hardware disconnection or recording disk write errors
         let mut lost_device = false;
+        let mut rec_write_err = false;
         if let Some(ref recorder) = self.audio_recorder {
             if recorder.is_device_lost() {
                 lost_device = true;
             }
+            if recorder.has_write_error() {
+                rec_write_err = true;
+            }
+        }
+        if rec_write_err {
+            self.status_text = self.i18n.t("recording-write-error");
         }
         if lost_device {
             if self.is_recording {
@@ -634,6 +644,12 @@ impl eframe::App for StemApp {
 
 impl Drop for StemApp {
     fn drop(&mut self) {
+        if self.stem_separation_state.in_progress {
+            if let Some(ref tok) = self.stem_separation_state.cancel_token {
+                tok.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
         self.discard_recovery_journal();
     }
 }

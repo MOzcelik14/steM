@@ -4,7 +4,7 @@
 //! zero-crossing snapping, channel-split waveform rendering with peak pyramid caching ($O(1)$ query),
 //! numeric selection timecode readouts, and playback.
 
-use egui::{pos2, vec2, Color32, Rect, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Rect, Stroke};
 use stem_core::peaks::PeakPyramid;
 use stem_core::waveform::find_nearest_zero_crossing;
 
@@ -506,7 +506,11 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
     // -------------------------------------------------------------------------
     let ruler_height = 24.0;
     let ruler_rect = Rect::from_min_size(canvas_rect.min, vec2(canvas_rect.width(), ruler_height));
-    painter.rect_filled(ruler_rect, Rounding::ZERO, Color32::from_rgb(20, 22, 26));
+    painter.rect_filled(
+        ruler_rect,
+        CornerRadius::ZERO,
+        Color32::from_rgb(20, 22, 26),
+    );
     painter.line_segment(
         [
             pos2(ruler_rect.min.x, ruler_rect.max.y),
@@ -579,7 +583,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
         } else {
             Color32::from_rgb(20, 22, 26)
         };
-        painter.rect_filled(ch_rect, Rounding::ZERO, bg_color);
+        painter.rect_filled(ch_rect, CornerRadius::ZERO, bg_color);
 
         // Center line (0.0 V)
         let mid_y = ch_rect.center().y;
@@ -649,7 +653,7 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
             // Shaded selection box
             painter.rect_filled(
                 sel_rect,
-                Rounding::ZERO,
+                CornerRadius::ZERO,
                 Color32::from_rgba_premultiplied(100, 180, 255, 45),
             );
 

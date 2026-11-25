@@ -2,7 +2,7 @@
 
 use crate::app::StemApp;
 use crate::state::AppViewMode;
-use egui::{pos2, vec2, Color32, Rounding, Stroke};
+use egui::{pos2, vec2, Color32, CornerRadius, Stroke};
 use stem_core::project::{EqBandConfig, FilterType};
 use stem_dsp::biquad::BiquadCoeffs;
 use stem_dsp::chain::{
@@ -564,11 +564,12 @@ fn render_parametric_eq_visualizer(
     let (rect, response) = ui.allocate_exact_size(canvas_size, egui::Sense::click_and_drag());
     let painter = ui.painter().with_clip_rect(rect);
 
-    painter.rect_filled(rect, Rounding::same(4.0), Color32::from_rgb(18, 20, 24));
+    painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(18, 20, 24));
     painter.rect_stroke(
         rect,
-        Rounding::same(4.0),
+        CornerRadius::same(4),
         Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 56)),
+        egui::StrokeKind::Middle,
     );
 
     let min_freq = 20.0f32;
@@ -767,11 +768,12 @@ fn render_compressor_visualizer(
     let (rect, _response) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
     let painter = ui.painter().with_clip_rect(rect);
 
-    painter.rect_filled(rect, Rounding::same(4.0), Color32::from_rgb(18, 20, 24));
+    painter.rect_filled(rect, CornerRadius::same(4), Color32::from_rgb(18, 20, 24));
     painter.rect_stroke(
         rect,
-        Rounding::same(4.0),
+        CornerRadius::same(4),
         Stroke::new(1.0_f32, Color32::from_rgb(45, 48, 56)),
+        egui::StrokeKind::Middle,
     );
 
     let comp = Compressor::new(

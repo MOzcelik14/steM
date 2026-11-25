@@ -67,30 +67,38 @@ impl Default for I18n {
     }
 }
 
+fn build_bundle(lang_tag: &str, ftl_src: &str) -> Result<FluentBundle<FluentResource>, String> {
+    let lang: LanguageIdentifier = lang_tag
+        .parse()
+        .map_err(|e| format!("Invalid language identifier '{lang_tag}': {e}"))?;
+    let mut bundle = FluentBundle::new(vec![lang]);
+    let res = FluentResource::try_new(ftl_src.to_string())
+        .map_err(|(_, errs)| format!("Failed to parse FTL for '{lang_tag}': {errs:?}"))?;
+    bundle
+        .add_resource(res)
+        .map_err(|errs| format!("Failed to add FTL resource for '{lang_tag}': {errs:?}"))?;
+    Ok(bundle)
+}
+
 impl I18n {
-    /// Creates a new I18n instance initialized with the given or system locale.
-    pub fn new(locale: Locale) -> Self {
-        let en_lang: LanguageIdentifier = "en-US".parse().expect("valid en-US langid");
-        let mut en_bundle = FluentBundle::new(vec![en_lang]);
-        let en_res = FluentResource::try_new(EN_FTL.to_string())
-            .expect("Failed to parse embedded English FTL");
-        en_bundle
-            .add_resource(en_res)
-            .expect("Failed to add English resource");
-
-        let tr_lang: LanguageIdentifier = "tr-TR".parse().expect("valid tr-TR langid");
-        let mut tr_bundle = FluentBundle::new(vec![tr_lang]);
-        let tr_res = FluentResource::try_new(TR_FTL.to_string())
-            .expect("Failed to parse embedded Turkish FTL");
-        tr_bundle
-            .add_resource(tr_res)
-            .expect("Failed to add Turkish resource");
-
-        Self {
+    /// Fallibly creates a new I18n instance, validating embedded FTL bundles.
+    pub fn try_new(locale: Locale) -> Result<Self, String> {
+        let en_bundle = build_bundle("en-US", EN_FTL)?;
+        let tr_bundle = build_bundle("tr-TR", TR_FTL)?;
+        Ok(Self {
             current_locale: locale,
             en_bundle: Rc::new(en_bundle),
             tr_bundle: Rc::new(tr_bundle),
-        }
+        })
+    }
+
+    /// Creates a new I18n instance initialized with the given or system locale.
+    pub fn new(locale: Locale) -> Self {
+        Self::try_new(locale).unwrap_or_else(|_| Self {
+            current_locale: locale,
+            en_bundle: Rc::new(FluentBundle::default()),
+            tr_bundle: Rc::new(FluentBundle::default()),
+        })
     }
 
     /// Sets the active locale. Changes take effect immediately in the UI.

@@ -541,5 +541,14 @@ ctx-loudness-report = Ses Yüksekliği Raporu
 plugin-passthrough-notice = Not: VST3/LV2 desteği şu an önizleme aşamasındadır (yalnızca tarama ve slot kaydı; ses işleme passthrough).
 demucs-copy-cmd = Kurulum Komutunu Kopyala
 demucs-recheck = Tekrar Kontrol Et
+decode-too-large = Ses dosyası bellek sınırını ({ $mb } MB) aşıyor.
+project-newer-schema-error = Bu proje daha yeni bir steM sürümüyle kaydedilmiş (şema v{ $version }). Açmak için lütfen steM'i güncelleyin.
+recording-write-error = Kayıt disk yazma hatası: ses kaydı kesilmiş olabilir.
+recording-orphaned-found = { $dir } dizininde yarım kalmış kayıt dosyası bulundu.
+plugin-slot-passthrough-warning = Eklenti şu an ses işlemiyor (yalnızca kayıt/yer tutucu).
+
+
+
+
 
 

@@ -846,9 +846,11 @@ impl Marker {
 
 /// Maximum number of tracks supported consistently across project validation and real-time audio engine.
 pub const MAX_PROJECT_TRACKS: usize = 64;
+/// Current project RON schema version.
+pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 fn default_schema_version() -> u32 {
-    1
+    CURRENT_SCHEMA_VERSION
 }
 
 /// User-defined reusable insert effect chain preset.
@@ -937,7 +939,7 @@ impl Default for Project {
 impl Project {
     pub fn new(name: impl Into<String>, sample_rate: u32) -> Self {
         let mut proj = Self {
-            schema_version: 1,
+            schema_version: CURRENT_SCHEMA_VERSION,
             id: Uuid::new_v4(),
             name: name.into(),
             sample_rate,
@@ -1436,16 +1438,44 @@ impl Project {
         Ok(())
     }
 
-    /// Serializes project state to RON.
+    /// Serializes project state to RON using `CURRENT_SCHEMA_VERSION`.
     pub fn to_ron(&self) -> Result<String, ProjectError> {
         let pretty_config = ron::ser::PrettyConfig::new()
             .depth_limit(6)
             .separate_tuple_members(true)
             .enumerate_arrays(true);
-        Ok(ron::ser::to_string_pretty(self, pretty_config)?)
+        if self.schema_version == CURRENT_SCHEMA_VERSION {
+            Ok(ron::ser::to_string_pretty(self, pretty_config)?)
+        } else {
+            let mut normalized = self.clone();
+            normalized.schema_version = CURRENT_SCHEMA_VERSION;
+            Ok(ron::ser::to_string_pretty(&normalized, pretty_config)?)
+        }
     }
 
-    /// Deserializes project from RON string and validates all semantic constraints.
+    /// Migrates older project schema versions forward to `CURRENT_SCHEMA_VERSION`.
+    pub fn migrate_to_current(&mut self) -> Result<(), ProjectError> {
+        if self.schema_version > CURRENT_SCHEMA_VERSION {
+            return Err(ProjectError::UnsupportedSchemaVersion {
+                found: self.schema_version,
+                supported: CURRENT_SCHEMA_VERSION,
+            });
+        }
+        // Stepwise migration pipeline for older schema versions (v0 -> v1)
+        while self.schema_version < CURRENT_SCHEMA_VERSION {
+            match self.schema_version {
+                0 => {
+                    self.schema_version = 1;
+                }
+                _ => {
+                    self.schema_version = CURRENT_SCHEMA_VERSION;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Deserializes project from RON string, checks schema version, migrates, and validates constraints.
     pub fn from_ron(s: &str) -> Result<Self, ProjectError> {
         const MAX_PROJECT_RON_BYTES: usize = 32 * 1024 * 1024;
         if s.len() > MAX_PROJECT_RON_BYTES {
@@ -1454,22 +1484,16 @@ impl Project {
                 MAX_PROJECT_RON_BYTES
             )));
         }
-        let proj: Self = ron::from_str(s)?;
+        let mut proj: Self = ron::from_str(s)?;
+        proj.migrate_to_current()?;
         proj.validate()?;
         Ok(proj)
     }
 
-    /// Saves the project atomically via a temporary sibling file and rename.
+    /// Saves the project atomically via a temporary sibling file, `sync_all`, and rename.
     pub fn save_atomic(&self, dest: &std::path::Path) -> Result<(), ProjectError> {
         let ron_data = self.to_ron()?;
-        if let Some(parent) = dest.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let tmp_path = dest.with_extension("stem.tmp");
-        std::fs::write(&tmp_path, ron_data.as_bytes())?;
-        std::fs::rename(&tmp_path, dest)?;
+        crate::fs_util::atomic_write_bytes(dest, ron_data.as_bytes())?;
         Ok(())
     }
 

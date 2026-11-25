@@ -64,3 +64,9 @@ fn test_turkish_characters_preserved() {
 fn test_app_display_name_constant() {
     assert_eq!(stem_i18n::APP_DISPLAY_NAME, "steM.");
 }
+
+#[test]
+fn test_embedded_ftl_bundles_parse_cleanly() {
+    assert!(stem_i18n::I18n::try_new(stem_i18n::Locale::En).is_ok());
+    assert!(stem_i18n::I18n::try_new(stem_i18n::Locale::Tr).is_ok());
+}

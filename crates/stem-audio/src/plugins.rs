@@ -402,7 +402,10 @@ impl PluginHostInstance {
         }
     }
 
-    /// Processes a stereo audio frame in-place (zero-allocation).
+    /// Passthrough stub for a stereo audio frame (zero-allocation).
+    ///
+    /// Note: External VST3/LV2 native binaries are not loaded or executed yet;
+    /// audio passes through unmodified.
     #[inline]
     pub fn process_stereo(&mut self, left: f32, right: f32) -> (f32, f32) {
         if self.bypassed {
@@ -422,7 +425,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_scan_vst3_and_lv2_bundles_and_missing_graceful_handling() {
+    fn test_scan_vst3_and_lv2_bundles_and_passthrough_stub() {
         let dir = std::env::temp_dir().join(format!("stem_plugin_test_{}", Uuid::new_v4()));
         let vst3_bundle = dir.join("TestComp.vst3");
         let vst3_res = vst3_bundle.join("Contents/Resources");

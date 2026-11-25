@@ -541,5 +541,14 @@ ctx-loudness-report = Loudness Report
 plugin-passthrough-notice = Note: VST3/LV2 support is currently in preview (bundle scan & slot persistence only; audio passes through unmodified).
 demucs-copy-cmd = Copy Install Command
 demucs-recheck = Re-check
+decode-too-large = Audio file exceeds the decoded memory limit ({ $mb } MB).
+project-newer-schema-error = This project was saved with a newer steM version (schema v{ $version }). Please update steM to open it.
+recording-write-error = Recording disk write error: audio may have been truncated.
+recording-orphaned-found = Unfinished recording file(s) found in { $dir }.
+plugin-slot-passthrough-warning = Plugin currently does not process audio (slot/placeholder only).
+
+
+
+
 
 

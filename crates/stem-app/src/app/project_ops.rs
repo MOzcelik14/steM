@@ -91,24 +91,7 @@ impl StemApp {
     }
 
     fn write_atomic_file(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
-        let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        let stem = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("project");
-        let tmp_path = parent.join(format!(".{}_{}.stem_tmp", stem, Uuid::new_v4()));
-        std::fs::write(&tmp_path, contents)?;
-        if let Err(e) = std::fs::rename(&tmp_path, path) {
-            if path.exists()
-                && std::fs::remove_file(path).is_ok()
-                && std::fs::rename(&tmp_path, path).is_ok()
-            {
-                return Ok(());
-            }
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(e);
-        }
-        Ok(())
+        stem_core::atomic_write_bytes(path, contents.as_bytes())
     }
 
     pub fn action_open_project(&mut self) {
@@ -128,6 +111,13 @@ impl StemApp {
                         self.spawn_reload_project_sources();
                         self.sync_timeline_to_audio_engine();
                         self.status_text = self.i18n.t("status-ready");
+                    }
+                    Err(stem_core::ProjectError::UnsupportedSchemaVersion { found, .. }) => {
+                        self.status_text = self.i18n.t_arg(
+                            "project-newer-schema-error",
+                            "version",
+                            found.to_string(),
+                        );
                     }
                     Err(e) => {
                         self.status_text = format!("Open error: {e}");
@@ -191,33 +181,44 @@ impl StemApp {
         self.status_text = self.i18n.t("status-loading");
         let tx = self.worker_tx.clone();
         let target_sr = self.project.sample_rate;
+        let max_bytes = self.max_decode_bytes;
+        let too_large_msg = self.i18n.t_arg(
+            "decode-too-large",
+            "mb",
+            (max_bytes / (1024 * 1024)).max(1).to_string(),
+        );
 
-        std::thread::spawn(move || match stem_audio::decode_file(&path) {
-            Ok(mut decoded) => {
-                if decoded.source.sample_rate != target_sr {
-                    if let Ok(resampled) = stem_dsp::resample_audio(
-                        &decoded.channels,
-                        decoded.source.sample_rate,
-                        target_sr,
-                    ) {
-                        decoded.source.duration_frames =
-                            resampled.first().map(|c| c.len() as u64).unwrap_or(0);
-                        decoded.channels = resampled;
-                        decoded.source.sample_rate = target_sr;
+        std::thread::spawn(move || {
+            match stem_audio::decode::decode_file_with_limit(&path, max_bytes) {
+                Ok(mut decoded) => {
+                    if decoded.source.sample_rate != target_sr {
+                        if let Ok(resampled) = stem_dsp::resample_audio(
+                            &decoded.channels,
+                            decoded.source.sample_rate,
+                            target_sr,
+                        ) {
+                            decoded.source.duration_frames =
+                                resampled.first().map(|c| c.len() as u64).unwrap_or(0);
+                            decoded.channels = resampled;
+                            decoded.source.sample_rate = target_sr;
+                        }
                     }
+                    let channel_refs: Vec<&[f32]> =
+                        decoded.channels.iter().map(|ch| ch.as_slice()).collect();
+                    let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+                    let _ = tx.send(WorkerMessage::ImportComplete {
+                        decoded: Box::new(decoded),
+                        pyramid: Box::new(pyramid),
+                        target_track_idx,
+                        target_offset_frames,
+                    });
                 }
-                let channel_refs: Vec<&[f32]> =
-                    decoded.channels.iter().map(|ch| ch.as_slice()).collect();
-                let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
-                let _ = tx.send(WorkerMessage::ImportComplete {
-                    decoded: Box::new(decoded),
-                    pyramid: Box::new(pyramid),
-                    target_track_idx,
-                    target_offset_frames,
-                });
-            }
-            Err(e) => {
-                let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+                Err(stem_audio::DecodeError::TooLarge { .. }) => {
+                    let _ = tx.send(WorkerMessage::ImportFailed(too_large_msg));
+                }
+                Err(e) => {
+                    let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+                }
             }
         });
     }
@@ -365,15 +366,7 @@ impl StemApp {
 
     pub fn save_recovery_journal(&self) {
         if let Ok(ron_data) = self.project.to_ron() {
-            if let Some(parent) = self.recovery_file_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-            }
-            let tmp_path = self.recovery_file_path.with_extension("tmp");
-            if std::fs::write(&tmp_path, ron_data).is_ok() {
-                let _ = std::fs::rename(&tmp_path, &self.recovery_file_path);
-            }
+            let _ = stem_core::atomic_write_bytes(&self.recovery_file_path, ron_data.as_bytes());
         }
     }
 
@@ -672,9 +665,12 @@ impl StemApp {
         self.stem_separation_state.status_msg = Some("Running Demucs...".to_string());
 
         std::thread::spawn(move || {
+            let _out_guard = stem_audio::stems::TempDirGuard(out_dir.clone());
+            let _in_guard = temp_input_file.map(stem_audio::stems::TempFileGuard);
+
             let req = stem_audio::StemSeparationRequest {
                 input_path,
-                output_dir: out_dir.clone(),
+                output_dir: out_dir,
                 model,
                 quality,
                 prefer_gpu,
@@ -699,11 +695,6 @@ impl StemApp {
                     .collect()
             })
             .map_err(|e| e.to_string());
-
-            if let Some(tmp) = temp_input_file {
-                let _ = std::fs::remove_file(tmp);
-            }
-            let _ = std::fs::remove_dir_all(&out_dir);
 
             let _ = tx.send(WorkerMessage::StemSeparationFinished {
                 offset_frames,

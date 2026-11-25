@@ -56,7 +56,7 @@ fn setup_custom_fonts(ctx: &egui::Context) {
         if let Ok(font_bytes) = std::fs::read(path) {
             fonts.font_data.insert(
                 "extended_latin".to_owned(),
-                egui::FontData::from_owned(font_bytes),
+                egui::FontData::from_owned(font_bytes).into(),
             );
 
             fonts
@@ -101,16 +101,16 @@ fn configure_app_theme(ctx: &egui::Context) {
     visuals.widgets.active.bg_stroke =
         egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(56, 189, 248));
 
-    visuals.window_rounding = egui::Rounding::same(8.0);
-    visuals.widgets.noninteractive.rounding = egui::Rounding::same(5.0);
-    visuals.widgets.inactive.rounding = egui::Rounding::same(5.0);
-    visuals.widgets.hovered.rounding = egui::Rounding::same(5.0);
-    visuals.widgets.active.rounding = egui::Rounding::same(5.0);
+    visuals.window_corner_radius = egui::CornerRadius::same(8);
+    visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(5);
+    visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(5);
+    visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(5);
+    visuals.widgets.active.corner_radius = egui::CornerRadius::same(5);
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 5.0);
     style.spacing.button_padding = egui::vec2(9.0, 5.0);
-    style.spacing.window_margin = egui::Margin::same(10.0);
+    style.spacing.window_margin = egui::Margin::same(10);
     ctx.set_style(style);
 }
