@@ -541,5 +541,7 @@ ctx-loudness-report = Ses Yüksekliği Raporu
 plugin-passthrough-notice = Not: VST3/LV2 desteği şu an önizleme aşamasındadır (yalnızca tarama ve slot kaydı; ses işleme passthrough).
 demucs-copy-cmd = Kurulum Komutunu Kopyala
 demucs-recheck = Tekrar Kontrol Et
+decode-too-large = Ses dosyası bellek sınırını ({ $mb } MB) aşıyor.
+
 
 

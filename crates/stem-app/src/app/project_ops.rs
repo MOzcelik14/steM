@@ -174,33 +174,44 @@ impl StemApp {
         self.status_text = self.i18n.t("status-loading");
         let tx = self.worker_tx.clone();
         let target_sr = self.project.sample_rate;
+        let max_bytes = self.max_decode_bytes;
+        let too_large_msg = self.i18n.t_arg(
+            "decode-too-large",
+            "mb",
+            (max_bytes / (1024 * 1024)).max(1).to_string(),
+        );
 
-        std::thread::spawn(move || match stem_audio::decode_file(&path) {
-            Ok(mut decoded) => {
-                if decoded.source.sample_rate != target_sr {
-                    if let Ok(resampled) = stem_dsp::resample_audio(
-                        &decoded.channels,
-                        decoded.source.sample_rate,
-                        target_sr,
-                    ) {
-                        decoded.source.duration_frames =
-                            resampled.first().map(|c| c.len() as u64).unwrap_or(0);
-                        decoded.channels = resampled;
-                        decoded.source.sample_rate = target_sr;
+        std::thread::spawn(move || {
+            match stem_audio::decode::decode_file_with_limit(&path, max_bytes) {
+                Ok(mut decoded) => {
+                    if decoded.source.sample_rate != target_sr {
+                        if let Ok(resampled) = stem_dsp::resample_audio(
+                            &decoded.channels,
+                            decoded.source.sample_rate,
+                            target_sr,
+                        ) {
+                            decoded.source.duration_frames =
+                                resampled.first().map(|c| c.len() as u64).unwrap_or(0);
+                            decoded.channels = resampled;
+                            decoded.source.sample_rate = target_sr;
+                        }
                     }
+                    let channel_refs: Vec<&[f32]> =
+                        decoded.channels.iter().map(|ch| ch.as_slice()).collect();
+                    let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
+                    let _ = tx.send(WorkerMessage::ImportComplete {
+                        decoded: Box::new(decoded),
+                        pyramid: Box::new(pyramid),
+                        target_track_idx,
+                        target_offset_frames,
+                    });
                 }
-                let channel_refs: Vec<&[f32]> =
-                    decoded.channels.iter().map(|ch| ch.as_slice()).collect();
-                let pyramid = stem_dsp::build_peak_pyramid(&channel_refs);
-                let _ = tx.send(WorkerMessage::ImportComplete {
-                    decoded: Box::new(decoded),
-                    pyramid: Box::new(pyramid),
-                    target_track_idx,
-                    target_offset_frames,
-                });
-            }
-            Err(e) => {
-                let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+                Err(stem_audio::DecodeError::TooLarge { .. }) => {
+                    let _ = tx.send(WorkerMessage::ImportFailed(too_large_msg));
+                }
+                Err(e) => {
+                    let _ = tx.send(WorkerMessage::ImportFailed(e.to_string()));
+                }
             }
         });
     }

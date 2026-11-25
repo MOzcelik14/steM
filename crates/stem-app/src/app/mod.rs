@@ -76,6 +76,7 @@ pub struct StemApp {
     pub logo_texture: Option<egui::TextureHandle>,
     pub show_effects_dialog: bool,
     pub metronome_enabled: bool,
+    pub max_decode_bytes: usize,
 
     // Export State
     pub export_destination_path: Option<String>,
@@ -209,6 +210,7 @@ impl StemApp {
             logo_texture: None,
             show_effects_dialog: false,
             metronome_enabled: false,
+            max_decode_bytes: stem_audio::decode::DEFAULT_MAX_DECODE_BYTES,
 
             export_destination_path: None,
             export_settings: ExportSettings::default(),
