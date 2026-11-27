@@ -149,7 +149,7 @@ jobs:
           chmod 755 "${APPDIR}/AppRun"
           ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 /tmp/appimagetool-x86_64.AppImage "${APPDIR}" "dist/steM-${VER}-x86_64.AppImage"
           rm -rf "$(dirname "${APPDIR}")"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: stem-linux-package
           path: |
@@ -184,7 +184,7 @@ jobs:
           Copy-Item "README.md" $stage
           Copy-Item "LICENSE" $stage
           Compress-Archive -Path "$stage\*" -DestinationPath "dist\stem-$ver-windows-x86_64.zip" -Force
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: stem-windows-package
           path: dist/*.zip
@@ -261,7 +261,7 @@ jobs:
           ln -s /Applications "${DMG_STAGE}/Applications"
           hdiutil create -volname "steM. ${VER}" -srcfolder "${DMG_STAGE}" -ov -format UDZO "dist/stem-${VER}-macos-arm64.dmg"
           rm -rf "${DMG_STAGE}"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: stem-macos-package
           path: |
