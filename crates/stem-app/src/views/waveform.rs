@@ -841,10 +841,15 @@ pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
                 }
                 ui.close_menu();
             }
-            ui.checkbox(
-                &mut app.waveform_state.loop_selection,
-                app.i18n.t("waveform-loop-selection"),
-            );
+            if ui
+                .checkbox(
+                    &mut app.waveform_state.loop_selection,
+                    app.i18n.t("waveform-loop-selection"),
+                )
+                .changed()
+            {
+                app.sync_waveform_playback_loop();
+            }
             ui.separator();
         }
 

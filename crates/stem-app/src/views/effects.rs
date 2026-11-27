@@ -1084,6 +1084,7 @@ fn apply_rack_preset(app: &mut StemApp, target_opt: Option<usize>, preset_idx: u
         .map(|(i, s)| (i, s.effect_type, s.bypassed))
         .collect();
 
+    let eq_idx = slot_index_of(app, EffectSlotType::Equalizer);
     let comp_idx = slot_index_of(app, EffectSlotType::Compressor);
     let lim_idx = slot_index_of(app, EffectSlotType::Limiter);
     let gate_idx = slot_index_of(app, EffectSlotType::NoiseGate);
@@ -1092,6 +1093,11 @@ fn apply_rack_preset(app: &mut StemApp, target_opt: Option<usize>, preset_idx: u
     if let Some(ref mut engine) = app.audio_engine {
         for (i, _ty, bypassed) in &slots_snapshot {
             engine.set_effect_bypass(target_opt, *i, *bypassed);
+        }
+        if let Some(i) = eq_idx {
+            for (b_idx, band) in app.effects_state.bands.iter().enumerate() {
+                engine.set_effect_param(target_opt, i, b_idx as u8, band.gain_db);
+            }
         }
         if let Some(i) = comp_idx {
             engine.set_effect_param(target_opt, i, 0, app.effects_state.comp_threshold_db);

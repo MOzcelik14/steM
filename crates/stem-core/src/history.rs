@@ -268,12 +268,17 @@ impl UndoRedoStack {
         project: &mut Project,
     ) -> Result<(), ProjectError> {
         action.execute(project)?;
+        self.push_recorded(action);
+        Ok(())
+    }
+
+    /// Record an already-applied action into the undo stack.
+    pub fn push_recorded(&mut self, action: Action) {
         self.undo_stack.push(action);
         self.redo_stack.clear();
         if self.undo_stack.len() > self.max_history {
             self.undo_stack.remove(0);
         }
-        Ok(())
     }
 
     pub fn can_undo(&self) -> bool {

@@ -176,9 +176,6 @@ pub(super) fn render_recovery_dialog(app: &mut StemApp, ctx: &egui::Context) {
     if !open {
         app.recovery_state.show = false;
     }
-
-    render_plugin_browser_dialog(app, ctx);
-    render_stem_separation_dialog(app, ctx);
 }
 
 pub(super) fn render_plugin_browser_dialog(app: &mut StemApp, ctx: &egui::Context) {

@@ -698,6 +698,7 @@ impl StemApp {
                 self.peak_pyramids.insert(new_source_id, pyramid);
                 self.source_buffers.insert(new_source_id, planar);
 
+                let before = self.project.tracks.clone();
                 if let Some(track) = self.project.get_track_mut(track_id) {
                     if let Some(clip) = track.clips.iter_mut().find(|c| c.id == clip_id) {
                         clip.source_id = new_source_id;
@@ -705,6 +706,12 @@ impl StemApp {
                         clip.length_frames = dur_frames;
                     }
                 }
+                self.history
+                    .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                        label: "Apply Waveform Edits",
+                        before,
+                        after: self.project.tracks.clone(),
+                    });
 
                 self.status_text = self.i18n.t("waveform-status-applied");
                 self.sync_timeline_to_audio_engine();

@@ -295,6 +295,10 @@ cleanup-click-max-width = Max Click Duration (samples)
 cleanup-click-btn-repair = Detect & Repair Clicks
 cleanup-click-result = Repaired { $count } clicks/pops
 cleanup-click-none = No clicks detected in selection
+noise-capture-profile = Capture Noise Profile
+noise-apply-selection = Apply Noise Reduction (Selection)
+noise-apply-whole = Apply Noise Reduction (Whole File)
+click-remover-apply = Repair Clicks & Pops
 
 menu-analysis = Analysis
 menu-analysis-loudness = Loudness Report (EBU R128)...

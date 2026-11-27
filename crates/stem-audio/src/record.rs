@@ -175,7 +175,7 @@ pub struct AudioRecorder {
     latest_telemetry: InputTelemetry,
     worker_running: Arc<AtomicBool>,
     flush_tx: crossbeam_channel::Sender<()>,
-    recorded_samples_rx: crossbeam_channel::Receiver<Vec<Vec<f32>>>,
+    recorded_samples_rx: crossbeam_channel::Receiver<(Vec<Vec<f32>>, Option<std::path::PathBuf>)>,
     worker_handle: Option<JoinHandle<()>>,
 }
 
@@ -245,12 +245,15 @@ impl AudioRecorder {
             .unwrap_or_else(|_| "Default Input Device".to_string());
 
         let default_config = device.default_input_config()?;
-        let channels = default_config.channels().clamp(1, 2); // Support mono (1) or stereo (2)
+        let mut channels = default_config.channels().clamp(1, 2); // Prefer mono (1) or stereo (2)
         let mut sample_rate = default_config.sample_rate().0;
         let mut buffer_size = cpal::BufferSize::Default;
 
         if let Ok(ranges) = device.supported_input_configs() {
             let ranges: Vec<_> = ranges.collect();
+            if !ranges.iter().any(|r| r.channels() == channels) {
+                channels = default_config.channels();
+            }
             if let Some(req_sr) = preferred_sample_rate {
                 if let Some(best) = ranges
                     .iter()
@@ -363,6 +366,7 @@ impl AudioRecorder {
 
                 if flush_rx.try_recv().is_ok() {
                     let mut planar = vec![Vec::new(); num_ch];
+                    let mut finalized_path: Option<std::path::PathBuf> = None;
                     if let Some(w) = writer.take() {
                         if let Ok((wav_path, has_samples)) = w.finalize() {
                             if has_samples {
@@ -377,8 +381,10 @@ impl AudioRecorder {
                                         ch_idx = (ch_idx + 1) % num_ch;
                                     }
                                 }
+                                finalized_path = Some(wav_path);
+                            } else {
+                                let _ = std::fs::remove_file(&wav_path);
                             }
-                            let _ = std::fs::remove_file(&wav_path);
                         } else {
                             write_error_thread.store(true, Ordering::SeqCst);
                         }
@@ -404,7 +410,7 @@ impl AudioRecorder {
                         }
                         fallback_recorded.clear();
                     }
-                    let _ = result_tx.send(planar);
+                    let _ = result_tx.send((planar, finalized_path));
                 }
 
                 if !drained_any {
@@ -495,9 +501,9 @@ impl AudioRecorder {
         let _ = self.flush_tx.send(());
 
         // Wait for flushed planar buffers from worker thread
-        let planar = self
+        let (planar, wav_path) = self
             .recorded_samples_rx
-            .recv_timeout(std::time::Duration::from_millis(1000))
+            .recv_timeout(std::time::Duration::from_millis(10_000))
             .ok()?;
 
         let num_frames = planar.first().map(|c| c.len()).unwrap_or(0);
@@ -507,11 +513,24 @@ impl AudioRecorder {
         let num_channels = planar.len().max(1);
 
         let source_id = Uuid::new_v4();
-        let filename = format!("Recorded_Take_{}.wav", &source_id.to_string()[..8]);
+        let default_filename = format!("Recorded_Take_{}.wav", &source_id.to_string()[..8]);
+        let (path, filename) = if let Some(p) = wav_path {
+            let fname = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or(default_filename);
+            (p, fname)
+        } else {
+            (
+                std::path::PathBuf::from(&default_filename),
+                default_filename,
+            )
+        };
 
         let source = AudioSource {
             id: source_id,
-            path: std::path::PathBuf::from(&filename),
+            path,
             filename,
             sample_rate: self.sample_rate,
             channels: num_channels,

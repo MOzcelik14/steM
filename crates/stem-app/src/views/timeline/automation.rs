@@ -140,6 +140,13 @@ pub(super) fn render_automation_lane(
                     lane.points[d_idx].frame = new_frame;
                     lane.points[d_idx].value = new_val;
                     lane.points.sort_by_key(|p| p.frame);
+                    if let Some(new_idx) = lane
+                        .points
+                        .iter()
+                        .position(|p| p.frame == new_frame && (p.value - new_val).abs() < 1e-6)
+                    {
+                        *drag_point = Some((d_track, new_idx));
+                    }
                     modified = true;
                 }
             }

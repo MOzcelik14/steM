@@ -457,12 +457,21 @@ pub(super) fn render_track_headers(
                         app.project.tracks[t_idx].ensure_automation_lane(target);
                     }
 
+                    let mut enabled_changed = false;
                     if let Some(lane) = app.project.tracks[t_idx]
                         .automation_lanes
                         .iter_mut()
                         .find(|l| l.target == target)
                     {
-                        ui.checkbox(&mut lane.enabled, egui::RichText::new("On").size(9.0));
+                        if ui
+                            .checkbox(&mut lane.enabled, egui::RichText::new("On").size(9.0))
+                            .changed()
+                        {
+                            enabled_changed = true;
+                        }
+                    }
+                    if enabled_changed {
+                        app.sync_timeline_to_audio_engine();
                     }
                 });
                 ui.horizontal(|ui| {

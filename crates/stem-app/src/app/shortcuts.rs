@@ -35,10 +35,16 @@ impl StemApp {
         {
             self.action_toggle_play();
         }
-        // Stop
-        if self
-            .keybindings
-            .is_action_triggered(AppAction::Stop, &input)
+        let had_selection = self.timeline_state.time_selection.is_some()
+            || self.timeline_state.selected_clip_id.is_some()
+            || !self.timeline_state.selected_clip_ids.is_empty()
+            || self.waveform_state.selection.is_some();
+
+        // Stop (if Escape is pressed while a selection is active, clear selection first)
+        if !(input.key_pressed(egui::Key::Escape) && had_selection)
+            && self
+                .keybindings
+                .is_action_triggered(AppAction::Stop, &input)
         {
             self.action_stop();
         }

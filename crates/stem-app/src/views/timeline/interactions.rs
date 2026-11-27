@@ -662,23 +662,171 @@ pub(super) fn render_overlays_and_interactions(
             // Mouse released, end drag
             let mut mutated = false;
             if let Some(DragOp::MoveClip {
-                clip_id, track_id, ..
+                clip_id,
+                track_id,
+                original_track_offset,
+                ..
             }) = app.timeline_state.drag_op
             {
+                let cur_offset = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| c.track_offset_frames);
+                if let Some(new_offset) = cur_offset {
+                    if new_offset != original_track_offset {
+                        app.history
+                            .push_recorded(stem_core::history::Action::MoveClip {
+                                track_id,
+                                clip_id,
+                                old_track_offset: original_track_offset,
+                                new_track_offset: new_offset,
+                            });
+                    }
+                }
                 if app.timeline_state.auto_crossfade {
                     app.project
                         .apply_auto_crossfades_on_track(track_id, clip_id);
                 }
                 mutated = true;
-            } else if matches!(
-                app.timeline_state.drag_op,
-                Some(
-                    DragOp::TrimLeft { .. }
-                        | DragOp::TrimRight { .. }
-                        | DragOp::FadeIn { .. }
-                        | DragOp::FadeOut { .. }
-                )
-            ) {
+            } else if let Some(DragOp::TrimLeft {
+                clip_id,
+                track_id,
+                orig_source_start,
+                orig_track_offset,
+                orig_length,
+                ..
+            }) = app.timeline_state.drag_op
+            {
+                let cur = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| (c.source_start_frame, c.length_frames, c.track_offset_frames));
+                if let Some((ns, nl, no)) = cur {
+                    if ns != orig_source_start || nl != orig_length || no != orig_track_offset {
+                        app.history
+                            .push_recorded(stem_core::history::Action::TrimClip {
+                                track_id,
+                                clip_id,
+                                old_source_start: orig_source_start,
+                                old_length: orig_length,
+                                old_track_offset: orig_track_offset,
+                                new_source_start: ns,
+                                new_length: nl,
+                                new_track_offset: no,
+                            });
+                    }
+                }
+                mutated = true;
+            } else if let Some(DragOp::TrimRight {
+                clip_id,
+                track_id,
+                orig_length,
+                ..
+            }) = app.timeline_state.drag_op
+            {
+                let cur = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| (c.source_start_frame, c.length_frames, c.track_offset_frames));
+                if let Some((ns, nl, no)) = cur {
+                    if nl != orig_length {
+                        app.history
+                            .push_recorded(stem_core::history::Action::TrimClip {
+                                track_id,
+                                clip_id,
+                                old_source_start: ns,
+                                old_length: orig_length,
+                                old_track_offset: no,
+                                new_source_start: ns,
+                                new_length: nl,
+                                new_track_offset: no,
+                            });
+                    }
+                }
+                mutated = true;
+            } else if let Some(DragOp::FadeIn {
+                clip_id,
+                track_id,
+                orig_fade_in,
+                ..
+            }) = app.timeline_state.drag_op
+            {
+                let cur = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| c.fade_in_frames);
+                if cur.is_some_and(|v| v != orig_fade_in) {
+                    let mut before = app.project.tracks.clone();
+                    if let Some(bt) = before.iter_mut().find(|t| t.id == track_id) {
+                        if let Some(bc) = bt.clips.iter_mut().find(|c| c.id == clip_id) {
+                            bc.fade_in_frames = orig_fade_in;
+                        }
+                    }
+                    app.history
+                        .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                            label: "Fade In",
+                            before,
+                            after: app.project.tracks.clone(),
+                        });
+                }
+                mutated = true;
+            } else if let Some(DragOp::FadeOut {
+                clip_id,
+                track_id,
+                orig_fade_out,
+                ..
+            }) = app.timeline_state.drag_op
+            {
+                let cur = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| c.fade_out_frames);
+                if cur.is_some_and(|v| v != orig_fade_out) {
+                    let mut before = app.project.tracks.clone();
+                    if let Some(bt) = before.iter_mut().find(|t| t.id == track_id) {
+                        if let Some(bc) = bt.clips.iter_mut().find(|c| c.id == clip_id) {
+                            bc.fade_out_frames = orig_fade_out;
+                        }
+                    }
+                    app.history
+                        .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                            label: "Fade Out",
+                            before,
+                            after: app.project.tracks.clone(),
+                        });
+                }
+                mutated = true;
+            } else if let Some(DragOp::AdjustClipGain {
+                clip_id,
+                track_id,
+                orig_gain_db,
+                ..
+            }) = app.timeline_state.drag_op
+            {
+                let cur = app
+                    .project
+                    .get_track(track_id)
+                    .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+                    .map(|c| c.gain_db);
+                if cur.is_some_and(|v| (v - orig_gain_db).abs() > 1e-4) {
+                    let mut before = app.project.tracks.clone();
+                    if let Some(bt) = before.iter_mut().find(|t| t.id == track_id) {
+                        if let Some(bc) = bt.clips.iter_mut().find(|c| c.id == clip_id) {
+                            bc.gain_db = orig_gain_db;
+                        }
+                    }
+                    app.history
+                        .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                            label: "Clip Gain",
+                            before,
+                            after: app.project.tracks.clone(),
+                        });
+                }
                 mutated = true;
             }
             if let Some(DragOp::SelectTimeRange { .. }) = app.timeline_state.drag_op {

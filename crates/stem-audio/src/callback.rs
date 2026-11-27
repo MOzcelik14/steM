@@ -112,6 +112,7 @@ pub struct AudioTelemetry {
     pub rms_left: f32,
     pub rms_right: f32,
     pub track_peaks: [f32; MAX_TRACKS],
+    pub auto_stopped: bool,
 }
 
 impl Default for AudioTelemetry {
@@ -123,6 +124,7 @@ impl Default for AudioTelemetry {
             rms_left: 0.0,
             rms_right: 0.0,
             track_peaks: [0.0; MAX_TRACKS],
+            auto_stopped: false,
         }
     }
 }
@@ -222,6 +224,7 @@ pub struct AudioProcessor {
     metronome_freq_hz: f32,
     metronome_last_beat_idx: i64,
     output_channels: u16,
+    auto_stopped: bool,
 }
 
 impl AudioProcessor {
@@ -288,6 +291,7 @@ impl AudioProcessor {
             metronome_freq_hz: 1000.0,
             metronome_last_beat_idx: -1,
             output_channels: output_channels.max(1),
+            auto_stopped: false,
         }
     }
 
@@ -304,7 +308,17 @@ impl AudioProcessor {
     fn process_commands(&mut self) {
         while let Ok(cmd) = self.command_consumer.pop() {
             match cmd {
-                AudioCommand::Play => self.is_playing = true,
+                AudioCommand::Play => {
+                    if !self.loop_enabled {
+                        if let Some(total) = self.audio_data.as_ref().map(|tl| tl.total_frames) {
+                            if total > 0 && self.playhead_frame >= total {
+                                self.playhead_frame = 0;
+                            }
+                        }
+                    }
+                    self.auto_stopped = false;
+                    self.is_playing = true;
+                }
                 AudioCommand::Pause => {
                     self.is_playing = false;
                     self.metronome_env = 0.0;
@@ -698,6 +712,8 @@ impl AudioProcessor {
                         && self.playhead_frame >= total_frames
                     {
                         self.is_playing = false;
+                        self.playhead_frame = 0;
+                        self.auto_stopped = true;
                         for rem in (f + 1)..num_frames {
                             let rem_idx = rem * out_ch;
                             for ch in 0..out_ch {
@@ -751,14 +767,21 @@ impl AudioProcessor {
         let rms_r = (sum_sq_r / count).sqrt();
 
         // Push telemetry to UI ring buffer (ignore error if ringbuffer is full)
-        let _ = self.telemetry_producer.push(AudioTelemetry {
-            playhead_frame: self.playhead_frame,
-            peak_left: peak_l,
-            peak_right: peak_r,
-            rms_left: rms_l,
-            rms_right: rms_r,
-            track_peaks,
-        });
+        if self
+            .telemetry_producer
+            .push(AudioTelemetry {
+                playhead_frame: self.playhead_frame,
+                peak_left: peak_l,
+                peak_right: peak_r,
+                rms_left: rms_l,
+                rms_right: rms_r,
+                track_peaks,
+                auto_stopped: self.auto_stopped,
+            })
+            .is_ok()
+        {
+            self.auto_stopped = false;
+        }
     }
 }
 

@@ -295,6 +295,10 @@ cleanup-click-max-width = Maksimum Çıtırtı Süresi (örnek)
 cleanup-click-btn-repair = Çıtırtıları Tespit Et ve Onar
 cleanup-click-result = { $count } çıtırtı/parazit onarıldı
 cleanup-click-none = Seçimde çıtırtı tespit edilmedi
+noise-capture-profile = Gürültü Profilini Yakala
+noise-apply-selection = Gürültü Azaltma Uygula (Seçim)
+noise-apply-whole = Gürültü Azaltma Uygula (Tüm Dosya)
+click-remover-apply = Çıtırtı ve Parazitleri Onar
 
 menu-analysis = Analiz
 menu-analysis-loudness = Ses Yüksekliği Raporu (EBU R128)...

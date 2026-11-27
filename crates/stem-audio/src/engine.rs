@@ -501,6 +501,9 @@ impl AudioEngine {
     /// Drain latest telemetry from audio thread ringbuffer.
     pub fn poll_telemetry(&mut self) -> AudioTelemetry {
         while let Ok(telem) = self.telemetry_rx.pop() {
+            if telem.auto_stopped {
+                self.is_playing = false;
+            }
             self.latest_telemetry = telem;
         }
         // Drain any retired timeline buffers to free memory on the UI thread

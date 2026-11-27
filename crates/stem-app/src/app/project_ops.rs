@@ -252,26 +252,47 @@ impl StemApp {
 
     pub fn action_ripple_delete_selection(&mut self) {
         if let Some((start, end)) = self.timeline_state.time_selection {
+            let before = self.project.tracks.clone();
             let target_track = self.timeline_state.selected_track_id;
             self.project.ripple_delete_range(start, end, target_track);
             self.timeline_state.time_selection = None;
+            self.history
+                .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                    label: "Ripple Delete",
+                    before,
+                    after: self.project.tracks.clone(),
+                });
             self.sync_timeline_to_audio_engine();
         }
     }
 
     pub fn action_silence_selection(&mut self) {
         if let Some((start, end)) = self.timeline_state.time_selection {
+            let before = self.project.tracks.clone();
             let target_track = self.timeline_state.selected_track_id;
             self.project.silence_range(start, end, target_track);
+            self.history
+                .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                    label: "Silence Range",
+                    before,
+                    after: self.project.tracks.clone(),
+                });
             self.sync_timeline_to_audio_engine();
         }
     }
 
     pub fn action_split_at_selection(&mut self) {
         if let Some((start, end)) = self.timeline_state.time_selection {
+            let before = self.project.tracks.clone();
             let target_track = self.timeline_state.selected_track_id;
             self.project.split_all_at_frame(start, target_track);
             self.project.split_all_at_frame(end, target_track);
+            self.history
+                .push_recorded(stem_core::history::Action::ProjectTracksEdit {
+                    label: "Split at Selection",
+                    before,
+                    after: self.project.tracks.clone(),
+                });
             self.sync_timeline_to_audio_engine();
         }
     }

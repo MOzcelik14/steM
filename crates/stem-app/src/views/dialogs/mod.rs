@@ -12,7 +12,10 @@ use markers_export::{
 use processing::{
     render_click_remover_dialog, render_loudness_report_dialog, render_noise_reduction_dialog,
 };
-use settings_tools::{render_keybindings_dialog, render_recovery_dialog};
+use settings_tools::{
+    render_keybindings_dialog, render_plugin_browser_dialog, render_recovery_dialog,
+    render_stem_separation_dialog,
+};
 
 pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
     // ----------------- Unsaved Changes Close Confirmation Dialog -----------------
@@ -624,4 +627,6 @@ pub fn render_dialogs(app: &mut StemApp, ctx: &egui::Context) {
     render_batch_export_dialog(app, ctx);
     render_keybindings_dialog(app, ctx);
     render_recovery_dialog(app, ctx);
+    render_plugin_browser_dialog(app, ctx);
+    render_stem_separation_dialog(app, ctx);
 }
