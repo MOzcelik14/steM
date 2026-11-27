@@ -45,7 +45,7 @@ fluent-bundle = "0.15"
 unic-langid = "0.9"
 sys-locale = "0.3"
 eframe = { version = "0.31", default-features = true }
-egui = "0.31"
+egui = "0.37"
 rfd = "0.15"
 mp3lame-encoder = "0.3"
 vorbis_rs = "0.5"
