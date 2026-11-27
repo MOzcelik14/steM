@@ -32,7 +32,7 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 thiserror = "1.0"
 rtrb = "0.3"
 cpal = "0.15"
-symphonia = { version = "0.5", features = ["all"] }
+symphonia = { version = "0.6", features = ["all"] }
 hound = "3.5"
 flacenc = "0.4"
 rubato = "0.15"
