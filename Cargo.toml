@@ -41,7 +41,7 @@ rustfft = "6.2"
 ebur128 = "0.1"
 rand = { version = "0.8", features = ["small_rng"] }
 crossbeam-channel = "0.5"
-fluent-bundle = "0.15"
+fluent-bundle = "0.16"
 unic-langid = "0.9"
 sys-locale = "0.3"
 eframe = { version = "0.31", default-features = true }
