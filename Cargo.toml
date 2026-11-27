@@ -46,7 +46,7 @@ unic-langid = "0.9"
 sys-locale = "0.3"
 eframe = { version = "0.31", default-features = true }
 egui = "0.31"
-rfd = "0.15"
+rfd = "0.18"
 mp3lame-encoder = "0.3"
 vorbis_rs = "0.5"
 
