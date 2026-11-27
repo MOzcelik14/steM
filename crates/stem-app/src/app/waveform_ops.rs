@@ -250,10 +250,23 @@ impl StemApp {
 
     pub fn action_seek_waveform(&mut self, frame: u64) {
         self.waveform_state.playhead_frame = frame;
+        let doc_sr = self
+            .waveform_state
+            .document
+            .as_ref()
+            .map(|d| d.sample_rate)
+            .unwrap_or(self.project.sample_rate)
+            .max(1);
+        let engine_sr = self.active_sample_rate().max(1);
+        let engine_frame = if doc_sr != engine_sr {
+            ((frame as f64) * (engine_sr as f64 / doc_sr as f64)).round() as u64
+        } else {
+            frame
+        };
         if let Some(ref mut engine) = self.audio_engine {
-            engine.seek(frame);
+            engine.seek(engine_frame);
         }
-        self.telemetry.playhead_frame = frame;
+        self.telemetry.playhead_frame = engine_frame;
     }
 
     pub fn action_waveform_cut(&mut self) {
@@ -411,8 +424,14 @@ impl StemApp {
     }
 
     pub fn action_waveform_apply_active_effects(&mut self) {
-        let sample_rate = self.project.sample_rate as f32;
-        let mut dsp_chain = self.effects_state.build_dsp_chain(sample_rate);
+        let doc_sr = self
+            .waveform_state
+            .document
+            .as_ref()
+            .map(|d| d.sample_rate)
+            .unwrap_or(self.project.sample_rate)
+            .max(1) as f32;
+        let mut dsp_chain = self.effects_state.build_dsp_chain(doc_sr);
         if let Some(ref mut doc) = self.waveform_state.document {
             let total = doc.total_frames();
             let (s, e) = self.waveform_state.selection.unwrap_or((0, total));
@@ -444,14 +463,11 @@ impl StemApp {
                 let rendered = doc.render_range(s, e, &self.source_buffers);
                 if let Some(channels) = rendered {
                     if let Some(mono) = channels.first() {
+                        let doc_sr = doc.sample_rate.max(1);
                         let fft_size = 1024;
-                        let profile = stem_dsp::NoiseProfile::capture(
-                            mono,
-                            self.project.sample_rate,
-                            fft_size,
-                        );
+                        let profile = stem_dsp::NoiseProfile::capture(mono, doc_sr, fft_size);
                         self.noise_reduction_state.noise_profile = Some(profile);
-                        let dur_sec = (e - s) as f32 / self.project.sample_rate as f32;
+                        let dur_sec = (e - s) as f32 / doc_sr as f32;
                         let msg =
                             format!("Captured noise profile ({dur_sec:.2}s, {fft_size} bins)");
                         self.noise_reduction_state.status_message = Some(msg);

@@ -396,10 +396,24 @@ impl eframe::App for StemApp {
         }
 
         if self.view_mode == AppViewMode::Waveform && self.is_playing {
-            self.waveform_state.playhead_frame = self.telemetry.playhead_frame;
+            let doc_sr = self
+                .waveform_state
+                .document
+                .as_ref()
+                .map(|d| d.sample_rate)
+                .unwrap_or(self.project.sample_rate)
+                .max(1);
+            let engine_sr = self.active_sample_rate().max(1);
+            let doc_playhead = if doc_sr != engine_sr {
+                ((self.telemetry.playhead_frame as f64) * (doc_sr as f64 / engine_sr as f64))
+                    .round() as u64
+            } else {
+                self.telemetry.playhead_frame
+            };
+            self.waveform_state.playhead_frame = doc_playhead;
             if !self.waveform_state.loop_selection {
                 if let Some((_, end)) = self.waveform_state.selection {
-                    if self.telemetry.playhead_frame >= end {
+                    if doc_playhead >= end {
                         self.action_toggle_play();
                         self.action_seek_waveform(end);
                     }

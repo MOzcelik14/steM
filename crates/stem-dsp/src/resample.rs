@@ -32,7 +32,7 @@ pub fn resample_audio(
         num_channels,
     )?;
 
-    let input_len = input_channels[0].len();
+    let input_len = input_channels.iter().map(|c| c.len()).min().unwrap_or(0);
     let mut output_channels: Vec<Vec<f32>> = vec![Vec::new(); num_channels];
 
     let mut pos = 0;

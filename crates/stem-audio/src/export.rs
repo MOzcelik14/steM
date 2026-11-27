@@ -1062,6 +1062,17 @@ pub fn render_track_stem(
         }
     }
 
+    if track.phase_invert_left {
+        for s in &mut stem_left {
+            *s = -*s;
+        }
+    }
+    if track.phase_invert_right {
+        for s in &mut stem_right {
+            *s = -*s;
+        }
+    }
+
     if !track.effects.is_empty() {
         let mut chain =
             stem_dsp::chain::EffectChain::from_configs(&track.effects, project.sample_rate as f32);
@@ -1072,14 +1083,28 @@ pub fn render_track_stem(
         }
     }
 
+    let width = track.stereo_width.clamp(0.0, 2.0);
+    let mid_gain = 10.0f32.powf(track.mid_gain_db / 20.0);
+    let side_gain = 10.0f32.powf(track.side_gain_db / 20.0);
+    let apply_ms = (width - 1.0).abs() > 1e-4
+        || track.mid_gain_db.abs() > 1e-4
+        || track.side_gain_db.abs() > 1e-4;
+
     for out_idx in 0..(total_frames as usize) {
         let t_frame = export_start + out_idx as u64;
         let evaluated_gain_db = track.evaluated_gain_db(t_frame);
         let track_gain = 10.0f32.powf(evaluated_gain_db / 20.0);
         let pan = track.evaluated_pan(t_frame).clamp(-1.0, 1.0);
         let pan_rad = (pan + 1.0) * (std::f32::consts::PI / 4.0);
-        stem_left[out_idx] *= track_gain * pan_rad.cos();
-        stem_right[out_idx] *= track_gain * pan_rad.sin();
+        let (mut l, mut r) = (stem_left[out_idx], stem_right[out_idx]);
+        if apply_ms {
+            let mid = 0.5 * (l + r) * mid_gain;
+            let side = 0.5 * (l - r) * side_gain * width;
+            l = mid + side;
+            r = mid - side;
+        }
+        stem_left[out_idx] = l * track_gain * pan_rad.cos();
+        stem_right[out_idx] = r * track_gain * pan_rad.sin();
     }
 
     Ok(vec![stem_left, stem_right])

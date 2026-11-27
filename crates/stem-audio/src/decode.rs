@@ -188,9 +188,18 @@ pub fn validate_audio_bytes(bytes: &[u8]) -> Result<(), DecodeError> {
 }
 
 fn validate_audio_bytes_with_len(bytes: &[u8], stream_len: u64) -> Result<(), DecodeError> {
-    if let Some(pos) = bytes.windows(4).position(|w| w == b"fLaC") {
-        let remaining_stream_len = stream_len.saturating_sub(pos as u64);
-        validate_flac_bytes(&bytes[pos..], remaining_stream_len)?;
+    if bytes.starts_with(b"fLaC") {
+        validate_flac_bytes(bytes, stream_len)?;
+    } else if bytes.starts_with(b"ID3") && bytes.len() >= 10 {
+        let tag_size = (((bytes[6] & 0x7f) as usize) << 21)
+            | (((bytes[7] & 0x7f) as usize) << 14)
+            | (((bytes[8] & 0x7f) as usize) << 7)
+            | ((bytes[9] & 0x7f) as usize);
+        let flac_offset = 10usize.saturating_add(tag_size);
+        if flac_offset + 4 <= bytes.len() && &bytes[flac_offset..flac_offset + 4] == b"fLaC" {
+            let remaining_stream_len = stream_len.saturating_sub(flac_offset as u64);
+            validate_flac_bytes(&bytes[flac_offset..], remaining_stream_len)?;
+        }
     }
     Ok(())
 }
@@ -428,12 +437,18 @@ fn decode_stream_inner(
 
         let spec = *decoded.spec();
         let decoded_channels = spec.channels.count();
-        if !(1..=MAX_DECODE_CHANNELS).contains(&decoded_channels) {
+        if !(1..=MAX_DECODE_CHANNELS).contains(&decoded_channels)
+            || decoded_channels != num_channels
+        {
             return Err(DecodeError::InvalidChannelCount(decoded_channels));
         }
         let duration = decoded.capacity() as u64;
+        let needed_samples = decoded.frames().saturating_mul(decoded_channels);
 
         let sbuf = sample_buf.get_or_insert_with(|| SampleBuffer::new(duration, spec));
+        if sbuf.capacity() < needed_samples {
+            *sbuf = SampleBuffer::new(duration, spec);
+        }
         sbuf.copy_interleaved_ref(decoded);
 
         let samples = sbuf.samples();

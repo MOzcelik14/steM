@@ -750,7 +750,7 @@ impl Track {
                     .max(1);
                 let t = (frame - next_clip.track_offset_frames) as f32 / overlap_len as f32;
                 let (gain_a, _) = next_clip.crossfade_type.evaluate(t);
-                gain = gain.min(gain_a);
+                gain = gain_a;
             }
         }
 
@@ -762,7 +762,7 @@ impl Track {
                     let overlap_len = prev_end.saturating_sub(clip.track_offset_frames).max(1);
                     let t = (frame - clip.track_offset_frames) as f32 / overlap_len as f32;
                     let (_, gain_b) = clip.crossfade_type.evaluate(t);
-                    gain = gain.min(gain_b);
+                    gain = gain_b;
                 }
             }
         }
@@ -1098,6 +1098,7 @@ impl Project {
             .get_track_mut(track_id)
             .ok_or(ProjectError::TrackNotFound(track_id))?;
         track.clips.push(clip);
+        track.clips.sort_by_key(|c| c.track_offset_frames);
         Ok(())
     }
 
@@ -1826,6 +1827,7 @@ impl Project {
                 track.clips[idx].crossfade_type = CrossfadeType::EqualPower;
             }
         }
+        track.clips.sort_by_key(|c| c.track_offset_frames);
     }
 }
 

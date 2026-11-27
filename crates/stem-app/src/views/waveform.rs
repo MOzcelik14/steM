@@ -12,7 +12,13 @@ use crate::app::StemApp;
 use crate::state::WaveformDragOp;
 
 pub fn render_waveform_editor(app: &mut StemApp, ui: &mut egui::Ui) {
-    let sample_rate = app.project.sample_rate;
+    let sample_rate = app
+        .waveform_state
+        .document
+        .as_ref()
+        .map(|d| d.sample_rate)
+        .unwrap_or(app.project.sample_rate)
+        .max(1);
 
     // -------------------------------------------------------------------------
     // Top Waveform Editor Toolbar
